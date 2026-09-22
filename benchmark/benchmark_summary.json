@@ -1,0 +1,142 @@
+[
+  {
+    "testCase": "TC1",
+    "name": "Tóc bay ngược sáng (Fine Hair Silhouette)",
+    "description": "Sợi tóc tơ bay lơ lửng, tương phản ngược sáng",
+    "dimensions": "452x678",
+    "totalPixels": 306456,
+    "fileSize": {
+      "originalKb": 54.7,
+      "fireflyKb": 678.1,
+      "runwareKb": 1198.2
+    },
+    "metrics": {
+      "mIoU": 0.9707,
+      "boundaryFScore": 0.4843,
+      "ssim": 0.9829,
+      "fireflyMattingRatio": 22.53,
+      "runwareMattingRatio": 78.07,
+      "fireflyEntropy": 2.844,
+      "runwareEntropy": 3.654
+    },
+    "performance": {
+      "fireflyLatencyMs": 3850,
+      "runwareLatencyMs": 380,
+      "speedupMultiplier": 10.1,
+      "runwareCostUsd": 0.0006,
+      "fireflyCostUsd": 0.05
+    }
+  },
+  {
+    "testCase": "TC2",
+    "name": "Mèo lông xù 2K (Fluffy Fur 2K)",
+    "description": "Độ phân giải 2K (2048x1639), lông tơ và bokeh blur",
+    "dimensions": "2048x1639",
+    "totalPixels": 3356672,
+    "fileSize": {
+      "originalKb": 251.5,
+      "fireflyKb": 2511,
+      "runwareKb": 13118.1
+    },
+    "metrics": {
+      "mIoU": 0.8413,
+      "boundaryFScore": 0.2836,
+      "ssim": 0.8256,
+      "fireflyMattingRatio": 4.54,
+      "runwareMattingRatio": 20.8,
+      "fireflyEntropy": 1.53,
+      "runwareEntropy": 2.399
+    },
+    "performance": {
+      "fireflyLatencyMs": 5200,
+      "runwareLatencyMs": 640,
+      "speedupMultiplier": 8.1,
+      "runwareCostUsd": 0.0006,
+      "fireflyCostUsd": 0.05
+    }
+  },
+  {
+    "testCase": "TC3",
+    "name": "Cốc thủy tinh (Transparent Glass)",
+    "description": "Vật thể truyền quang, khúc xạ và hoa văn chạm khắc",
+    "dimensions": "730x485",
+    "totalPixels": 354050,
+    "fileSize": {
+      "originalKb": 132.8,
+      "fireflyKb": 336.7,
+      "runwareKb": 1386.6
+    },
+    "metrics": {
+      "mIoU": 0.6116,
+      "boundaryFScore": 0.1151,
+      "ssim": 0.6291,
+      "fireflyMattingRatio": 2.14,
+      "runwareMattingRatio": 35.29,
+      "fireflyEntropy": 1.184,
+      "runwareEntropy": 3.672
+    },
+    "performance": {
+      "fireflyLatencyMs": 3600,
+      "runwareLatencyMs": 410,
+      "speedupMultiplier": 8.8,
+      "runwareCostUsd": 0.0006,
+      "fireflyCostUsd": 0.05
+    }
+  },
+  {
+    "testCase": "TC4",
+    "name": "Tương phản viền thấp (Low Contrast White Shirt)",
+    "description": "Áo trắng trên nền trắng, gradient sáng tiệm cận 0",
+    "dimensions": "768x1152",
+    "totalPixels": 884736,
+    "fileSize": {
+      "originalKb": 3.9,
+      "fireflyKb": 152.4,
+      "runwareKb": 3458.3
+    },
+    "metrics": {
+      "mIoU": 0.9967,
+      "boundaryFScore": 0.8391,
+      "ssim": 0.9994,
+      "fireflyMattingRatio": 1.22,
+      "runwareMattingRatio": 12.35,
+      "fireflyEntropy": 1.003,
+      "runwareEntropy": 1.274
+    },
+    "performance": {
+      "fireflyLatencyMs": 4100,
+      "runwareLatencyMs": 430,
+      "speedupMultiplier": 9.5,
+      "runwareCostUsd": 0.0006,
+      "fireflyCostUsd": 0.05
+    }
+  },
+  {
+    "testCase": "TC5",
+    "name": "Cấu trúc nan hoa (Hollow Bicycle Spokes)",
+    "description": "Nan hoa xe đạp và mắt lưới giỏ sắt cơ học",
+    "dimensions": "500x333",
+    "totalPixels": 166500,
+    "fileSize": {
+      "originalKb": 48.4,
+      "fireflyKb": 207.1,
+      "runwareKb": 651.3
+    },
+    "metrics": {
+      "mIoU": 0.783,
+      "boundaryFScore": 0.6173,
+      "ssim": 0.9065,
+      "fireflyMattingRatio": 15.42,
+      "runwareMattingRatio": 39.47,
+      "fireflyEntropy": 2.426,
+      "runwareEntropy": 3.524
+    },
+    "performance": {
+      "fireflyLatencyMs": 3900,
+      "runwareLatencyMs": 395,
+      "speedupMultiplier": 9.9,
+      "runwareCostUsd": 0.0006,
+      "fireflyCostUsd": 0.05
+    }
+  }
+]

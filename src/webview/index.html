@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- CSP_PLACEHOLDER -->
+  <title>Pixel Pilot - AI Vision Studio</title>
+  <link rel="stylesheet" href="main.css">
+</head>
+<body class="vscode-dark">
+  <div class="studio-container">
+    
+    <!-- Top Header: Session Switcher & Codex Controls -->
+    <header class="studio-header">
+      <div class="session-selector-wrapper">
+        <button id="btn-session-dropdown" class="session-dropdown-btn" title="Chọn hoặc quản lý Session">
+          <span class="session-icon">💬</span>
+          <span id="current-session-title" class="session-title-text">Phiên làm việc mới</span>
+          <span class="dropdown-caret">▾</span>
+        </button>
+      </div>
+
+      <div class="header-actions">
+        <button id="btn-move-right" class="icon-text-btn" title="Chuyển sang thanh bên phải (Secondary Sidebar) như Codex">
+          <span>📌 Sang phải</span>
+        </button>
+        <button id="btn-api-key" class="badge-button" title="Cấu hình Runware API Key thật">
+          <span class="indicator live" id="key-indicator"></span>
+          <span id="key-label">🔑 API Key</span>
+        </button>
+        <button id="btn-new-session" class="icon-btn" title="Tạo Session mới">➕</button>
+      </div>
+    </header>
+
+    <!-- API Key Configuration Modal -->
+    <div id="api-key-modal" class="api-key-modal" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <span>🔑 Cấu hình Runware API Key (Thật 100%)</span>
+          <button id="btn-close-key-modal" class="btn-tiny">✕</button>
+        </div>
+        <p class="modal-desc">
+          Pixel Pilot gửi request thật trực tiếp lên <code>https://api.runware.ai/v1</code>.
+          Đăng ký miễn phí nhận credits tại <a href="https://runware.ai" target="_blank">Runware.ai</a>.
+        </p>
+        <div class="key-input-row">
+          <input type="password" id="input-api-key" placeholder="Dán Runware API Key vào đây..." />
+          <button id="btn-save-key" class="btn-primary">Lưu Key</button>
+        </div>
+        <div id="key-status-msg" class="key-status-msg"></div>
+      </div>
+    </div>
+
+    <!-- Session Drawer / Modal (Hidden by default) -->
+    <div id="session-drawer" class="session-drawer" style="display: none;">
+      <div class="drawer-header">
+        <span>Danh sách Phiên làm việc (Sessions)</span>
+        <button id="btn-close-drawer" class="btn-tiny">✕</button>
+      </div>
+      <div id="session-list" class="session-list">
+        <!-- Dynamically rendered sessions -->
+      </div>
+      <button id="btn-drawer-new-session" class="btn-secondary full-width">
+        ➕ Tạo Phiên làm việc mới
+      </button>
+    </div>
+
+    <!-- Collapsible Viewport Section: Before/After Split Slider -->
+    <section class="viewport-section" id="viewport-section">
+      <div class="viewport-toolbar">
+        <div class="bg-mode-selector">
+          <button class="bg-mode-btn active" data-bg="checker" title="Nền trong suốt">🏁</button>
+          <button class="bg-mode-btn" data-bg="dark" title="Nền tối">⬛</button>
+          <button class="bg-mode-btn" data-bg="light" title="Nền sáng">⬜</button>
+        </div>
+        <div class="viewport-toggles">
+          <button id="btn-toggle-brush" class="tool-tiny-btn" title="Bật/Tắt cọ vẽ Mask để Inpaint">🖌️ Cọ Mask</button>
+          <button id="btn-toggle-canvas" class="tool-tiny-btn" title="Thu gọn/Mở rộng Viewport">👁️ Thu gọn</button>
+        </div>
+      </div>
+
+      <div class="canvas-wrapper checker-bg" id="canvas-wrapper">
+        <!-- Before/After Split Container -->
+        <div class="comparison-container" id="comparison-container">
+          <img id="img-after" class="img-layer" alt="After AI Processing" src="" />
+
+          <div class="before-clip-container" id="before-clip-container">
+            <img id="img-before" class="img-layer" alt="Original Image" src="" />
+            <span class="layer-label label-before">GỐC</span>
+          </div>
+          <span class="layer-label label-after">KẾT QUẢ RUNWARE</span>
+
+          <div class="slider-divider" id="slider-divider">
+            <div class="divider-line"></div>
+            <div class="divider-handle"><span>↔</span></div>
+          </div>
+
+          <canvas id="inpaint-canvas" class="inpaint-canvas" style="display: none;"></canvas>
+        </div>
+
+        <!-- Empty State Placeholder -->
+        <div class="empty-placeholder" id="empty-placeholder">
+          <div class="empty-icon">🖼️</div>
+          <p>Chưa có ảnh trong phiên. Kéo thả ảnh vào đây hoặc bấm nút chọn bên dưới!</p>
+          <button id="btn-select-file" class="btn-secondary mt-8">
+            📂 Chọn ảnh từ Workspace
+          </button>
+        </div>
+
+        <!-- Processing Shimmer Scanner Overlay -->
+        <div class="scanner-overlay" id="scanner-overlay" style="display: none;">
+          <div class="scan-laser"></div>
+          <div class="scan-text">
+            <span class="spinner"></span>
+            <span id="scan-label">Đang gọi Runware API thật...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inpaint Brush Control Bar (Visible in Inpaint Mode) -->
+      <div class="inpaint-toolbar" id="inpaint-toolbar" style="display: none;">
+        <label>Cọ Mask:</label>
+        <input type="range" id="brush-size" min="5" max="80" value="30">
+        <span id="brush-size-val">30px</span>
+        <button id="btn-clear-mask" class="btn-tiny">Xóa Mask</button>
+      </div>
+
+      <!-- Telemetry Strip -->
+      <div class="metrics-strip" id="metrics-strip">
+        <div class="metric-item">
+          <span class="metric-lbl">Mô hình</span>
+          <span class="metric-val" id="metric-model">Runware BiRefNet</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-lbl">Độ trễ thật</span>
+          <span class="metric-val highlight" id="metric-latency">0 ms</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-lbl">Chi phí thật</span>
+          <span class="metric-val" id="metric-cost">$0.0006</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Context-Aware Visual DAG History Visualizer -->
+    <section class="dag-section">
+      <div class="section-title">
+        <span>🌿 Lịch sử Ngữ cảnh Đồ thị (Context DAG)</span>
+        <span class="dag-count" id="dag-node-count">1 nodes</span>
+      </div>
+      <div class="dag-timeline-scroll" id="dag-timeline">
+        <!-- Dynamically rendered DAG Nodes -->
+      </div>
+    </section>
+
+    <!-- Codex-Style Chat Stream Feed -->
+    <section class="chat-feed-section" id="chat-feed">
+      <div class="chat-messages" id="chat-messages">
+        <!-- Chat bubbles rendered here -->
+      </div>
+    </section>
+
+    <!-- Codex Bottom Prompt Bar -->
+    <footer class="codex-prompt-footer">
+      <!-- Slash Command Quick Chips -->
+      <div class="slash-chips-bar">
+        <button class="chip-btn" data-cmd="/remove-bg">✂️ /tách-nền</button>
+        <button class="chip-btn" data-cmd="/upscale-4x">⚡ /upscale-4x</button>
+        <button class="chip-btn" data-cmd="/vectorize">📐 /vector-svg</button>
+        <button class="chip-btn" data-cmd="/inpaint ">🎨 /inpaint</button>
+        <button class="chip-btn" data-cmd="/canny">〰️ /canny</button>
+        <button class="chip-btn" data-cmd="/lineart">✍️ /lineart</button>
+        <button class="chip-btn" data-cmd="/caption">💬 /caption</button>
+        <button class="chip-btn" data-cmd="/extend">🖼️ /extend</button>
+      </div>
+
+      <!-- Input Box -->
+      <div class="prompt-input-container">
+        <button id="btn-attach-file" class="attach-btn" title="Chọn ảnh khác từ Workspace">📂</button>
+        <textarea
+          id="prompt-textarea"
+          rows="1"
+          placeholder="Hỏi hoặc nhập lệnh (vd: 'Tách nền ảnh này', 'Upscale 4K', 'Biến thành vector')..."
+        ></textarea>
+        <button id="btn-send-prompt" class="send-btn" title="Gửi câu lệnh (Enter)">
+          <span>➤</span>
+        </button>
+      </div>
+
+      <div class="prompt-hint">
+        <span>💡 Yêu cầu được gửi <b>trực tiếp lên Runware API thật</b>. Nhấn <b>Enter</b> để gửi.</span>
+      </div>
+    </footer>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
