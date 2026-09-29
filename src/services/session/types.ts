@@ -89,5 +89,5 @@ export interface ParsedIntent {
   bgPreset?: string;
   enhanceType?: 'clarity' | 'hdr' | 'face_restore' | 'vintage';
   colorTarget?: 'hair' | 'clothes' | 'general';
-  targetColor?: 'red' | 'blue' | 'green' | 'purple' | 'pink' | 'yellow' | 'orange' | 'black' | 'white' | 'brown';
+  targetColor?: 'red' | 'blue' | 'cyan' | 'green' | 'purple' | 'pink' | 'yellow' | 'orange' | 'black' | 'white' | 'brown';
 }

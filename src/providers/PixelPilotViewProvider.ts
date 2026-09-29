@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import { SessionManager } from '../services/session/SessionManager';
 import { RunwareAdapter } from '../services/ai/RunwareAdapter';
 import { IntentRouter } from '../services/ai/IntentRouter';
+import { VisionAgentOrchestrator } from '../services/ai/VisionAgentOrchestrator';
 import { OperationType, AIResult } from '../services/session/types';
 import { SecretManager } from '../services/security/SecretManager';
 import { AssetStorageService } from '../services/storage/AssetStorageService';
@@ -397,10 +398,16 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     });
     this.broadcastSessionState();
 
-    // 2. Parse intent
-    const intent = IntentRouter.parsePrompt(promptText);
+    // 2. Vision Agent Orchestrator: Analyzes context & decides which tool to call
+    const parentNode = session.nodes[session.currentNodeId];
+    const inputImg = parentNode?.outputImageUri || parentNode?.inputImageUri;
+    const decision = await VisionAgentOrchestrator.decideTool(promptText, {
+      currentImageUri: inputImg,
+      currentNodeId: session.currentNodeId
+    });
+    const intent = decision.intent;
 
-    // 3. Dispatch operation to REAL Runware API
+    // 3. Dispatch operation to REAL Runware API or Smart Client GPU
     await this.executeOperation({
       nodeId: session.currentNodeId,
       operation: intent.operation,

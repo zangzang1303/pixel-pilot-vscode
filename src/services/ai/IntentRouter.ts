@@ -101,15 +101,18 @@ export class IntentRouter {
     const isHair = text.includes('tóc') || text.includes('mái tóc') || text.includes('hair');
     const isClothes = text.includes('áo') || text.includes('váy') || text.includes('quần') || text.includes('trang phục') || text.includes('shirt') || text.includes('clothes');
 
-    let targetColor: 'red' | 'blue' | 'green' | 'purple' | 'pink' | 'yellow' | 'orange' | 'black' | 'white' | 'brown' | undefined;
+    let targetColor: 'red' | 'blue' | 'cyan' | 'green' | 'purple' | 'pink' | 'yellow' | 'orange' | 'black' | 'white' | 'brown' | undefined;
     let colorNameVi = '';
-    if (text.includes('đỏ') || text.includes('red') || text.includes('hồng đào') || text.includes('ruby')) {
+    if (text.includes('xanh da trời') || text.includes('cyan') || text.includes('sky blue')) {
+      targetColor = 'cyan';
+      colorNameVi = 'Xanh Da Trời';
+    } else if (text.includes('đỏ') || text.includes('red') || text.includes('hồng đào') || text.includes('ruby')) {
       targetColor = 'red';
       colorNameVi = 'Đỏ Ruby';
     } else if (text.includes('xanh lá') || text.includes('green') || text.includes('lục')) {
       targetColor = 'green';
       colorNameVi = 'Xanh Lá';
-    } else if (text.includes('xanh dương') || text.includes('xanh biển') || text.includes('blue') || text.includes('cyan') || (text.includes('xanh') && !text.includes('lá'))) {
+    } else if (text.includes('xanh dương') || text.includes('xanh biển') || text.includes('blue') || (text.includes('xanh') && !text.includes('lá'))) {
       targetColor = 'blue';
       colorNameVi = 'Xanh Biển';
     } else if (text.includes('tím') || text.includes('purple') || text.includes('violet')) {

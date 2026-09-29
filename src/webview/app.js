@@ -835,9 +835,63 @@
     return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
   }
 
-  // --- Smart Client AI Neural Recolor Engine ---
+  // --- Smart Client AI Neural Recolor Engine (with Computer Vision Skin Protection) ---
+  function isSkinTone(r, g, b, h, s, l) {
+    // 1. In human skin, R > G > B is a fundamental optical characteristic
+    if (r <= g || g <= b) return false;
+    if (r < 65 || g < 35 || b < 20) return false;
+
+    const bgRatio = b / (g + 0.001);
+    const rgDiff = r - g;
+
+    // 2. Typical face skin, forehead, cheek, neck, shoulder:
+    // Skin reflectance in blue is high (B/G >= 0.58). Hue is in warm range 10° - 42°.
+    if (bgRatio >= 0.58 && rgDiff >= 6 && h >= 10 && h <= 45) {
+      return true;
+    }
+
+    // 3. Highlighted skin (cheeks, forehead, nose bridge):
+    if (l >= 0.40 && bgRatio >= 0.60 && h >= 8 && h <= 50) {
+      return true;
+    }
+
+    // 4. Lips and rosy cheeks:
+    if (r > g + 16 && (h <= 18 || h >= 340)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  function getHairConfidence(r, g, b, h, s, l) {
+    // 100% Skin Protection: NEVER color skin or face
+    if (isSkinTone(r, g, b, h, s, l)) return 0;
+
+    const bgRatio = b / (g + 0.001);
+
+    // 1. Blonde / Golden / Amber / Light Brown hair (e.g. TC1 portrait):
+    // Strong yellow/amber reflection: R > G, G > B, but Blue is strongly absorbed (B/G < 0.50).
+    if (r > g && g > b && bgRatio < 0.50 && h >= 22 && h <= 75 && s >= 0.16) {
+      if (bgRatio <= 0.42) return 1.0;
+      // Soft transition ramp between 0.42 and 0.50 for silky strand edges
+      return Math.max(0, Math.min(1.0, (0.50 - bgRatio) / 0.08));
+    }
+
+    // 2. Brunette / Chestnut / Dark Brown hair:
+    if (h >= 15 && h <= 55 && s >= 0.12 && l >= 0.06 && l <= 0.38 && bgRatio < 0.52) {
+      return 0.85;
+    }
+
+    // 3. Black / Deep shadowed hair strands:
+    if (l <= 0.20 && Math.abs(r - g) < 25 && Math.abs(g - b) < 25) {
+      return 0.90;
+    }
+
+    return 0;
+  }
+
   function runClientRecolor(imgSrc, parentNodeId, target, color, label, maskUri) {
-    showScanner(`Đang biến đổi màu sắc (${label || color})...`);
+    showScanner(`Đang phân tích ảnh & đổi màu ${target === 'hair' ? 'mái tóc (bảo vệ da mặt)' : label || color}...`);
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
@@ -852,7 +906,8 @@
 
       const colorConfigs = {
         red: { h: 355, sMul: 1.5, lMul: 0.95 },
-        blue: { h: 215, sMul: 1.35, lMul: 0.95 },
+        cyan: { h: 198, sMul: 1.45, lMul: 1.02 },  // Xanh da trời / Sky Blue
+        blue: { h: 218, sMul: 1.35, lMul: 0.95 },  // Xanh biển / Royal Blue
         green: { h: 130, sMul: 1.3, lMul: 0.95 },
         purple: { h: 280, sMul: 1.4, lMul: 0.95 },
         pink: { h: 330, sMul: 1.35, lMul: 1.05 },
@@ -863,7 +918,7 @@
         brown: { h: 28, sMul: 0.6, lMul: 0.45 }
       };
 
-      const cfg = colorConfigs[color] || colorConfigs.red;
+      const cfg = colorConfigs[color] || colorConfigs.cyan || colorConfigs.blue;
 
       for (let i = 0; i < data.length; i += 4) {
         const a = data[i + 3];
@@ -875,14 +930,17 @@
 
         const [h, s, l] = rgbToHsl(r, g, b);
 
+        let blendWeight = 0;
+
         if (target === 'hair') {
-          // Detect hair by golden/amber/brunette spectrum (Hue 22°-70°, S >= 0.18, L between 0.08 and 0.92)
-          // Exclude typical face skin (Hue 10°-24° with lower saturation or high brightness)
-          const isHairStrand = (h >= 24 && h <= 72 && s >= 0.18 && l >= 0.08 && l <= 0.92);
-          if (!isHairStrand) continue;
+          blendWeight = getHairConfidence(r, g, b, h, s, l);
+          if (blendWeight <= 0.02) continue;
         } else if (target === 'clothes') {
-          const isSkin = (h >= 10 && h <= 28 && s <= 0.6 && l >= 0.45);
-          if (isSkin) continue;
+          if (isSkinTone(r, g, b, h, s, l)) continue;
+          if (getHairConfidence(r, g, b, h, s, l) > 0.3) continue;
+          blendWeight = 1.0;
+        } else {
+          blendWeight = 1.0;
         }
 
         let newH = cfg.h;
@@ -890,9 +948,11 @@
         let newL = Math.min(0.95, Math.max(0.08, l * cfg.lMul));
 
         const [newR, newG, newB] = hslToRgb(newH, newS, newL);
-        data[i] = newR;
-        data[i + 1] = newG;
-        data[i + 2] = newB;
+
+        // Soft blend for strand edges & preserve natural highlights
+        data[i] = Math.round(r * (1 - blendWeight) + newR * blendWeight);
+        data[i + 1] = Math.round(g * (1 - blendWeight) + newG * blendWeight);
+        data[i + 2] = Math.round(b * (1 - blendWeight) + newB * blendWeight);
       }
 
       cCtx.putImageData(imgData, 0, 0);

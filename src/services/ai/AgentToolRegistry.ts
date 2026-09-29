@@ -1,0 +1,325 @@
+// AgentToolRegistry.ts - Standardized Visual AI Tool Registry & Function Calling Schemas
+import { OperationType, ParsedIntent } from '../session/types';
+
+export interface ToolParameterProperty {
+  type: string;
+  description: string;
+  enum?: (string | number)[];
+  default?: any;
+}
+
+export interface ToolDefinition {
+  name: string;
+  displayName: string;
+  category: 'core' | 'background' | 'style' | 'enhance' | 'recolor' | 'export';
+  description: string;
+  parameters: {
+    type: 'object';
+    properties: Record<string, ToolParameterProperty>;
+    required?: string[];
+  };
+  mapToIntent: (args: Record<string, any>) => ParsedIntent;
+}
+
+/**
+ * Registry of all concrete image editing primitives available in Pixel Pilot.
+ * Compatible with OpenAI / Gemini Function Calling format.
+ */
+export class AgentToolRegistry {
+  private static tools: Map<string, ToolDefinition> = new Map();
+
+  static {
+    // 1. Tool Recolor (Selective Object / Hair / Clothes Recolor with Skin Protection)
+    this.register({
+      name: 'recolor_subject',
+      displayName: 'Đổi màu có chọn lọc (Recolor)',
+      category: 'recolor',
+      description: 'Phân tích bức ảnh và đổi màu một đối tượng cụ thể (mái tóc, trang phục, chi tiết) sang màu sắc mới, tự động kích hoạt bộ lọc bảo vệ da mặt (Skin-Tone Protection) để không bao giờ làm biến đổi màu da.',
+      parameters: {
+        type: 'object',
+        properties: {
+          target: {
+            type: 'string',
+            description: 'Đối tượng cần đổi màu',
+            enum: ['hair', 'clothes', 'general'],
+            default: 'hair'
+          },
+          targetColor: {
+            type: 'string',
+            description: 'Màu sắc đích cần chuyển đổi sang',
+            enum: ['cyan', 'blue', 'red', 'green', 'purple', 'pink', 'yellow', 'orange', 'black', 'white', 'brown']
+          },
+          colorNameVi: {
+            type: 'string',
+            description: 'Tên màu sắc tiếng Việt (ví dụ: Xanh Da Trời, Đỏ Ruby, Xanh Biển...)'
+          },
+          protectSkin: {
+            type: 'boolean',
+            description: 'Có kích hoạt bộ lọc bảo vệ sắc độ da mặt và cơ thể không (mặc định luôn true)',
+            default: true
+          }
+        },
+        required: ['target', 'targetColor']
+      },
+      mapToIntent: (args) => {
+        const targetLabel = args.target === 'hair' ? 'mái tóc' : args.target === 'clothes' ? 'trang phục' : 'chi tiết';
+        const colorLabel = args.colorNameVi || args.targetColor;
+        return {
+          operation: 'recolor',
+          label: `Biến đổi màu ${targetLabel} sang ${colorLabel} (Bảo vệ da mặt)`,
+          colorTarget: args.target || 'hair',
+          targetColor: args.targetColor || 'cyan'
+        };
+      }
+    });
+
+    // 2. Tool Remove Background (BiRefNet SOTA)
+    this.register({
+      name: 'remove_background',
+      displayName: 'Tách nền AI (BiRefNet)',
+      category: 'background',
+      description: 'Tách nền đối tượng chính (người, sản phẩm, vật thể) ra khỏi phông nền với chất lượng cao chuẩn SOTA BiRefNet, giữ nguyên từng sợi tóc và viền mượt.',
+      parameters: {
+        type: 'object',
+        properties: {
+          preserveDetails: {
+            type: 'boolean',
+            description: 'Giữ lại tối đa chi tiết sợi tóc và biên mờ',
+            default: true
+          }
+        }
+      },
+      mapToIntent: () => ({
+        operation: 'remove_background',
+        label: 'Tách nền 1-Click (BiRefNet SOTA)'
+      })
+    });
+
+    // 3. Tool Replace Background
+    this.register({
+      name: 'replace_background',
+      displayName: 'Đổi phông nền AI',
+      category: 'background',
+      description: 'Thay thế phông nền hiện tại của bức ảnh bằng một bối cảnh mới (Bãi biển hoàng hôn, Studio chuyên nghiệp, Cyberpunk neon, Quán cà phê, Thiên nhiên...).',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'Mô tả bối cảnh phông nền mới'
+          },
+          preset: {
+            type: 'string',
+            description: 'Gợi ý phong cách nền nhanh',
+            enum: ['beach_sunset', 'luxury_studio', 'cyberpunk_city', 'minimalist_gradient', 'nature_forest']
+          }
+        },
+        required: ['prompt']
+      },
+      mapToIntent: (args) => ({
+        operation: 'replace_bg',
+        label: `Đổi nền AI: "${args.prompt}"`,
+        promptText: args.prompt,
+        bgPreset: args.preset
+      })
+    });
+
+    // 4. Tool Inpaint & Generative Fill
+    this.register({
+      name: 'inpaint_region',
+      displayName: 'Cọ vẽ Generative Inpaint',
+      category: 'core',
+      description: 'Chỉnh sửa, xóa vật thể hoặc vẽ bù sinh ảnh tại một vùng chọn cụ thể theo cọ vẽ hoặc câu lệnh.',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'Mô tả nội dung muốn thay đổi hoặc vẽ thêm'
+          },
+          maskUri: {
+            type: 'string',
+            description: 'Đường dẫn mặt nạ mask nhị phân (nếu người dùng dùng cọ vẽ)'
+          }
+        },
+        required: ['prompt']
+      },
+      mapToIntent: (args) => ({
+        operation: 'inpaint',
+        label: `Generative Inpaint: "${args.prompt}"`,
+        promptText: args.prompt
+      })
+    });
+
+    // 5. Tool Enhance Quality (Clarity, HDR, Vintage)
+    this.register({
+      name: 'enhance_image',
+      displayName: 'Nâng cấp chất lượng ảnh',
+      category: 'enhance',
+      description: 'Tăng cường chất lượng hình ảnh: làm nét khử mờ (clarity), tăng dải sáng động cân bằng HDR, hoặc áp tone màu vintage film.',
+      parameters: {
+        type: 'object',
+        properties: {
+          enhanceType: {
+            type: 'string',
+            description: 'Chế độ tăng cường hình ảnh',
+            enum: ['clarity', 'hdr', 'vintage', 'face_restore'],
+            default: 'clarity'
+          }
+        },
+        required: ['enhanceType']
+      },
+      mapToIntent: (args) => {
+        const type = args.enhanceType || 'clarity';
+        const labels: Record<string, string> = {
+          clarity: 'Nâng cấp làm nét & Khử mờ AI',
+          hdr: 'Tăng sáng & Cân bằng HDR AI',
+          vintage: 'Tone màu Vintage Film cổ điển',
+          face_restore: 'Phục hồi & Làm mịn da mặt AI'
+        };
+        return {
+          operation: 'enhance',
+          label: labels[type] || 'Nâng cấp chất lượng AI',
+          enhanceType: type
+        };
+      }
+    });
+
+    // 6. Tool Style Transfer
+    this.register({
+      name: 'style_transfer',
+      displayName: 'Chuyển đổi phong cách (Style Transfer)',
+      category: 'style',
+      description: 'Chuyển đổi toàn bộ bức ảnh sang phong cách mỹ thuật đặc trưng (Anime Makoto Shinkai, 3D Pixar Animation, Cyberpunk Synthwave, Phác thảo chì Sketch, Pixel Art 16-bit, Tranh sơn dầu).',
+      parameters: {
+        type: 'object',
+        properties: {
+          style: {
+            type: 'string',
+            description: 'Tên phong cách nghệ thuật',
+            enum: ['anime', '3d_pixar', 'cyberpunk', 'sketch', 'pixel_art', 'oil_painting']
+          }
+        },
+        required: ['style']
+      },
+      mapToIntent: (args) => {
+        const style = args.style || 'anime';
+        const labels: Record<string, string> = {
+          anime: 'Phong cách Anime (Makoto Shinkai)',
+          '3d_pixar': 'Phong cách 3D Pixar Animation',
+          cyberpunk: 'Phong cách Cyberpunk Neon Synthwave',
+          sketch: 'Phong cách Phác thảo Chì Than',
+          pixel_art: 'Phong cách Pixel Art 16-bit Retro',
+          oil_painting: 'Phong cách Tranh Sơn Dầu Cổ Điển'
+        };
+        return {
+          operation: 'style_transfer',
+          label: labels[style] || `Phong cách: ${style}`,
+          style
+        };
+      }
+    });
+
+    // 7. Tool Upscale (Super Resolution)
+    this.register({
+      name: 'upscale_image',
+      displayName: 'Phóng to siêu độ phân giải (Upscale)',
+      category: 'core',
+      description: 'Phóng to kích thước hình ảnh lên 2x hoặc 4x mà không vỡ hạt, tái tạo chi tiết vi mô sắc nét bằng Real-ESRGAN / Neural Upscaler.',
+      parameters: {
+        type: 'object',
+        properties: {
+          factor: {
+            type: 'number',
+            description: 'Hệ số phóng to (2 hoặc 4)',
+            enum: [2, 4],
+            default: 2
+          }
+        },
+        required: ['factor']
+      },
+      mapToIntent: (args) => ({
+        operation: 'upscale',
+        label: `Upscale ${args.factor || 2}x Ultra HD`,
+        factor: args.factor || 2
+      })
+    });
+
+    // 8. Tool Vectorize (Raster to SVG)
+    this.register({
+      name: 'vectorize_image',
+      displayName: 'Vector hóa sang SVG (VTracer)',
+      category: 'core',
+      description: 'Chuyển đổi hình ảnh raster (PNG, JPG) thành các đường cong bezier vector định dạng SVG chuẩn, vô hạn độ phân giải.',
+      parameters: {
+        type: 'object',
+        properties: {
+          colorPrecision: {
+            type: 'number',
+            description: 'Độ chính xác màu sắc (1-8)',
+            default: 6
+          }
+        }
+      },
+      mapToIntent: () => ({
+        operation: 'vectorize',
+        label: 'Vectorize sang SVG'
+      })
+    });
+
+    // 9. Tool Export Utilities
+    this.register({
+      name: 'export_utility',
+      displayName: 'Công cụ tiện ích xuất file',
+      category: 'export',
+      description: 'Các tiện ích nhanh cho nhà phát triển: Nền trắng Studio E-commerce, Cắt avatar tròn bo góc, Xuất bộ Favicon/App Icons đa kích thước (16-512px), Nén Quick Export WebP 85%.',
+      parameters: {
+        type: 'object',
+        properties: {
+          utilityType: {
+            type: 'string',
+            description: 'Loại tiện ích xuất',
+            enum: ['white_bg', 'avatar', 'icons', 'export_webp']
+          }
+        },
+        required: ['utilityType']
+      },
+      mapToIntent: (args) => {
+        const type = args.utilityType as OperationType;
+        const labels: Record<string, string> = {
+          white_bg: 'Nền trắng Studio E-Commerce',
+          avatar: 'Tạo Avatar Tròn / Bo góc',
+          icons: 'Xuất bộ Favicon & App Icons',
+          export_webp: 'Nén Quick Export WebP (85%)'
+        };
+        return {
+          operation: type || 'white_bg',
+          label: labels[type] || 'Tiện ích xuất file'
+        };
+      }
+    });
+  }
+
+  public static register(tool: ToolDefinition): void {
+    this.tools.set(tool.name, tool);
+  }
+
+  public static getTool(name: string): ToolDefinition | undefined {
+    return this.tools.get(name);
+  }
+
+  public static getAllTools(): ToolDefinition[] {
+    return Array.from(this.tools.values());
+  }
+
+  /**
+   * Generates standard OpenAI / Gemini Function Calling definitions
+   */
+  public static getFunctionCallingDefinitions() {
+    return Array.from(this.tools.values()).map(tool => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }));
+  }
+}
