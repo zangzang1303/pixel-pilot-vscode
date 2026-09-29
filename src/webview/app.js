@@ -19,6 +19,7 @@
   let zoomLevel = 1.0;
   let customCompareBeforeUri = null;
   let currentSvgData = null;
+  let currentViewMode = 'compare'; // 'compare' | 'result' | 'original'
 
   // DOM Elements - Header & Session
   const btnSessionDropdown = document.getElementById('btn-session-dropdown');
@@ -42,7 +43,7 @@
   const keyIndicator = document.getElementById('key-indicator');
   const keyLabel = document.getElementById('key-label');
 
-  // Viewport & Zoom Elements
+  // Viewport, View Modes & Zoom Elements
   const viewportSection = document.getElementById('viewport-section');
   const btnToggleCanvas = document.getElementById('btn-toggle-canvas');
   const btnToggleBrush = document.getElementById('btn-toggle-brush');
@@ -54,13 +55,31 @@
   const imgAfter = document.getElementById('img-after');
   const lblBefore = document.getElementById('lbl-before');
   const lblAfter = document.getElementById('lbl-after');
-  const beforeClipContainer = document.getElementById('before-clip-container');
   const sliderDivider = document.getElementById('slider-divider');
   const emptyPlaceholder = document.getElementById('empty-placeholder');
   const btnSelectFile = document.getElementById('btn-select-file');
   const scannerOverlay = document.getElementById('scanner-overlay');
   const scanLabel = document.getElementById('scan-label');
   const dropzoneOverlay = document.getElementById('dropzone-overlay');
+
+  // View Mode Tabs & Lightbox Elements
+  const btnViewCompare = document.getElementById('btn-view-compare');
+  const btnViewResult = document.getElementById('btn-view-result');
+  const btnViewOriginal = document.getElementById('btn-view-original');
+  const btnOpenLightbox = document.getElementById('btn-open-lightbox');
+  const btnOpenEditor = document.getElementById('btn-open-editor');
+  const imageLightboxModal = document.getElementById('image-lightbox-modal');
+  const lightboxImg = document.getElementById('lightbox-img');
+  const lightboxTitle = document.getElementById('lightbox-image-title');
+  const lightboxRes = document.getElementById('lightbox-image-res');
+  const btnCloseLightbox = document.getElementById('btn-close-lightbox');
+  const btnLightboxOpenEditor = document.getElementById('btn-lightbox-open-editor');
+  const btnLightboxSave = document.getElementById('btn-lightbox-save');
+  const btnHeaderReplace = document.getElementById('btn-header-replace');
+  const btnHeaderSave = document.getElementById('btn-header-save');
+  const btnMoreMenu = document.getElementById('btn-more-menu');
+  const moreMenuDropdown = document.getElementById('more-menu-dropdown');
+  const btnCanvasQuickSave = document.getElementById('btn-canvas-quick-save');
 
   // Zoom Toolbar Elements
   const btnZoomIn = document.getElementById('btn-zoom-in');
@@ -116,6 +135,7 @@
   // --- Initialization ---
   function init() {
     setupSlider();
+    setupViewModes();
     setupZoomAndPan();
     setupDragAndDrop();
     setupClipboardPaste();
@@ -299,7 +319,7 @@
 
   // --- Smart Studio 1-Click Action Toolbelt ---
   function setupSmartToolbelt() {
-    document.querySelectorAll('.deck-card').forEach((card) => {
+    document.querySelectorAll('.deck-card, .quick-act-btn').forEach((card) => {
       card.addEventListener('click', () => {
         const action = card.dataset.action;
         executeToolbeltAction(action);
@@ -617,6 +637,38 @@
 
   // --- Session Controls & Enterprise Commands ---
   function setupSessionControls() {
+    if (btnHeaderReplace) {
+      btnHeaderReplace.addEventListener('click', () => {
+        sendMessage({ command: 'selectWorkspaceFile' });
+      });
+    }
+
+    if (btnHeaderSave) {
+      btnHeaderSave.addEventListener('click', () => {
+        sendMessage({ command: 'saveOutputImage' });
+      });
+    }
+
+    if (btnCanvasQuickSave) {
+      btnCanvasQuickSave.addEventListener('click', () => {
+        sendMessage({ command: 'saveOutputImage' });
+      });
+    }
+
+    if (btnMoreMenu) {
+      btnMoreMenu.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = moreMenuDropdown && moreMenuDropdown.style.display === 'flex';
+        if (moreMenuDropdown) moreMenuDropdown.style.display = isOpen ? 'none' : 'flex';
+      });
+    }
+
+    window.addEventListener('click', (e) => {
+      if (moreMenuDropdown && !moreMenuDropdown.contains(e.target) && e.target !== btnMoreMenu) {
+        moreMenuDropdown.style.display = 'none';
+      }
+    });
+
     btnSessionDropdown.addEventListener('click', () => {
       const isOpen = sessionDrawer.style.display === 'flex';
       sessionDrawer.style.display = isOpen ? 'none' : 'flex';
@@ -630,6 +682,7 @@
     btnNewSession.addEventListener('click', () => {
       sendMessage({ command: 'newSession' });
       sessionDrawer.style.display = 'none';
+      if (moreMenuDropdown) moreMenuDropdown.style.display = 'none';
     });
 
     btnDrawerNewSession.addEventListener('click', () => {
@@ -639,14 +692,17 @@
 
     btnMoveRight.addEventListener('click', () => {
       sendMessage({ command: 'moveToRightSide' });
+      if (moreMenuDropdown) moreMenuDropdown.style.display = 'none';
     });
 
     btnBatchProcess.addEventListener('click', () => {
       sendMessage({ command: 'openBatchDialog' });
+      if (moreMenuDropdown) moreMenuDropdown.style.display = 'none';
     });
 
     btnEnterpriseConfig.addEventListener('click', () => {
       sendMessage({ command: 'openEnterpriseConfig' });
+      if (moreMenuDropdown) moreMenuDropdown.style.display = 'none';
     });
 
     btnExportDag.addEventListener('click', () => {
@@ -764,25 +820,35 @@
 
   // --- Viewport & Before/After Slider ---
   function setupSlider() {
-    sliderDivider.addEventListener('mousedown', (e) => {
+    function startSliderDrag(e) {
+      if (currentViewMode !== 'compare') return;
+      if (panMode || inpaintMode) return;
       isDraggingSlider = true;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      updateSlider(clientX);
       e.preventDefault();
-      e.stopPropagation();
-    });
-    window.addEventListener('mouseup', () => (isDraggingSlider = false));
-    window.addEventListener('mousemove', (e) => {
-      if (!isDraggingSlider) return;
-      updateSlider(e.clientX);
-    });
+    }
 
-    sliderDivider.addEventListener('touchstart', (e) => {
-      isDraggingSlider = true;
-      e.stopPropagation();
-    });
-    window.addEventListener('touchend', () => (isDraggingSlider = false));
-    window.addEventListener('touchmove', (e) => {
-      if (isDraggingSlider && e.touches[0]) updateSlider(e.touches[0].clientX);
-    });
+    function doSliderDrag(e) {
+      if (!isDraggingSlider) return;
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      updateSlider(clientX);
+    }
+
+    function stopSliderDrag() {
+      isDraggingSlider = false;
+    }
+
+    // Allow dragging anywhere on the canvas divider or comparison stage
+    sliderDivider.addEventListener('mousedown', startSliderDrag);
+    comparisonContainer.addEventListener('mousedown', startSliderDrag);
+    sliderDivider.addEventListener('touchstart', startSliderDrag, { passive: false });
+    comparisonContainer.addEventListener('touchstart', startSliderDrag, { passive: false });
+
+    window.addEventListener('mouseup', stopSliderDrag);
+    window.addEventListener('touchend', stopSliderDrag);
+    window.addEventListener('mousemove', doSliderDrag);
+    window.addEventListener('touchmove', doSliderDrag, { passive: false });
 
     btnToggleCanvas.addEventListener('click', () => {
       viewportSection.classList.toggle('collapsed');
@@ -799,8 +865,117 @@
     let pct = (offset / rect.width) * 100;
     pct = Math.max(0, Math.min(100, pct));
 
-    beforeClipContainer.style.width = pct + '%';
-    sliderDivider.style.left = pct + '%';
+    comparisonContainer.style.setProperty('--split-pct', `${pct}%`);
+    imgBefore.style.clipPath = `polygon(0 0, ${pct}% 0, ${pct}% 100%, 0 100%)`;
+    sliderDivider.style.left = `${pct}%`;
+  }
+
+  // --- View Display Modes & Lightbox Fullscreen ---
+  function setViewMode(mode) {
+    currentViewMode = mode;
+    comparisonContainer.classList.remove('view-compare', 'view-result', 'view-original');
+    comparisonContainer.classList.add(`view-${mode}`);
+
+    [btnViewCompare, btnViewResult, btnViewOriginal].forEach((b) => {
+      if (b) b.classList.remove('active');
+    });
+
+    if (mode === 'compare') {
+      if (btnViewCompare) btnViewCompare.classList.add('active');
+      imgBefore.style.display = 'block';
+      imgBefore.style.clipPath = 'polygon(0 0, 50% 0, 50% 100%, 0 100%)';
+      comparisonContainer.style.setProperty('--split-pct', '50%');
+      sliderDivider.style.left = '50%';
+      imgAfter.style.display = 'block';
+      sliderDivider.style.display = 'block';
+      lblBefore.style.display = 'flex';
+      lblAfter.style.display = 'flex';
+    } else if (mode === 'result') {
+      if (btnViewResult) btnViewResult.classList.add('active');
+      imgBefore.style.display = 'none';
+      imgAfter.style.display = 'block';
+      sliderDivider.style.display = 'none';
+      lblBefore.style.display = 'none';
+      lblAfter.style.display = 'flex';
+    } else if (mode === 'original') {
+      if (btnViewOriginal) btnViewOriginal.classList.add('active');
+      imgBefore.style.display = 'block';
+      imgBefore.style.clipPath = 'none';
+      imgAfter.style.display = 'none';
+      sliderDivider.style.display = 'none';
+      lblBefore.style.display = 'flex';
+      lblAfter.style.display = 'none';
+    }
+  }
+
+  function setupViewModes() {
+    if (btnViewCompare) btnViewCompare.addEventListener('click', () => setViewMode('compare'));
+    if (btnViewResult) btnViewResult.addEventListener('click', () => setViewMode('result'));
+    if (btnViewOriginal) btnViewOriginal.addEventListener('click', () => setViewMode('original'));
+
+    if (btnOpenLightbox) {
+      btnOpenLightbox.addEventListener('click', () => {
+        const activeUri = currentViewMode === 'original' ? imgBefore.src : (imgAfter.src || imgBefore.src);
+        if (activeUri) openLightbox(activeUri, 'Ảnh Studio Pixel Pilot');
+      });
+    }
+
+    if (btnOpenEditor) {
+      btnOpenEditor.addEventListener('click', () => {
+        sendMessage({ command: 'openInEditor' });
+      });
+    }
+
+    if (btnCloseLightbox) {
+      btnCloseLightbox.addEventListener('click', () => {
+        if (imageLightboxModal) imageLightboxModal.style.display = 'none';
+      });
+    }
+
+    if (imageLightboxModal) {
+      imageLightboxModal.addEventListener('click', (e) => {
+        if (e.target === imageLightboxModal) {
+          imageLightboxModal.style.display = 'none';
+        }
+      });
+    }
+
+    if (btnLightboxOpenEditor) {
+      btnLightboxOpenEditor.addEventListener('click', () => {
+        sendMessage({ command: 'openInEditor' });
+      });
+    }
+
+    if (btnLightboxSave) {
+      btnLightboxSave.addEventListener('click', () => {
+        sendMessage({ command: 'saveOutputImage' });
+      });
+    }
+
+    if (btnCanvasQuickSave) {
+      btnCanvasQuickSave.addEventListener('click', () => {
+        sendMessage({ command: 'saveOutputImage' });
+      });
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && imageLightboxModal && imageLightboxModal.style.display !== 'none') {
+        imageLightboxModal.style.display = 'none';
+      }
+    });
+  }
+
+  function openLightbox(src, title) {
+    if (!src || !imageLightboxModal) return;
+    lightboxImg.src = src;
+    if (lightboxTitle) lightboxTitle.textContent = title || 'Xem ảnh chi tiết (Full HD)';
+    imageLightboxModal.style.display = 'flex';
+
+    const tImg = new Image();
+    tImg.onload = () => {
+      if (lightboxRes) lightboxRes.textContent = `${tImg.naturalWidth} × ${tImg.naturalHeight} px`;
+    };
+    tImg.src = src;
   }
 
   // --- Background Toggles ---
@@ -870,7 +1045,7 @@
     return inpaintCanvas ? inpaintCanvas.toDataURL('image/png') : '';
   }
 
-  // --- Chat Feed Renderer ---
+  // --- Chat Feed Renderer (Clean Text Conversation) ---
   function renderChatMessages(messages) {
     chatMessages.innerHTML = '';
     (messages || []).forEach((msg) => {
@@ -883,12 +1058,23 @@
         bubble.textContent = msg.text;
       } else {
         // Assistant Message
-        let html = `<div>${escapeHtml(msg.text)}</div>`;
+        let friendlyText = msg.text || '';
+        // If raw debug text was stored in past sessions, format nicely:
+        if (friendlyText.startsWith('Hoàn tất ')) {
+          friendlyText = friendlyText.replace(/^Hoàn tất "([^"]+)" trong \d+ms.*$/, '✨ Đã hoàn tất "$1". Kết quả hiển thị trên khung hình phía trên.');
+        }
+
+        let html = `
+          <div class="assistant-badge">✦ Pixel Pilot AI</div>
+          <div class="assistant-text">${escapeHtml(friendlyText)}</div>
+        `;
 
         if (msg.metrics) {
+          const sec = ((msg.metrics.latencyMs || 0) / 1000).toFixed(1);
+          let cleanModel = (msg.metrics.model || 'BiRefNet').replace(/\(runware:[^)]+\)/, '').trim();
           html += `
-            <div class="metrics-tag" style="font-size: 8px; color: var(--accent-cyan); margin-top: 2px; font-family: var(--font-mono);">
-              ⚡ ${msg.metrics.latencyMs}ms • ${msg.metrics.model}
+            <div class="metrics-tag" style="font-size: 8.5px; color: #71717a; margin-top: 4px; font-family: var(--font-mono);">
+              ⚡ ${sec}s • ${cleanModel}
             </div>
           `;
         }
@@ -896,9 +1082,9 @@
         if (msg.nodeId && msg.nodeId !== 'node_0_root') {
           html += `
             <div class="msg-actions">
-              <button class="btn-msg-action" data-action="save" data-node="${msg.nodeId}">💾 Lưu file</button>
-              <button class="btn-msg-action" data-action="compare" data-node="${msg.nodeId}">↔️ So sánh</button>
-              <button class="btn-msg-action" data-action="rollback" data-node="${msg.nodeId}">↩️ Rollback</button>
+              <button class="btn-msg-action act-save" data-action="save" data-node="${msg.nodeId}" title="Tải ảnh kết quả này về máy">💾 Tải về</button>
+              <button class="btn-msg-action" data-action="compare" data-node="${msg.nodeId}" title="So sánh ảnh này với ảnh gốc">↔️ So sánh</button>
+              <button class="btn-msg-action" data-action="rollback" data-node="${msg.nodeId}" title="Quay lại bước này">↩️ Quay lại</button>
             </div>
           `;
         }
@@ -908,10 +1094,18 @@
         bubble.querySelectorAll('.btn-msg-action').forEach((btn) => {
           btn.addEventListener('click', () => {
             const action = btn.dataset.action;
-            const targetNode = btn.dataset.node;
-            if (action === 'save') sendMessage({ command: 'saveOutputImage' });
-            else if (action === 'compare') setCompareBeforeNode(targetNode);
-            else if (action === 'rollback') sendMessage({ command: 'rollbackNode', targetNodeId: targetNode });
+            const target = btn.dataset.node;
+            if (action === 'view') {
+              if (currentSession && currentSession.nodes[target]) {
+                displayActiveNode(currentSession.nodes[target]);
+              }
+            } else if (action === 'save') {
+              sendMessage({ command: 'saveOutputImage', nodeId: target });
+            } else if (action === 'compare') {
+              setCompareBeforeNode(target);
+            } else if (action === 'rollback') {
+              sendMessage({ command: 'rollbackNode', targetNodeId: target });
+            }
           });
         });
       }
@@ -922,11 +1116,11 @@
     chatFeed.scrollTop = chatFeed.scrollHeight;
   }
 
-  // --- Enhanced Visual DAG Tree Visualizer ---
+  // --- Enhanced Visual Step Timeline Visualizer ---
   function renderDAG(session) {
     dagTimeline.innerHTML = '';
     const nodes = Object.values(session.nodes);
-    dagNodeCount.textContent = `${nodes.length} nodes`;
+    dagNodeCount.textContent = `${nodes.length} bước`;
 
     nodes.forEach((node, idx) => {
       const card = document.createElement('div');
@@ -939,11 +1133,11 @@
         <img class="dag-card-thumb" src="${thumbUri}" alt="Thumb" onerror="this.style.display='none'" />
         <div class="dag-card-details">
           <span class="dag-card-op">#${idx + 1} ${escapeHtml(node.operationLabel)}</span>
-          <span class="dag-card-meta">${node.metrics?.latencyMs || 0}ms</span>
+          <span class="dag-card-meta">${node.metrics?.latencyMs ? ((node.metrics.latencyMs / 1000).toFixed(1) + 's') : '0s'}</span>
         </div>
         <div class="dag-card-actions">
-          <button class="btn-micro" data-act="compare" title="So sánh nút này với nút hiện tại">↔️</button>
-          <button class="btn-micro" data-act="rollback" title="Quay lại nút này">↩️</button>
+          <button class="btn-micro" data-act="compare" title="So sánh bước này với bước hiện tại">↔️</button>
+          <button class="btn-micro" data-act="rollback" title="Quay lại bước này">↩️</button>
         </div>
       `;
 
@@ -978,25 +1172,47 @@
     customCompareBeforeUri = targetNode.outputImageUri || targetNode.inputImageUri;
     lblBefore.querySelector('span:last-child').textContent = `#${targetNode.operationLabel}`;
     imgBefore.src = customCompareBeforeUri;
-    beforeClipContainer.style.width = '50%';
+    comparisonContainer.style.setProperty('--split-pct', '50%');
     sliderDivider.style.left = '50%';
+    setViewMode('compare');
   }
 
   // --- Display Active Node in Viewport ---
   function displayActiveNode(node) {
+    if (!node || (!node.inputImageUri && !node.outputImageUri)) {
+      emptyPlaceholder.style.display = 'flex';
+      comparisonContainer.style.display = 'none';
+      return;
+    }
+
     emptyPlaceholder.style.display = 'none';
+    comparisonContainer.style.display = 'block';
 
-    const beforeSrc = customCompareBeforeUri || node.inputImageUri;
+    const rootNode = currentSession ? currentSession.nodes[currentSession.rootNodeId] : null;
+    const originalRoot = rootNode?.outputImageUri || rootNode?.inputImageUri;
+    const beforeSrc = customCompareBeforeUri || originalRoot || node.inputImageUri;
+    const afterSrc = node.outputImageUri || node.inputImageUri;
+
     imgBefore.src = beforeSrc;
-    imgAfter.src = node.outputImageUri || node.inputImageUri;
+    imgAfter.src = afterSrc;
 
-    beforeClipContainer.style.width = '50%';
+    comparisonContainer.style.setProperty('--split-pct', '50%');
+    imgBefore.style.clipPath = 'polygon(0 0, 50% 0, 50% 100%, 0 100%)';
     sliderDivider.style.left = '50%';
-    lblBefore.querySelector('span:last-child').textContent = customCompareBeforeUri ? 'SO SÁNH' : 'GỐC';
+    lblBefore.querySelector('span:last-child').textContent = customCompareBeforeUri ? 'SO SÁNH' : 'ẢNH GỐC';
 
-    metricModel.textContent = node.metrics.model || 'Runware BiRefNet';
-    metricLatency.textContent = (node.metrics.latencyMs || 0) + ' ms';
-    metricCost.textContent = '$' + (node.metrics.costUsd || 0);
+    // Auto set view mode: if node is just the original input without changes, show as single image (result mode); otherwise compare mode
+    if (!node.outputImageUri || node.outputImageUri === node.inputImageUri || beforeSrc === afterSrc) {
+      if (!customCompareBeforeUri) {
+        setViewMode('result');
+      }
+    } else {
+      setViewMode('compare');
+    }
+
+    let cleanModelName = (node.metrics?.model || 'BiRefNet').replace(/\(runware:[^)]+\)/, '').trim();
+    metricModel.textContent = cleanModelName;
+    metricLatency.textContent = (node.metrics?.latencyMs ? ((node.metrics.latencyMs / 1000).toFixed(1) + ' s') : '0 s');
 
     // Read real image resolution
     const tempImg = new Image();
@@ -1006,11 +1222,11 @@
     tempImg.src = imgAfter.src;
 
     // Check SVG capability
-    if (node.operation === 'vectorize' || node.textResult || node.outputImageUri.includes('.svg') || node.outputImageUri.startsWith('data:image/svg')) {
+    if (node.operation === 'vectorize' || node.textResult || node.outputImageUri?.includes('.svg') || node.outputImageUri?.startsWith('data:image/svg')) {
       btnInspectSvg.style.display = 'inline-block';
       if (node.textResult) {
         currentSvgData = node.textResult;
-      } else if (node.outputImageUri.startsWith('data:image/svg+xml;base64,')) {
+      } else if (node.outputImageUri?.startsWith('data:image/svg+xml;base64,')) {
         currentSvgData = atob(node.outputImageUri.split(',')[1]);
       } else {
         currentSvgData = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="#38bdf8"/></svg>`;

@@ -71,7 +71,9 @@ export class SessionManager {
       text: initialImageUri
         ? `Đã nạp ảnh "${title}". Bạn muốn thực hiện tác vụ gì? Hãy gõ câu lệnh hoặc chọn một trong các thao tác bên dưới.`
         : 'Chào mừng bạn đến với Pixel Pilot AI Studio! Hãy nạp một ảnh từ Workspace hoặc kéo thả ảnh vào để bắt đầu.',
-      nodeId: rootNodeId
+      nodeId: rootNodeId,
+      operation: 'original',
+      outputImageUri: initialImageUri
     };
 
     const session: ImageSession = {
@@ -148,12 +150,12 @@ export class SessionManager {
     session.currentNodeId = nodeId;
     session.updatedAt = Date.now();
 
-    // Auto add assistant message to conversation flow
+    // Auto add friendly assistant message to conversation flow
     session.messages.push({
       id: 'msg_' + Date.now(),
       sender: 'assistant',
       timestamp: Date.now(),
-      text: `Hoàn tất "${operationLabel}" trong ${metrics.latencyMs}ms (${metrics.model}).`,
+      text: `✨ Đã hoàn tất "${operationLabel}". Kết quả đã hiển thị trên khung hình phía trên. Bạn có thể so sánh với ảnh gốc hoặc tải về máy.`,
       nodeId,
       operation,
       outputImageUri,

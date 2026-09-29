@@ -227,7 +227,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       }
 
       case 'saveOutputImage': {
-        await this.saveCurrentImage();
+        await this.saveCurrentImage(message.nodeId);
         break;
       }
 
@@ -246,6 +246,25 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
       case 'openBatchDialog': {
         await vscode.commands.executeCommand('pixelPilot.batchProcessFolder');
+        break;
+      }
+
+      case 'openInEditor': {
+        const session = this.sessionManager.getActiveSession();
+        if (session) {
+          const targetNodeId = message.nodeId || session.currentNodeId;
+          const node = session.nodes[targetNodeId];
+          if (node) {
+            const uri = node.outputImageUri || node.inputImageUri;
+            let realPath = this.uriToPathMap.get(uri);
+            if (!realPath && uri.startsWith('data:')) {
+              realPath = await this.assetStorage.saveToCache(uri, 'png');
+            }
+            if (realPath && fs.existsSync(realPath)) {
+              await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(realPath));
+            }
+          }
+        }
         break;
       }
 
@@ -525,31 +544,36 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  private async saveCurrentImage(): Promise<void> {
+  private async saveCurrentImage(targetNodeId?: string): Promise<void> {
     const session = this.sessionManager.getActiveSession();
     if (!session) return;
-    const node = session.nodes[session.currentNodeId];
-    if (!node || !node.outputImageUri) return;
+    const nodeId = targetNodeId || session.currentNodeId;
+    const node = session.nodes[nodeId];
+    if (!node) return;
+    const imageUri = node.outputImageUri || node.inputImageUri;
+    if (!imageUri) return;
 
-    const defaultName = `${node.operation}_output.png`;
+    const isSvg = imageUri.startsWith('data:image/svg') || node.operation === 'vectorize';
+    const ext = isSvg ? 'svg' : 'png';
+    const defaultName = `${node.operation}_${Date.now()}.${ext}`;
     const saveUri = await vscode.window.showSaveDialog({
       defaultUri: vscode.Uri.file(defaultName),
-      filters: { 'Images': ['png'] }
+      filters: isSvg ? { 'Vector SVG': ['svg'] } : { 'Images': ['png', 'jpg', 'webp'] }
     });
 
     if (saveUri) {
       let buffer: Buffer;
-      const realPath = this.uriToPathMap.get(node.outputImageUri) || node.outputImageUri;
+      const realPath = this.uriToPathMap.get(imageUri) || imageUri;
       if (fs.existsSync(realPath)) {
         buffer = await fs.promises.readFile(realPath);
-      } else if (node.outputImageUri.startsWith('data:image')) {
-        const b64 = node.outputImageUri.split(',')[1];
+      } else if (imageUri.startsWith('data:')) {
+        const b64 = imageUri.split(',')[1];
         buffer = Buffer.from(b64, 'base64');
       } else {
-        buffer = Buffer.from(node.outputImageUri);
+        buffer = Buffer.from(imageUri);
       }
       await vscode.workspace.fs.writeFile(saveUri, buffer);
-      vscode.window.showInformationMessage(`Đã lưu ảnh kết quả vào: ${saveUri.fsPath}`);
+      vscode.window.showInformationMessage(`✨ Pixel Pilot: Đã tải và lưu ảnh về máy: ${saveUri.fsPath}`);
     }
   }
 
