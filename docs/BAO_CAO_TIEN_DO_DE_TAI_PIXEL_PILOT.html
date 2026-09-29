@@ -397,9 +397,9 @@
       Hệ thống: Pixel Pilot — Visual AI Studio for VS Code (Môi trường IDE tích hợp mô hình thị giác nhân tạo SOTA)
     </div>
     <div class="info-card">
-      <div><strong>Đề tài:</strong> Xử lý ảnh đa ngữ cảnh trên IDE tích hợp Vision Models SOTA</div>
-      <div><strong>Tiến độ:</strong> <span class="status-badge">Hoàn thành 100% Tuần 02</span></div>
-      <div><strong>Build:</strong> <span class="text-green">TypeScript 0 lỗi</span></div>
+      <div><strong>Đề tài:</strong> Xử lý ảnh đa ngữ cảnh trên IDE tích hợp Vision Models SOTA & Đồ thị DAG</div>
+      <div><strong>Tiến độ:</strong> <span class="status-badge">Bản Hoàn Thiện (Final)</span></div>
+      <div><strong>Build:</strong> <span class="text-green">TypeScript 0 lỗi (Git: ac2be85)</span></div>
     </div>
   </div>
 
@@ -579,8 +579,8 @@
 
   <!-- HÌNH 2 -->
   <div class="image-container">
-    <img src="ui_mockup.jpg" alt="Pixel Pilot VS Code Interface Mockup" style="max-height: 180px;" />
-    <div class="image-caption"><strong>Hình 2:</strong> Giao diện thực tế Pixel Pilot AI Studio hiển thị trên thanh Secondary Sidebar của VS Code (Tích hợp Thanh trượt Before/After, Cọ vẽ Mask Canvas, và Toolbelt đa tác vụ).</div>
+    <img src="fig2_real_studio_ui.png" alt="Giao diện thực nghiệm thực tế Pixel Pilot AI Studio trên VS Code" style="max-height: 290px; width: auto;" />
+    <div class="image-caption"><strong>Hình 2:</strong> Giao diện thực nghiệm thực tế Pixel Pilot AI Studio hoạt động trên VS Code: Xử lý trực tiếp ảnh TC2 mèo lông xù 2K (2048 × 1639 px) qua Runware BiRefNet SOTA thật, thanh trượt Before/After thời gian thực, đo kiểm Telemetry chính xác (10,451 ms, $0.0006), chuỗi lịch sử phân nhánh DAG và thanh công cụ tác vụ nhanh AI.</div>
   </div>
 
   <h3>2. Động cơ Đồ thị Ngữ cảnh Phi tuyến tính (Context-Aware DAG Engine — <code>SessionManager.ts</code>)</h3>
@@ -692,13 +692,13 @@
         <td><strong>Trạng thái Biên dịch Mã nguồn</strong></td>
         <td>TypeScript 5.3.3</td>
         <td><strong class="text-green">Compile Thành công (0 Lỗi)</strong></td>
-        <td>Mã nguồn sạch, đã commit Git gọn gàng (<code>c24cbcc</code>).</td>
+        <td>Mã nguồn sạch, đã commit Git gọn gàng (<code>ac2be85</code>).</td>
       </tr>
     </tbody>
   </table>
 
   <div class="callout-box">
-    <strong>Kế hoạch Tuần 03:</strong> Đóng gói bundle siêu nhẹ bằng <code>esbuild</code> (&lt;3MB), xây dựng bộ Unit Tests tự động (&gt;85% coverage), và tích hợp <code>@vscode/l10n</code> hỗ trợ đa ngôn ngữ Tiếng Việt & Tiếng Anh.
+    <strong>Kế hoạch Hoàn thiện & Bảo vệ Đề tài:</strong> Tiến hành nghiệm thu thực nghiệm đầy đủ 5 Test Cases, đóng gói bản phát hành VSIX chính thức cho VS Code Marketplace, hoàn thiện bộ Unit Tests kiểm thử tự động (&gt;85% coverage), và chuẩn bị slide bảo vệ trước Hội đồng Khoa học.
   </div>
 
   <!-- CHỮ KÝ XÁC NHẬN -->
