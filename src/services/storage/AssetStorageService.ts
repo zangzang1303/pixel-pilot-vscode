@@ -69,12 +69,27 @@ export class AssetStorageService {
   }
 
   /**
-   * Converts a cached file path to Webview URI for ultra-fast GPU rendering without IPC memory pressure
+   * Converts a cached file path to Webview URI.
+   * Reads local files as Data URI so they are 100% guaranteed to render inside Webview without sandbox or 403 blocks.
    */
-  public getWebviewUri(filePath: string, webview: vscode.Webview): string {
+  public getWebviewUri(filePath: string, webview?: vscode.Webview): string {
     if (!filePath) return '';
-    if (filePath.startsWith('data:')) return filePath;
-    return webview.asWebviewUri(vscode.Uri.file(filePath)).toString();
+    if (filePath.startsWith('data:') || filePath.startsWith('http:') || filePath.startsWith('https:')) {
+      return filePath;
+    }
+    if (fs.existsSync(filePath)) {
+      try {
+        const ext = path.extname(filePath).toLowerCase().replace('.', '') || 'png';
+        const buf = fs.readFileSync(filePath);
+        const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+        return `data:${mime};base64,${buf.toString('base64')}`;
+      } catch (e) {
+        if (webview) {
+          return webview.asWebviewUri(vscode.Uri.file(filePath)).toString();
+        }
+      }
+    }
+    return filePath;
   }
 
   /**
