@@ -74,8 +74,58 @@ export class SecretManager {
     return (await this.secrets.get(SecretManager.ENTERPRISE_GATEWAY_TOKEN)) || '';
   }
 
+  private static readonly LLM_KEY_ID = 'pixelPilot.llmApiKey';
+  private static readonly LLM_PROVIDER_ID = 'pixelPilot.llmProvider';
+
   /**
-   * Returns a masked preview of the current key (e.g. ••••••••4kof)
+   * Retrieves the LLM API Key (Gemini, OpenAI, Groq, etc.)
+   */
+  public async getLlmApiKey(): Promise<string> {
+    const secretKey = await this.secrets.get(SecretManager.LLM_KEY_ID);
+    if (secretKey && secretKey.trim()) {
+      return secretKey.trim();
+    }
+    const envKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || process.env.LLM_API_KEY;
+    if (envKey && envKey.trim()) {
+      return envKey.trim();
+    }
+    const config = vscode.workspace.getConfiguration('pixelPilot');
+    const legacyKey = config.get<string>('llmApiKey');
+    if (legacyKey && legacyKey.trim()) {
+      await this.setLlmApiKey(legacyKey.trim());
+      return legacyKey.trim();
+    }
+    return '';
+  }
+
+  public async setLlmApiKey(apiKey: string): Promise<void> {
+    await this.secrets.store(SecretManager.LLM_KEY_ID, apiKey.trim());
+  }
+
+  public async deleteLlmApiKey(): Promise<void> {
+    await this.secrets.delete(SecretManager.LLM_KEY_ID);
+  }
+
+  public async getLlmProvider(): Promise<'gemini' | 'openai' | 'groq' | 'ollama' | 'local'> {
+    const prov = await this.secrets.get(SecretManager.LLM_PROVIDER_ID);
+    if (prov) return prov as any;
+    const config = vscode.workspace.getConfiguration('pixelPilot');
+    return (config.get<string>('llmProvider') as any) || 'gemini';
+  }
+
+  public async setLlmProvider(provider: string): Promise<void> {
+    await this.secrets.store(SecretManager.LLM_PROVIDER_ID, provider);
+  }
+
+  public async getMaskedLlmKey(): Promise<string> {
+    const key = await this.getLlmApiKey();
+    if (!key) return '';
+    if (key.length <= 4) return '••••';
+    return '••••••••' + key.slice(-4);
+  }
+
+  /**
+   * Returns a masked preview of the Runware API key (e.g. ••••••••4kof)
    */
   public async getMaskedApiKey(): Promise<string> {
     const key = await this.getApiKey();

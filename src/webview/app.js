@@ -43,6 +43,14 @@
   const keyIndicator = document.getElementById('key-indicator');
   const keyLabel = document.getElementById('key-label');
 
+  // LLM Brain Key Elements
+  const btnSaveLlmKey = document.getElementById('btn-save-llm-key');
+  const inputLlmKey = document.getElementById('input-llm-key');
+  const selectLlmProvider = document.getElementById('select-llm-provider');
+  const llmStatusMsg = document.getElementById('llm-status-msg');
+  const llmKeyBadge = document.getElementById('llm-key-badge');
+  const runwareKeyBadge = document.getElementById('runware-key-badge');
+
   // Viewport, View Modes & Zoom Elements
   const viewportSection = document.getElementById('viewport-section');
   const btnToggleCanvas = document.getElementById('btn-toggle-canvas');
@@ -1295,37 +1303,70 @@
     svgReactText.value = reactComponent;
   }
 
-  // --- API Key Modal Logic ---
+  // --- API & LLM Brain Key Modal Logic ---
   function setupApiKeyModal() {
-    btnApiKey.addEventListener('click', () => {
-      apiKeyModal.style.display = 'flex';
-      inputApiKey.focus();
-    });
+    if (btnApiKey) {
+      btnApiKey.addEventListener('click', () => {
+        apiKeyModal.style.display = 'flex';
+        if (inputLlmKey) inputLlmKey.focus();
+        else if (inputApiKey) inputApiKey.focus();
+      });
+    }
 
-    btnCloseKeyModal.addEventListener('click', () => {
-      apiKeyModal.style.display = 'none';
-    });
-
-    btnSaveKey.addEventListener('click', () => {
-      const key = inputApiKey.value.trim();
-      if (!key) {
-        keyStatusMsg.style.color = '#ef4444';
-        keyStatusMsg.textContent = 'Vui lòng dán Runware API Key hợp lệ!';
-        return;
-      }
-      sendMessage({ command: 'saveApiKey', apiKey: key });
-      keyStatusMsg.style.color = '#10b981';
-      keyStatusMsg.textContent = 'Đang lưu Runware API Key...';
-      setTimeout(() => {
+    if (btnCloseKeyModal) {
+      btnCloseKeyModal.addEventListener('click', () => {
         apiKeyModal.style.display = 'none';
-      }, 1000);
-    });
+      });
+    }
 
-    inputApiKey.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        btnSaveKey.click();
-      }
-    });
+    // Save Runware Key
+    if (btnSaveKey) {
+      btnSaveKey.addEventListener('click', () => {
+        const key = inputApiKey.value.trim();
+        if (!key) {
+          keyStatusMsg.style.color = '#ef4444';
+          keyStatusMsg.textContent = 'Vui lòng dán Runware API Key hợp lệ!';
+          return;
+        }
+        sendMessage({ command: 'saveApiKey', apiKey: key });
+        keyStatusMsg.style.color = '#10b981';
+        keyStatusMsg.textContent = 'Đang lưu Runware API Key...';
+        setTimeout(() => {
+          apiKeyModal.style.display = 'none';
+        }, 1000);
+      });
+    }
+
+    if (inputApiKey) {
+      inputApiKey.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') btnSaveKey.click();
+      });
+    }
+
+    // Save LLM Brain Key
+    if (btnSaveLlmKey) {
+      btnSaveLlmKey.addEventListener('click', () => {
+        const key = (inputLlmKey.value || '').trim();
+        const provider = selectLlmProvider ? selectLlmProvider.value : 'gemini';
+        if (!key && provider !== 'local' && provider !== 'ollama') {
+          llmStatusMsg.style.color = '#ef4444';
+          llmStatusMsg.textContent = 'Vui lòng nhập API Key cho ' + provider.toUpperCase();
+          return;
+        }
+        sendMessage({ command: 'saveLlmApiKey', apiKey: key, provider });
+        llmStatusMsg.style.color = '#38bdf8';
+        llmStatusMsg.textContent = 'Đang kết nối Bộ Não AI ' + provider.toUpperCase() + '...';
+        setTimeout(() => {
+          apiKeyModal.style.display = 'none';
+        }, 1000);
+      });
+    }
+
+    if (inputLlmKey) {
+      inputLlmKey.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') btnSaveLlmKey.click();
+      });
+    }
   }
 
   // --- Session Controls & Enterprise Commands ---
@@ -2015,9 +2056,30 @@
           if (msg.hasApiKey) {
             keyIndicator.className = 'status-dot live';
             keyLabel.textContent = msg.apiKeyMasked ? `Live (${msg.apiKeyMasked})` : 'Live API';
+            if (runwareKeyBadge) {
+              runwareKeyBadge.textContent = msg.apiKeyMasked ? `Live (${msg.apiKeyMasked})` : 'Live Key';
+              runwareKeyBadge.style.color = '#10b981';
+            }
           } else {
             keyIndicator.className = 'status-dot';
             keyLabel.textContent = '🔑 Nhập Key';
+            if (runwareKeyBadge) {
+              runwareKeyBadge.textContent = 'Chưa nạp';
+              runwareKeyBadge.style.color = '#94a3b8';
+            }
+          }
+          break;
+
+        case 'llmKeyStatus':
+          if (selectLlmProvider && msg.provider) selectLlmProvider.value = msg.provider;
+          if (llmKeyBadge) {
+            if (msg.hasLlmKey) {
+              llmKeyBadge.textContent = `${(msg.provider || 'AI').toUpperCase()} (${msg.llmKeyMasked})`;
+              llmKeyBadge.style.color = '#38bdf8';
+            } else {
+              llmKeyBadge.textContent = 'Local Cognitive Brain';
+              llmKeyBadge.style.color = '#94a3b8';
+            }
           }
           break;
 

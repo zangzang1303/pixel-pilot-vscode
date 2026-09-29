@@ -113,6 +113,16 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           apiKeyMasked: masked
         });
 
+        const llmKey = await this.secretManager.getLlmApiKey();
+        const llmProvider = await this.secretManager.getLlmProvider();
+        const llmMasked = await this.secretManager.getMaskedLlmKey();
+        this.postToWebview({
+          type: 'llmKeyStatus',
+          hasLlmKey: !!llmKey,
+          provider: llmProvider,
+          llmKeyMasked: llmMasked
+        });
+
         this.broadcastSessionState();
         break;
       }
@@ -142,6 +152,36 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           apiKeyMasked: ''
         });
         vscode.window.showInformationMessage('🔒 Pixel Pilot: Đã xóa API Key khỏi SecretStorage.');
+        break;
+      }
+
+      case 'saveLlmApiKey': {
+        const key = (message.apiKey || '').trim();
+        const provider = message.provider || 'gemini';
+        if (key) {
+          await this.secretManager.setLlmApiKey(key);
+          await this.secretManager.setLlmProvider(provider);
+          const masked = await this.secretManager.getMaskedLlmKey();
+          vscode.window.showInformationMessage(`🧠 Pixel Pilot: Đã kết nối Bộ Não AI LLM (${provider.toUpperCase()}) thành công!`);
+          this.postToWebview({
+            type: 'llmKeyStatus',
+            hasLlmKey: true,
+            provider,
+            llmKeyMasked: masked
+          });
+        }
+        break;
+      }
+
+      case 'clearLlmApiKey': {
+        await this.secretManager.deleteLlmApiKey();
+        this.postToWebview({
+          type: 'llmKeyStatus',
+          hasLlmKey: false,
+          provider: 'local',
+          llmKeyMasked: ''
+        });
+        vscode.window.showInformationMessage('🧠 Pixel Pilot: Đã chuyển sang Bộ Não AI Local Cognitive Reasoner.');
         break;
       }
 
@@ -398,14 +438,33 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     });
     this.broadcastSessionState();
 
-    // 2. Vision Agent Orchestrator: Analyzes context & decides which tool to call
+    // 2. Vision Agent Orchestrator (Powered by LLM Brain):
     const parentNode = session.nodes[session.currentNodeId];
     const inputImg = parentNode?.outputImageUri || parentNode?.inputImageUri;
-    const decision = await VisionAgentOrchestrator.decideTool(promptText, {
-      currentImageUri: inputImg,
-      currentNodeId: session.currentNodeId
-    });
+
+    const llmApiKey = await this.secretManager.getLlmApiKey();
+    const llmProvider = await this.secretManager.getLlmProvider();
+
+    const decision = await VisionAgentOrchestrator.decideTool(
+      promptText,
+      {
+        currentImageUri: inputImg,
+        currentNodeId: session.currentNodeId
+      },
+      {
+        apiKey: llmApiKey,
+        provider: llmProvider
+      }
+    );
     const intent = decision.intent;
+
+    // Send AI Agent Thinking into session chat stream so the user sees the reasoning
+    this.sessionManager.addMessage(session.sessionId, {
+      sender: 'assistant',
+      text: `🧠 **[Bộ Não AI Agent - ${decision.llmModelUsed || 'Cognitive Brain'}]**\n${decision.thought}\n\n*Công cụ thực thi:* \`${decision.toolName}\``,
+      nodeId: session.currentNodeId
+    });
+    this.broadcastSessionState();
 
     // 3. Dispatch operation to REAL Runware API or Smart Client GPU
     await this.executeOperation({

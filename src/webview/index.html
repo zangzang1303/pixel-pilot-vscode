@@ -44,24 +44,57 @@
     </header>
 
     <!-- API Key Configuration Modal -->
+    <!-- API & LLM Brain Configuration Modal -->
     <div id="api-key-modal" class="studio-modal-backdrop" style="display: none;">
       <div class="studio-modal-card">
         <div class="modal-header">
           <div class="modal-title-row">
-            <span class="modal-badge-icon">🔑</span>
-            <span class="modal-title">Cấu hình Runware API Key (Production)</span>
+            <span class="modal-badge-icon">🧠</span>
+            <span class="modal-title">Cấu hình Bộ Não AI & API Keys</span>
           </div>
           <button id="btn-close-key-modal" class="modal-close-btn">✕</button>
         </div>
-        <p class="modal-desc">
-          Pixel Pilot gửi request thật trực tiếp lên <code>https://api.runware.ai/v1</code>.
-          Đăng ký miễn phí nhận credits tại <a href="https://runware.ai" target="_blank">Runware.ai</a>. Khóa được mã hóa an toàn trong VS Code SecretStorage (OS Vault).
-        </p>
-        <div class="key-input-row">
-          <input type="password" id="input-api-key" placeholder="Dán Runware API Key vào đây..." />
-          <button id="btn-save-key" class="studio-btn studio-btn-primary">Lưu Khóa</button>
+
+        <!-- Section 1: LLM Cognitive Brain -->
+        <div class="key-config-section" style="margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+            <strong style="color: #38bdf8; font-size: 13px;">🧠 1. Bộ Não AI LLM (Hiểu ngữ cảnh & Phân tích ảnh)</strong>
+            <span id="llm-key-badge" class="stat-pill" style="font-size: 10px;">Local Brain</span>
+          </div>
+          <p class="modal-desc" style="margin-bottom: 8px;">
+            LLM đọc câu lệnh tiếng Việt, phân tích ngữ cảnh ảnh và ra quyết định gọi công cụ. Hỗ trợ <b>Google Gemini</b> (Miễn phí 15 RPM), <b>OpenAI (GPT-4o)</b>, <b>Groq</b>, hoặc <b>Local AI</b>.
+          </p>
+          <div class="key-input-row" style="margin-bottom: 8px;">
+            <select id="select-llm-provider" style="background: #1e1e2e; color: #fff; border: 1px solid #3b4261; border-radius: 6px; padding: 6px 10px; font-size: 12px; outline: none; width: 100%;">
+              <option value="gemini">Google Gemini (Miễn phí - Khuyên dùng)</option>
+              <option value="openai">OpenAI (GPT-4o / GPT-4o-mini)</option>
+              <option value="groq">Groq (Llama 3.3 Siêu tốc)</option>
+              <option value="ollama">Ollama Local (localhost:11434)</option>
+              <option value="local">Local Cognitive Reasoner (Nội bộ)</option>
+            </select>
+          </div>
+          <div class="key-input-row">
+            <input type="password" id="input-llm-key" placeholder="Dán Gemini API Key (AIzaSy...) hoặc OpenAI Key..." />
+            <button id="btn-save-llm-key" class="studio-btn studio-btn-primary">Lưu Bộ Não</button>
+          </div>
+          <div id="llm-status-msg" class="key-status-msg" style="margin-top: 4px;"></div>
         </div>
-        <div id="key-status-msg" class="key-status-msg"></div>
+
+        <!-- Section 2: Runware Vision Cloud API -->
+        <div class="key-config-section">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+            <strong style="color: #f59e0b; font-size: 13px;">☁️ 2. Runware Cloud API (Sinh ảnh & Mô hình SOTA)</strong>
+            <span id="runware-key-badge" class="stat-pill" style="font-size: 10px;">Chưa nạp</span>
+          </div>
+          <p class="modal-desc" style="margin-bottom: 8px;">
+            Dùng cho mô hình BiRefNet SOTA và sinh ảnh điện toán đám mây. Đăng ký tại <a href="https://runware.ai" target="_blank">Runware.ai</a>.
+          </p>
+          <div class="key-input-row">
+            <input type="password" id="input-api-key" placeholder="Dán Runware API Key vào đây..." />
+            <button id="btn-save-key" class="studio-btn studio-btn-primary">Lưu Khóa</button>
+          </div>
+          <div id="key-status-msg" class="key-status-msg" style="margin-top: 4px;"></div>
+        </div>
       </div>
     </div>
 
