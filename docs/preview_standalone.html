@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pixel Pilot - UI Standalone Preview</title>
+  <link rel="stylesheet" href="../src/webview/main.css">
+  <style>
+    body { background: #0d0e12; }
+  </style>
+</head>
+<body class="vscode-dark">
+  <div class="studio-container">
+    
+    <!-- Top Header -->
+    <header class="studio-header">
+      <div class="session-selector-wrapper">
+        <button class="session-dropdown-btn">
+          <span class="session-sparkle">✨</span>
+          <span class="session-title-text">TC1 - Tóc bay ngược sáng</span>
+          <span class="dropdown-caret">▾</span>
+        </button>
+      </div>
+
+      <div class="header-actions">
+        <button class="studio-nav-btn">
+          <span class="nav-icon">⚡</span>
+          <span class="nav-text">Batch</span>
+        </button>
+        <button class="studio-nav-btn">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-text">Config</span>
+        </button>
+        <button class="studio-nav-btn">
+          <span class="nav-icon">📌</span>
+          <span class="nav-text">Bên phải</span>
+        </button>
+        <button class="api-key-pill">
+          <span class="status-dot live"></span>
+          <span class="key-label-text">Live (sk-...gQwK)</span>
+        </button>
+        <button class="icon-round-btn">➕</button>
+      </div>
+    </header>
+
+    <!-- Canvas Viewport -->
+    <section class="viewport-section">
+      <div class="canvas-wrapper checker-bg">
+        
+        <!-- Floating Glassmorphic HUD Bar -->
+        <div class="floating-hud-bar">
+          <div class="hud-pill bg-mode-group">
+            <button class="hud-btn active">🏁</button>
+            <button class="hud-btn">⬛</button>
+            <button class="hud-btn">⬜</button>
+            <button class="hud-btn">🎨</button>
+          </div>
+
+          <div class="hud-pill zoom-group">
+            <button class="hud-btn">−</button>
+            <button class="hud-text-btn">100%</button>
+            <button class="hud-btn">+</button>
+            <button class="hud-text-btn">Fit</button>
+            <button class="hud-btn">✋</button>
+          </div>
+
+          <div class="hud-pill tools-group">
+            <button class="hud-action-btn">📐 SVG</button>
+            <button class="hud-action-btn">🖌️ Mask</button>
+            <button class="hud-btn">👁️</button>
+          </div>
+        </div>
+
+        <!-- Zoomable Stage -->
+        <div class="zoom-stage">
+          <div class="comparison-container">
+            <img class="img-layer" alt="After" src="../test_images/03_runware_birefnet/TC1.png" />
+
+            <div class="before-clip-container" style="width: 50%;">
+              <img class="img-layer" alt="Before" src="../test_images/01_original/TC1.jpg" />
+              <div class="layer-badge badge-before">
+                <span class="badge-dot dot-red"></span>
+                <span>GỐC</span>
+              </div>
+            </div>
+
+            <div class="layer-badge badge-after">
+              <span class="badge-dot dot-emerald"></span>
+              <span>KẾT QUẢ BIREFNET</span>
+            </div>
+
+            <div class="slider-divider" style="left: 50%;">
+              <div class="divider-line"></div>
+              <div class="divider-handle">
+                <span class="handle-icon">↔</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Telemetry Dashboard HUD -->
+      <div class="telemetry-dashboard">
+        <div class="telemetry-card">
+          <span class="telem-lbl">MÔ HÌNH</span>
+          <div class="telem-val-row">
+            <span class="telem-pulse"></span>
+            <span class="telem-val">Runware BiRefNet</span>
+          </div>
+        </div>
+        <div class="telemetry-card">
+          <span class="telem-lbl">ĐỘ TRỄ</span>
+          <span class="telem-val highlight-cyan">184 ms</span>
+        </div>
+        <div class="telemetry-card">
+          <span class="telem-lbl">CHI PHÍ</span>
+          <span class="telem-val highlight-emerald">$0.0006</span>
+        </div>
+        <div class="telemetry-card">
+          <span class="telem-lbl">ĐỘ PHÂN GIẢI</span>
+          <span class="telem-val">1920 × 1080 px</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Smart Studio 1-Click Action Deck -->
+    <section class="action-deck-section">
+      <div class="deck-header">
+        <div class="deck-title-group">
+          <span class="deck-icon">⚡</span>
+          <span class="deck-title">Bộ công cụ Studio 1-Click</span>
+        </div>
+        <div class="deck-tabs">
+          <button class="deck-tab-btn active">Tất cả (8)</button>
+          <button class="deck-tab-btn">AI Core</button>
+          <button class="deck-tab-btn">E-Commerce</button>
+        </div>
+      </div>
+
+      <div class="deck-grid">
+        <button class="deck-card glow-cyan">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-cyan">✂️</span>
+            <span class="deck-card-badge badge-cyan">SOTA</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Tách nền</span>
+            <span class="deck-card-desc">BiRefNet Cloud</span>
+          </div>
+        </button>
+
+        <button class="deck-card glow-purple">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-purple">⚡</span>
+            <span class="deck-card-badge badge-purple">4K UHD</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Upscale 4x</span>
+            <span class="deck-card-desc">Super-Resolution</span>
+          </div>
+        </button>
+
+        <button class="deck-card glow-emerald">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-emerald">📐</span>
+            <span class="deck-card-badge badge-emerald">SVG Code</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Vector SVG</span>
+            <span class="deck-card-desc">Clean Bézier Paths</span>
+          </div>
+        </button>
+
+        <button class="deck-card glow-white">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-white">⬜</span>
+            <span class="deck-card-badge badge-white">Shopify</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Studio Trắng</span>
+            <span class="deck-card-desc">E-Commerce Ready</span>
+          </div>
+        </button>
+
+        <button class="deck-card glow-blue">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-blue">👤</span>
+            <span class="deck-card-badge badge-blue">1:1 Crop</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Avatar Maker</span>
+            <span class="deck-card-desc">Circle Profile UI</span>
+          </div>
+        </button>
+
+        <button class="deck-card glow-amber">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-amber">📱</span>
+            <span class="deck-card-badge badge-amber">PWA</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Bộ Favicon</span>
+            <span class="deck-card-desc">16px – 512px Icons</span>
+          </div>
+        </button>
+
+        <button class="deck-card glow-teal">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-teal">💾</span>
+            <span class="deck-card-badge badge-teal">-85%</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Nén WebP</span>
+            <span class="deck-card-desc">Pagespeed Pro</span>
+          </div>
+        </button>
+
+        <button class="deck-card glow-rose">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-rose">🎨</span>
+            <span class="deck-card-badge badge-rose">Inpaint</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Xóa chi tiết</span>
+            <span class="deck-card-desc">Generative Fill</span>
+          </div>
+        </button>
+      </div>
+    </section>
+
+    <!-- Context-Aware Visual DAG History Visualizer -->
+    <section class="dag-section">
+      <div class="dag-header-row">
+        <div class="dag-title-group">
+          <span class="dag-icon">🌿</span>
+          <span class="dag-title-text">Lịch sử Ngữ cảnh Đồ thị (Context DAG)</span>
+          <span class="dag-count-badge">2 nodes</span>
+        </div>
+        <button class="btn-micro">💾 Export JSON</button>
+      </div>
+      <div class="dag-timeline-scroll">
+        <div class="dag-card">
+          <img class="dag-card-thumb" src="../test_images/01_original/TC1.jpg" alt="Thumb" />
+          <div class="dag-card-details">
+            <span class="dag-card-op">#1 Gốc</span>
+            <span class="dag-card-meta">Input</span>
+          </div>
+        </div>
+        <span class="dag-node-arrow">→</span>
+        <div class="dag-card active">
+          <img class="dag-card-thumb" src="../test_images/03_runware_birefnet/TC1.png" alt="Thumb" />
+          <div class="dag-card-details">
+            <span class="dag-card-op">#2 Tách nền (BiRefNet)</span>
+            <span class="dag-card-meta">184ms • $0.0006</span>
+          </div>
+          <div class="dag-card-actions">
+            <button class="btn-micro" title="So sánh">↔️</button>
+            <button class="btn-micro" title="Quay lại">↩️</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Codex-Style Chat Stream Feed -->
+    <section class="chat-feed-section">
+      <div class="chat-messages">
+        <div class="chat-bubble user">
+          Tách nền giúp tôi ảnh này với mô hình BiRefNet SOTA
+        </div>
+        <div class="chat-bubble assistant">
+          <div>Đã hoàn thành tách nền trong suốt chất lượng cao cho <b>TC1 - Tóc bay ngược sáng</b> bằng mô hình <b>Runware BiRefNet</b>!</div>
+          <div class="metrics-tag" style="font-size: 8px; color: var(--accent-cyan); margin-top: 2px; font-family: var(--font-mono);">
+            ⚡ 184ms • Runware BiRefNet SOTA • Chi phí: $0.0006
+          </div>
+          <div class="msg-actions">
+            <button class="btn-msg-action">💾 Lưu file</button>
+            <button class="btn-msg-action">↔️ So sánh</button>
+            <button class="btn-msg-action">📋 Copy ảnh</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Codex Bottom Prompt Bar -->
+    <footer class="codex-prompt-footer">
+      <div class="slash-chips-bar">
+        <button class="chip-btn"><span class="chip-dot dot-cyan"></span>✂️ /tách-nền</button>
+        <button class="chip-btn"><span class="chip-dot dot-purple"></span>⚡ /upscale-4x</button>
+        <button class="chip-btn"><span class="chip-dot dot-emerald"></span>📐 /vector-svg</button>
+        <button class="chip-btn"><span class="chip-dot dot-white"></span>⬜ /nền-trắng</button>
+        <button class="chip-btn"><span class="chip-dot dot-blue"></span>👤 /avatar</button>
+        <button class="chip-btn"><span class="chip-dot dot-rose"></span>🎨 /inpaint</button>
+        <button class="chip-btn"><span class="chip-dot dot-amber"></span>〰️ /canny</button>
+        <button class="chip-btn"><span class="chip-dot dot-purple"></span>✍️ /lineart</button>
+      </div>
+
+      <div class="prompt-input-container">
+        <button class="attach-btn" title="Chọn ảnh khác từ Workspace">📂</button>
+        <textarea rows="1" placeholder="Hỏi hoặc nhập lệnh (vd: 'Tách nền ảnh này', 'Upscale 4K', 'Biến thành vector')..."></textarea>
+        <button class="send-btn"><span>➤</span></button>
+      </div>
+
+      <div class="prompt-hint-row">
+        <span>💡 Yêu cầu được gửi <b>trực tiếp lên Runware API thật</b>. Hỗ trợ kéo thả hoặc <b>Ctrl + V</b> để dán ảnh.</span>
+      </div>
+    </footer>
+
+  </div>
+</body>
+</html>

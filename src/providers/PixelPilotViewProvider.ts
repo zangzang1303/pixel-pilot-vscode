@@ -48,13 +48,19 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   ): void {
     this._view = webviewView;
 
+    const localRoots: vscode.Uri[] = [
+      vscode.Uri.file(this.context.extensionPath),
+      this.context.globalStorageUri
+    ];
+    if (vscode.workspace.workspaceFolders) {
+      for (const folder of vscode.workspace.workspaceFolders) {
+        localRoots.push(folder.uri);
+      }
+    }
+
     webviewView.webview.options = {
       enableScripts: true,
-      localResourceRoots: [
-        vscode.Uri.file(path.join(this.context.extensionPath, 'src', 'webview')),
-        vscode.Uri.file(path.join(this.context.extensionPath, 'media')),
-        this.context.globalStorageUri
-      ]
+      localResourceRoots: localRoots
     };
 
     webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
@@ -71,11 +77,21 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         let activeSession = this.sessionManager.getActiveSession();
         if (!activeSession) {
           const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-          const defaultTestImg = workspaceRoot
-            ? path.join(workspaceRoot, 'pixel-pilot-vscode', 'test_images', '01_original', 'TC1.jpg')
-            : '';
+          const candidates = [
+            path.join(workspaceRoot || '', 'test_images', '01_original', 'TC1.jpg'),
+            path.join(workspaceRoot || '', 'pixel-pilot-vscode', 'test_images', '01_original', 'TC1.jpg'),
+            path.join(this.context.extensionPath, 'test_images', '01_original', 'TC1.jpg'),
+            'd:/CODE/DAKH/pixel-pilot-vscode/test_images/01_original/TC1.jpg'
+          ];
+          let defaultTestImg = '';
+          for (const cand of candidates) {
+            if (fs.existsSync(cand)) {
+              defaultTestImg = cand;
+              break;
+            }
+          }
 
-          if (fs.existsSync(defaultTestImg)) {
+          if (defaultTestImg) {
             const cachedPath = await this.assetStorage.saveToCache(defaultTestImg);
             const webviewUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : defaultTestImg;
             this.uriToPathMap.set(webviewUri, cachedPath);

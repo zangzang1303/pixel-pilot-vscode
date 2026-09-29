@@ -4,122 +4,148 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <!-- CSP_PLACEHOLDER -->
-  <title>Pixel Pilot - AI Vision Studio</title>
+  <title>Pixel Pilot - Enterprise Visual AI Studio</title>
   <link rel="stylesheet" href="main.css">
 </head>
 <body class="vscode-dark">
   <div class="studio-container">
     
-    <!-- Top Header: Session Switcher & Enterprise Controls -->
+    <!-- Top Header: Session Switcher & Studio Controls -->
     <header class="studio-header">
       <div class="session-selector-wrapper">
-        <button id="btn-session-dropdown" class="session-dropdown-btn" title="Chọn hoặc quản lý Session">
-          <span class="session-icon">💬</span>
+        <button id="btn-session-dropdown" class="session-dropdown-btn" title="Chọn hoặc quản lý Phiên làm việc">
+          <span class="session-sparkle">✨</span>
           <span id="current-session-title" class="session-title-text">Phiên làm việc mới</span>
           <span class="dropdown-caret">▾</span>
         </button>
       </div>
 
       <div class="header-actions">
-        <button id="btn-batch-process" class="icon-text-btn" title="Xử lý hàng loạt cả thư mục ảnh (Batch Processor)">
-          <span>⚡ Xử lý thư mục</span>
+        <button id="btn-batch-process" class="studio-nav-btn" title="Xử lý hàng loạt cả thư mục ảnh (Batch Processor)">
+          <span class="nav-icon">⚡</span>
+          <span class="nav-text">Batch</span>
         </button>
-        <button id="btn-enterprise-config" class="icon-text-btn" title="Cấu hình chuẩn Doanh nghiệp (.pixelpilotrc.json)">
-          <span>⚙️ Config</span>
+        <button id="btn-enterprise-config" class="studio-nav-btn" title="Cấu hình chuẩn Doanh nghiệp (.pixelpilotrc.json)">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-text">Config</span>
         </button>
-        <button id="btn-move-right" class="icon-text-btn" title="Chuyển sang thanh bên phải (Secondary Sidebar) như Codex">
-          <span>📌 Sang phải</span>
+        <button id="btn-move-right" class="studio-nav-btn" title="Chuyển sang thanh bên phải (Secondary Sidebar)">
+          <span class="nav-icon">📌</span>
+          <span class="nav-text">Bên phải</span>
         </button>
-        <button id="btn-api-key" class="badge-button" title="Cấu hình Runware API Key thật">
-          <span class="indicator live" id="key-indicator"></span>
-          <span id="key-label">🔑 API Key</span>
+        <button id="btn-api-key" class="api-key-pill" title="Cấu hình Runware API Key bảo mật">
+          <span class="status-dot live" id="key-indicator"></span>
+          <span id="key-label" class="key-label-text">API Key</span>
         </button>
-        <button id="btn-new-session" class="icon-btn" title="Tạo Session mới">➕</button>
+        <button id="btn-new-session" class="icon-round-btn" title="Tạo Session mới">➕</button>
       </div>
     </header>
 
     <!-- API Key Configuration Modal -->
-    <div id="api-key-modal" class="api-key-modal" style="display: none;">
-      <div class="modal-card">
+    <div id="api-key-modal" class="studio-modal-backdrop" style="display: none;">
+      <div class="studio-modal-card">
         <div class="modal-header">
-          <span>🔑 Cấu hình Runware API Key (Thật 100%)</span>
-          <button id="btn-close-key-modal" class="btn-tiny">✕</button>
+          <div class="modal-title-row">
+            <span class="modal-badge-icon">🔑</span>
+            <span class="modal-title">Cấu hình Runware API Key (Production)</span>
+          </div>
+          <button id="btn-close-key-modal" class="modal-close-btn">✕</button>
         </div>
         <p class="modal-desc">
           Pixel Pilot gửi request thật trực tiếp lên <code>https://api.runware.ai/v1</code>.
-          Đăng ký miễn phí nhận credits tại <a href="https://runware.ai" target="_blank">Runware.ai</a>. Khóa được mã hóa an toàn trong VS Code SecretStorage.
+          Đăng ký miễn phí nhận credits tại <a href="https://runware.ai" target="_blank">Runware.ai</a>. Khóa được mã hóa an toàn trong VS Code SecretStorage (OS Vault).
         </p>
         <div class="key-input-row">
           <input type="password" id="input-api-key" placeholder="Dán Runware API Key vào đây..." />
-          <button id="btn-save-key" class="btn-primary">Lưu Key</button>
+          <button id="btn-save-key" class="btn-gradient-primary">Lưu Khóa</button>
         </div>
         <div id="key-status-msg" class="key-status-msg"></div>
       </div>
     </div>
 
-    <!-- Session Drawer / Modal (Hidden by default) -->
-    <div id="session-drawer" class="session-drawer" style="display: none;">
-      <div class="drawer-header">
-        <span>Danh sách Phiên làm việc (Sessions)</span>
-        <button id="btn-close-drawer" class="btn-tiny">✕</button>
+    <!-- Session Drawer Modal -->
+    <div id="session-drawer" class="studio-modal-backdrop" style="display: none;">
+      <div class="studio-modal-card">
+        <div class="modal-header">
+          <div class="modal-title-row">
+            <span class="modal-badge-icon">📂</span>
+            <span class="modal-title">Danh sách Phiên làm việc (Sessions)</span>
+          </div>
+          <button id="btn-close-drawer" class="modal-close-btn">✕</button>
+        </div>
+        <div id="session-list" class="session-list-scroll">
+          <!-- Dynamically rendered sessions -->
+        </div>
+        <button id="btn-drawer-new-session" class="btn-gradient-secondary full-width">
+          ➕ Tạo Phiên làm việc mới
+        </button>
       </div>
-      <div id="session-list" class="session-list">
-        <!-- Dynamically rendered sessions -->
-      </div>
-      <button id="btn-drawer-new-session" class="btn-secondary full-width">
-        ➕ Tạo Phiên làm việc mới
-      </button>
     </div>
 
-    <!-- Collapsible Viewport Section: Before/After Split Slider & Zoom/Pan -->
+    <!-- Canvas Viewport Section: Before/After Split Slider & Floating HUD -->
     <section class="viewport-section" id="viewport-section">
-      <div class="viewport-toolbar">
-        <div class="bg-mode-selector">
-          <button class="bg-mode-btn active" data-bg="checker" title="Nền trong suốt Caro">🏁</button>
-          <button class="bg-mode-btn" data-bg="dark" title="Nền tối">⬛</button>
-          <button class="bg-mode-btn" data-bg="light" title="Nền sáng">⬜</button>
-          <button class="bg-mode-btn" data-bg="studio" title="Nền Studio Gradient">🎨</button>
-        </div>
-
-        <div class="zoom-controls">
-          <button id="btn-zoom-out" class="zoom-btn" title="Thu nhỏ (-)">−</button>
-          <button id="btn-zoom-reset" class="zoom-btn-label" title="Đặt lại 100%">100%</button>
-          <button id="btn-zoom-in" class="zoom-btn" title="Phóng to (+)">+</button>
-          <button id="btn-zoom-fit" class="zoom-btn" title="Vừa khung hình">Fit</button>
-          <button id="btn-pan-toggle" class="zoom-btn" title="Bật/Tắt chế độ kéo Pan bằng chuột">✋</button>
-        </div>
-
-        <div class="viewport-toggles">
-          <button id="btn-inspect-svg" class="tool-tiny-btn" style="display: none;" title="Xem & Copy mã SVG / React Component">📐 SVG Code</button>
-          <button id="btn-toggle-brush" class="tool-tiny-btn" title="Bật/Tắt cọ vẽ Mask để Inpaint">🖌️ Mask</button>
-          <button id="btn-toggle-canvas" class="tool-tiny-btn" title="Thu gọn/Mở rộng Viewport">👁️ Thu gọn</button>
-        </div>
-      </div>
-
       <div class="canvas-wrapper checker-bg" id="canvas-wrapper">
+        
+        <!-- Floating Glassmorphic HUD Bar -->
+        <div class="floating-hud-bar">
+          <!-- Background Mode Selector Pill -->
+          <div class="hud-pill bg-mode-group">
+            <button class="hud-btn bg-mode-btn active" data-bg="checker" title="Nền trong suốt Caro">🏁</button>
+            <button class="hud-btn bg-mode-btn" data-bg="dark" title="Nền tối chuyên nghiệp">⬛</button>
+            <button class="hud-btn bg-mode-btn" data-bg="light" title="Nền sáng">⬜</button>
+            <button class="hud-btn bg-mode-btn" data-bg="studio" title="Nền Studio Vignette">🎨</button>
+          </div>
+
+          <!-- Zoom & Pan Controls Pill -->
+          <div class="hud-pill zoom-group">
+            <button id="btn-zoom-out" class="hud-btn" title="Thu nhỏ (-)">−</button>
+            <button id="btn-zoom-reset" class="hud-text-btn" title="Đặt lại 100%">100%</button>
+            <button id="btn-zoom-in" class="hud-btn" title="Phóng to (+)">+</button>
+            <button id="btn-zoom-fit" class="hud-text-btn" title="Vừa khung nhìn">Fit</button>
+            <button id="btn-pan-toggle" class="hud-btn" title="Bật/Tắt chế độ kéo Pan bằng chuột">✋</button>
+          </div>
+
+          <!-- Extra Tools Pill -->
+          <div class="hud-pill tools-group">
+            <button id="btn-inspect-svg" class="hud-action-btn" style="display: none;" title="Xem & Copy mã SVG / React Component">📐 SVG</button>
+            <button id="btn-toggle-brush" class="hud-action-btn" title="Bật/Tắt cọ vẽ Mask để Inpaint">🖌️ Mask</button>
+            <button id="btn-toggle-canvas" class="hud-btn" title="Thu gọn / Mở rộng Viewport">👁️</button>
+          </div>
+        </div>
+
         <!-- Drag & Drop Dropzone Overlay -->
         <div class="dropzone-overlay" id="dropzone-overlay" style="display: none;">
-          <div class="dropzone-inner">
+          <div class="dropzone-card">
             <span class="dropzone-icon">📥</span>
-            <span>Thả ảnh vào đây để nạp vào Studio!</span>
+            <span class="dropzone-title">Thả ảnh vào đây</span>
+            <span class="dropzone-sub">Nạp ngay vào Pixel Pilot Studio</span>
           </div>
         </div>
 
         <!-- Zoomable & Pannable Stage Container -->
         <div class="zoom-stage" id="zoom-stage">
-          <!-- Before/After Split Container -->
           <div class="comparison-container" id="comparison-container">
             <img id="img-after" class="img-layer" alt="After AI Processing" src="" />
 
             <div class="before-clip-container" id="before-clip-container">
               <img id="img-before" class="img-layer" alt="Original Image" src="" />
-              <span class="layer-label label-before" id="lbl-before">GỐC</span>
+              <div class="layer-badge badge-before" id="lbl-before">
+                <span class="badge-dot dot-red"></span>
+                <span>GỐC</span>
+              </div>
             </div>
-            <span class="layer-label label-after" id="lbl-after">KẾT QUẢ RUNWARE</span>
 
+            <div class="layer-badge badge-after" id="lbl-after">
+              <span class="badge-dot dot-emerald"></span>
+              <span>KẾT QUẢ AI</span>
+            </div>
+
+            <!-- Modern Split Slider Divider -->
             <div class="slider-divider" id="slider-divider">
               <div class="divider-line"></div>
-              <div class="divider-handle"><span>↔</span></div>
+              <div class="divider-handle">
+                <span class="handle-icon">↔</span>
+              </div>
             </div>
 
             <canvas id="inpaint-canvas" class="inpaint-canvas" style="display: none;"></canvas>
@@ -128,10 +154,12 @@
 
         <!-- Empty State Placeholder -->
         <div class="empty-placeholder" id="empty-placeholder">
-          <div class="empty-icon">🖼️</div>
-          <p class="empty-title">Chưa có ảnh trong phiên làm việc</p>
-          <p class="empty-hint">Kéo thả ảnh vào đây, nhấn <b>Ctrl + V</b> để dán ảnh, hoặc chọn từ máy:</p>
-          <button id="btn-select-file" class="btn-primary mt-8">
+          <div class="empty-glow-ring">
+            <span class="empty-icon">🖼️</span>
+          </div>
+          <h3 class="empty-title">Pixel Pilot AI Studio</h3>
+          <p class="empty-desc">Kéo thả ảnh vào đây, nhấn <b>Ctrl + V</b> để dán ảnh, hoặc chọn từ Workspace:</p>
+          <button id="btn-select-file" class="btn-gradient-primary mt-12">
             📂 Chọn ảnh từ Workspace
           </button>
         </div>
@@ -139,104 +167,154 @@
         <!-- Processing Shimmer Scanner Overlay -->
         <div class="scanner-overlay" id="scanner-overlay" style="display: none;">
           <div class="scan-laser"></div>
-          <div class="scan-text">
-            <span class="spinner"></span>
-            <span id="scan-label">Đang gọi Runware API thật...</span>
+          <div class="scan-card">
+            <div class="scan-spinner"></div>
+            <span id="scan-label" class="scan-text">Đang gọi Runware API thật...</span>
           </div>
         </div>
       </div>
 
       <!-- Inpaint Brush Control Bar (Visible in Inpaint Mode) -->
       <div class="inpaint-toolbar" id="inpaint-toolbar" style="display: none;">
-        <label>Cọ Mask:</label>
+        <span class="inpaint-lbl">🖌️ Cỡ cọ:</span>
         <input type="range" id="brush-size" min="5" max="80" value="30">
-        <span id="brush-size-val">30px</span>
-        <button id="btn-clear-mask" class="btn-tiny">Xóa Mask</button>
+        <span id="brush-size-val" class="brush-val">30px</span>
+        <button id="btn-clear-mask" class="btn-micro">Xóa Mask</button>
         <span class="inpaint-hint">Tô vùng muốn xóa hoặc thay thế rồi gõ câu lệnh bên dưới!</span>
       </div>
 
-      <!-- Telemetry Strip -->
-      <div class="metrics-strip" id="metrics-strip">
-        <div class="metric-item">
-          <span class="metric-lbl">Mô hình</span>
-          <span class="metric-val" id="metric-model">Runware BiRefNet</span>
+      <!-- Real-Time Telemetry Dashboard HUD -->
+      <div class="telemetry-dashboard" id="metrics-strip">
+        <div class="telemetry-card">
+          <span class="telem-lbl">MÔ HÌNH</span>
+          <div class="telem-val-row">
+            <span class="telem-pulse"></span>
+            <span class="telem-val" id="metric-model">Runware BiRefNet</span>
+          </div>
         </div>
-        <div class="metric-item">
-          <span class="metric-lbl">Độ trễ thật</span>
-          <span class="metric-val highlight" id="metric-latency">0 ms</span>
+        <div class="telemetry-card">
+          <span class="telem-lbl">ĐỘ TRỄ</span>
+          <span class="telem-val highlight-cyan" id="metric-latency">0 ms</span>
         </div>
-        <div class="metric-item">
-          <span class="metric-lbl">Chi phí thật</span>
-          <span class="metric-val" id="metric-cost">$0.0006</span>
+        <div class="telemetry-card">
+          <span class="telem-lbl">CHI PHÍ</span>
+          <span class="telem-val highlight-emerald" id="metric-cost">$0.0006</span>
         </div>
-        <div class="metric-item">
-          <span class="metric-lbl">Độ phân giải</span>
-          <span class="metric-val" id="metric-res">-- x --</span>
+        <div class="telemetry-card">
+          <span class="telem-lbl">ĐỘ PHÂN GIẢI</span>
+          <span class="telem-val" id="metric-res">-- × --</span>
         </div>
       </div>
     </section>
 
-    <!-- Smart Studio 1-Click Action Toolbelt -->
-    <section class="toolbelt-section" id="toolbelt-section">
-      <div class="toolbelt-header">
-        <span>⚡ Bộ công cụ Studio 1-Click</span>
-        <span class="toolbelt-sub">Tác vụ AI & Tối ưu hóa</span>
+    <!-- Smart Studio 1-Click Action Deck -->
+    <section class="action-deck-section" id="toolbelt-section">
+      <div class="deck-header">
+        <div class="deck-title-group">
+          <span class="deck-icon">⚡</span>
+          <span class="deck-title">Bộ công cụ Studio 1-Click</span>
+        </div>
+        <div class="deck-tabs">
+          <button class="deck-tab-btn active" data-filter="all">Tất cả (8)</button>
+          <button class="deck-tab-btn" data-filter="ai">AI Core</button>
+          <button class="deck-tab-btn" data-filter="product">E-Commerce</button>
+        </div>
       </div>
-      <div class="toolbelt-grid">
-        <button class="toolbelt-card" data-action="remove_bg" title="Tách nền bằng BiRefNet SOTA">
-          <span class="toolbelt-icon">✂️</span>
-          <div class="toolbelt-info">
-            <span class="toolbelt-name">Tách nền SOTA</span>
-            <span class="toolbelt-tag">BiRefNet</span>
+
+      <div class="deck-grid">
+        <!-- 1. Remove BG -->
+        <button class="deck-card glow-cyan" data-action="remove_bg" data-cat="ai" title="Tách nền bằng BiRefNet SOTA (Độ sắc nét đến từng sợi tóc)">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-cyan">✂️</span>
+            <span class="deck-card-badge badge-cyan">SOTA</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Tách nền</span>
+            <span class="deck-card-desc">BiRefNet Cloud</span>
           </div>
         </button>
-        <button class="toolbelt-card" data-action="upscale_4x" title="Phóng to 4x siêu nét Super-Resolution">
-          <span class="toolbelt-icon">⚡</span>
-          <div class="toolbelt-info">
-            <span class="toolbelt-name">Upscale 4x</span>
-            <span class="toolbelt-tag">Super-Res</span>
+
+        <!-- 2. Upscale 4x -->
+        <button class="deck-card glow-purple" data-action="upscale_4x" data-cat="ai" title="Phóng to 4x siêu nét Super-Resolution không vỡ hạt">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-purple">⚡</span>
+            <span class="deck-card-badge badge-purple">4K UHD</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Upscale 4x</span>
+            <span class="deck-card-desc">Super-Resolution</span>
           </div>
         </button>
-        <button class="toolbelt-card" data-action="vectorize" title="Chuyển đổi sang đồ họa Vector SVG sắc nét">
-          <span class="toolbelt-icon">📐</span>
-          <div class="toolbelt-info">
-            <span class="toolbelt-name">Vector SVG</span>
-            <span class="toolbelt-tag">Clean Paths</span>
+
+        <!-- 3. Vectorize SVG -->
+        <button class="deck-card glow-emerald" data-action="vectorize" data-cat="ai" title="Chuyển đổi sang đồ họa Vector SVG sắc nét">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-emerald">📐</span>
+            <span class="deck-card-badge badge-emerald">SVG Code</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Vector SVG</span>
+            <span class="deck-card-desc">Clean Bézier Paths</span>
           </div>
         </button>
-        <button class="toolbelt-card" data-action="white_bg" title="Tạo nền trắng tinh khiết chuẩn sản phẩm E-Commerce">
-          <span class="toolbelt-icon">⬜</span>
-          <div class="toolbelt-info">
-            <span class="toolbelt-name">Studio Trắng</span>
-            <span class="toolbelt-tag">E-Commerce</span>
+
+        <!-- 4. Studio White BG -->
+        <button class="deck-card glow-white" data-action="white_bg" data-cat="product" title="Tạo nền trắng tinh khiết chuẩn sản phẩm E-Commerce">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-white">⬜</span>
+            <span class="deck-card-badge badge-white">Shopify</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Studio Trắng</span>
+            <span class="deck-card-desc">E-Commerce Ready</span>
           </div>
         </button>
-        <button class="toolbelt-card" data-action="avatar" title="Cắt ảnh chân dung 1:1 hình tròn kèm viền bo">
-          <span class="toolbelt-icon">👤</span>
-          <div class="toolbelt-info">
-            <span class="toolbelt-name">Avatar Maker</span>
-            <span class="toolbelt-tag">1:1 Circle</span>
+
+        <!-- 5. Avatar Maker -->
+        <button class="deck-card glow-blue" data-action="avatar" data-cat="product" title="Cắt ảnh chân dung 1:1 hình tròn kèm viền bo">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-blue">👤</span>
+            <span class="deck-card-badge badge-blue">1:1 Crop</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Avatar Maker</span>
+            <span class="deck-card-desc">Circle Profile UI</span>
           </div>
         </button>
-        <button class="toolbelt-card" data-action="icons" title="Xuất bộ icon chuẩn Web/PWA (16-512px) theo .pixelpilotrc.json">
-          <span class="toolbelt-icon">📱</span>
-          <div class="toolbelt-info">
-            <span class="toolbelt-name">Bộ Favicon</span>
-            <span class="toolbelt-tag">16-512px</span>
+
+        <!-- 6. Favicon Suite -->
+        <button class="deck-card glow-amber" data-action="icons" data-cat="product" title="Xuất bộ icon chuẩn Web/PWA (16-512px) theo .pixelpilotrc.json">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-amber">📱</span>
+            <span class="deck-card-badge badge-amber">PWA</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Bộ Favicon</span>
+            <span class="deck-card-desc">16px – 512px Icons</span>
           </div>
         </button>
-        <button class="toolbelt-card" data-action="export_webp" title="Nén ảnh sang định dạng WebP giảm đến 85% dung lượng">
-          <span class="toolbelt-icon">💾</span>
-          <div class="toolbelt-info">
-            <span class="toolbelt-name">Nén WebP</span>
-            <span class="toolbelt-tag">-85% Size</span>
+
+        <!-- 7. WebP Compression -->
+        <button class="deck-card glow-teal" data-action="export_webp" data-cat="product" title="Nén ảnh sang định dạng WebP giảm đến 85% dung lượng">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-teal">💾</span>
+            <span class="deck-card-badge badge-teal">-85%</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Nén WebP</span>
+            <span class="deck-card-desc">Pagespeed Pro</span>
           </div>
         </button>
-        <button class="toolbelt-card" data-action="inpaint_brush" title="Bật cọ vẽ để xóa vật thể thừa hoặc tái tạo chi tiết">
-          <span class="toolbelt-icon">🎨</span>
-          <div class="toolbelt-info">
-            <span class="toolbelt-name">Inpaint Brush</span>
-            <span class="toolbelt-tag">Xóa vật thể</span>
+
+        <!-- 8. Inpaint Brush -->
+        <button class="deck-card glow-rose" data-action="inpaint_brush" data-cat="ai" title="Bật cọ vẽ để xóa vật thể thừa hoặc tái tạo chi tiết">
+          <div class="deck-card-top">
+            <span class="deck-card-icon icon-rose">🎨</span>
+            <span class="deck-card-badge badge-rose">Inpaint</span>
+          </div>
+          <div class="deck-card-content">
+            <span class="deck-card-name">Xóa chi tiết</span>
+            <span class="deck-card-desc">Generative Fill</span>
           </div>
         </button>
       </div>
@@ -244,12 +322,13 @@
 
     <!-- Context-Aware Visual DAG History Visualizer -->
     <section class="dag-section">
-      <div class="section-title">
-        <span>🌿 Lịch sử Ngữ cảnh Đồ thị (Context DAG)</span>
-        <div class="dag-header-actions">
-          <button id="btn-export-dag" class="btn-tiny" title="Xuất toàn bộ cây đồ thị ra file JSON">💾 Export DAG</button>
-          <span class="dag-count" id="dag-node-count">1 nodes</span>
+      <div class="dag-header-row">
+        <div class="dag-title-group">
+          <span class="dag-icon">🌿</span>
+          <span class="dag-title-text">Lịch sử Ngữ cảnh Đồ thị (Context DAG)</span>
+          <span class="dag-count-badge" id="dag-node-count">1 nodes</span>
         </div>
+        <button id="btn-export-dag" class="btn-micro" title="Xuất toàn bộ cây đồ thị ra file JSON">💾 Export JSON</button>
       </div>
       <div class="dag-timeline-scroll" id="dag-timeline">
         <!-- Dynamically rendered DAG Node Cards -->
@@ -265,21 +344,21 @@
 
     <!-- Codex Bottom Prompt Bar -->
     <footer class="codex-prompt-footer">
-      <!-- Slash Command Quick Chips -->
+      <!-- Quick Slash Command Chips -->
       <div class="slash-chips-bar">
-        <button class="chip-btn" data-cmd="/remove-bg">✂️ /tách-nền</button>
-        <button class="chip-btn" data-cmd="/upscale-4x">⚡ /upscale-4x</button>
-        <button class="chip-btn" data-cmd="/vectorize">📐 /vector-svg</button>
-        <button class="chip-btn" data-cmd="/white-bg">⬜ /nền-trắng</button>
-        <button class="chip-btn" data-cmd="/avatar">👤 /avatar</button>
-        <button class="chip-btn" data-cmd="/inpaint ">🎨 /inpaint</button>
-        <button class="chip-btn" data-cmd="/canny">〰️ /canny</button>
-        <button class="chip-btn" data-cmd="/lineart">✍️ /lineart</button>
-        <button class="chip-btn" data-cmd="/caption">💬 /caption</button>
-        <button class="chip-btn" data-cmd="/extend">🖼️ /extend</button>
+        <button class="chip-btn" data-cmd="/remove-bg"><span class="chip-dot dot-cyan"></span>✂️ /tách-nền</button>
+        <button class="chip-btn" data-cmd="/upscale-4x"><span class="chip-dot dot-purple"></span>⚡ /upscale-4x</button>
+        <button class="chip-btn" data-cmd="/vectorize"><span class="chip-dot dot-emerald"></span>📐 /vector-svg</button>
+        <button class="chip-btn" data-cmd="/white-bg"><span class="chip-dot dot-white"></span>⬜ /nền-trắng</button>
+        <button class="chip-btn" data-cmd="/avatar"><span class="chip-dot dot-blue"></span>👤 /avatar</button>
+        <button class="chip-btn" data-cmd="/inpaint "><span class="chip-dot dot-rose"></span>🎨 /inpaint</button>
+        <button class="chip-btn" data-cmd="/canny"><span class="chip-dot dot-amber"></span>〰️ /canny</button>
+        <button class="chip-btn" data-cmd="/lineart"><span class="chip-dot dot-purple"></span>✍️ /lineart</button>
+        <button class="chip-btn" data-cmd="/caption"><span class="chip-dot dot-cyan"></span>💬 /caption</button>
+        <button class="chip-btn" data-cmd="/extend"><span class="chip-dot dot-emerald"></span>🖼️ /extend</button>
       </div>
 
-      <!-- Input Box -->
+      <!-- Modern Prompt Input Container -->
       <div class="prompt-input-container">
         <button id="btn-attach-file" class="attach-btn" title="Chọn ảnh khác từ Workspace">📂</button>
         <textarea
@@ -292,25 +371,28 @@
         </button>
       </div>
 
-      <div class="prompt-hint">
-        <span>💡 Yêu cầu được gửi <b>trực tiếp lên Runware API thật</b>. Hỗ trợ kéo thả ảnh hoặc nhấn <b>Ctrl + V</b> để dán ảnh.</span>
+      <div class="prompt-hint-row">
+        <span>💡 Yêu cầu được gửi <b>trực tiếp lên Runware API thật</b>. Hỗ trợ kéo thả hoặc <b>Ctrl + V</b> để dán ảnh.</span>
       </div>
     </footer>
 
     <!-- SVG Code Inspector & React Exporter Modal -->
-    <div id="svg-inspector-modal" class="svg-modal" style="display: none;">
-      <div class="modal-card wide">
+    <div id="svg-inspector-modal" class="studio-modal-backdrop" style="display: none;">
+      <div class="studio-modal-card modal-wide">
         <div class="modal-header">
-          <span>📐 SVG Code Inspector & React Exporter</span>
-          <button id="btn-close-svg-modal" class="btn-tiny">✕</button>
+          <div class="modal-title-row">
+            <span class="modal-badge-icon">📐</span>
+            <span class="modal-title">SVG Code Inspector & React Component Exporter</span>
+          </div>
+          <button id="btn-close-svg-modal" class="modal-close-btn">✕</button>
         </div>
         <div class="svg-stats-bar">
-          <span class="stat-badge" id="svg-stat-size">Dung lượng: 0 KB</span>
-          <span class="stat-badge" id="svg-stat-paths">Paths: 0</span>
-          <span class="stat-badge" id="svg-stat-viewbox">viewBox: 0 0 0 0</span>
+          <span class="stat-pill" id="svg-stat-size">Dung lượng: 0 KB</span>
+          <span class="stat-pill" id="svg-stat-paths">Paths: 0</span>
+          <span class="stat-pill" id="svg-stat-viewbox">viewBox: 0 0 0 0</span>
         </div>
-        <div class="svg-tabs">
-          <button class="svg-tab-btn active" data-tab="preview">👁️ Xem trước</button>
+        <div class="svg-tabs-nav">
+          <button class="svg-tab-btn active" data-tab="preview">👁️ Xem trước SVG</button>
           <button class="svg-tab-btn" data-tab="raw">📄 Raw SVG Code</button>
           <button class="svg-tab-btn" data-tab="react">⚛️ React JSX Component</button>
         </div>
@@ -325,10 +407,10 @@
             <textarea id="svg-react-text" class="code-editor-area" readonly></textarea>
           </div>
         </div>
-        <div class="svg-modal-footer">
-          <button id="btn-copy-raw-svg" class="btn-secondary">📋 Copy Raw SVG</button>
-          <button id="btn-copy-react-svg" class="btn-primary">⚛️ Copy React Component</button>
-          <button id="btn-save-svg-file" class="btn-secondary">📁 Lưu file .svg</button>
+        <div class="modal-actions-footer">
+          <button id="btn-copy-raw-svg" class="btn-gradient-secondary">📋 Copy Raw SVG</button>
+          <button id="btn-copy-react-svg" class="btn-gradient-primary">⚛️ Copy React Component</button>
+          <button id="btn-save-svg-file" class="btn-gradient-secondary">📁 Lưu file .svg</button>
         </div>
       </div>
     </div>

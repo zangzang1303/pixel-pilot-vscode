@@ -1,4 +1,4 @@
-// app.js - Modern Dark Codex-Style AI Studio Webview Controller for Pixel Pilot
+// app.js - High-End Dark Glassmorphism Studio Controller for Pixel Pilot
 // 100% Real API, Interactive Zoom/Pan, Smart Toolbelt, Drag&Drop, SVG Inspector & Visual DAG
 
 (function () {
@@ -123,6 +123,7 @@
     setupApiKeyModal();
     setupCodexPromptBar();
     setupSmartToolbelt();
+    setupDeckTabs();
     setupInpaint();
     setupBackgroundToggles();
     setupSvgInspectorModal();
@@ -160,7 +161,7 @@
       zoomStage.classList.toggle('panning', panMode);
     });
 
-    // Mouse Wheel Zoom (Ctrl + Wheel or Pinch)
+    // Mouse Wheel Zoom (Ctrl + Wheel or Trackpad Pinch)
     canvasWrapper.addEventListener('wheel', (e) => {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
@@ -171,7 +172,7 @@
 
     // Drag Pan Event Handlers
     canvasWrapper.addEventListener('mousedown', (e) => {
-      if (panMode || e.button === 1 || e.spaceKey) {
+      if (panMode || e.button === 1) {
         isPanningMouse = true;
         startPanX = e.clientX - panX;
         startPanY = e.clientY - panY;
@@ -277,9 +278,28 @@
     });
   }
 
+  // --- Filter Tabs for Action Deck ---
+  function setupDeckTabs() {
+    document.querySelectorAll('.deck-tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.deck-tab-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        const filter = btn.dataset.filter;
+        document.querySelectorAll('.deck-card').forEach((card) => {
+          if (filter === 'all' || card.dataset.cat === filter) {
+            card.style.display = 'flex';
+          } else {
+            card.style.display = 'none';
+          }
+        });
+      });
+    });
+  }
+
   // --- Smart Studio 1-Click Action Toolbelt ---
   function setupSmartToolbelt() {
-    document.querySelectorAll('.toolbelt-card').forEach((card) => {
+    document.querySelectorAll('.deck-card').forEach((card) => {
       card.addEventListener('click', () => {
         const action = card.dataset.action;
         executeToolbeltAction(action);
@@ -661,7 +681,7 @@
       actions.className = 'session-item-actions';
 
       const renameBtn = document.createElement('button');
-      renameBtn.className = 'btn-tiny';
+      renameBtn.className = 'btn-micro';
       renameBtn.textContent = '✏️';
       renameBtn.title = 'Đổi tên phiên';
       renameBtn.addEventListener('click', (e) => {
@@ -673,7 +693,7 @@
       });
 
       const delBtn = document.createElement('button');
-      delBtn.className = 'btn-tiny';
+      delBtn.className = 'btn-micro';
       delBtn.textContent = '🗑️';
       delBtn.title = 'Xóa phiên';
       delBtn.addEventListener('click', (e) => {
@@ -767,7 +787,8 @@
     btnToggleCanvas.addEventListener('click', () => {
       viewportSection.classList.toggle('collapsed');
       const isCollapsed = viewportSection.classList.contains('collapsed');
-      btnToggleCanvas.textContent = isCollapsed ? '👁️ Mở rộng' : '👁️ Thu gọn';
+      btnToggleCanvas.textContent = isCollapsed ? '👁️' : '👁️';
+      btnToggleCanvas.title = isCollapsed ? 'Mở rộng Viewport' : 'Thu gọn Viewport';
     });
   }
 
@@ -866,7 +887,7 @@
 
         if (msg.metrics) {
           html += `
-            <div class="metrics-tag" style="font-size: 8px; color: var(--accent-cyan); margin-top: 2px;">
+            <div class="metrics-tag" style="font-size: 8px; color: var(--accent-cyan); margin-top: 2px; font-family: var(--font-mono);">
               ⚡ ${msg.metrics.latencyMs}ms • ${msg.metrics.model}
             </div>
           `;
@@ -915,14 +936,14 @@
       const thumbUri = node.outputImageUri || node.inputImageUri || '';
 
       card.innerHTML = `
-        <img class="dag-card-thumb" src="${thumbUri}" alt="Thumb" />
+        <img class="dag-card-thumb" src="${thumbUri}" alt="Thumb" onerror="this.style.display='none'" />
         <div class="dag-card-details">
           <span class="dag-card-op">#${idx + 1} ${escapeHtml(node.operationLabel)}</span>
           <span class="dag-card-meta">${node.metrics?.latencyMs || 0}ms</span>
         </div>
         <div class="dag-card-actions">
-          <button class="btn-tiny" data-act="compare" title="So sánh nút này với nút hiện tại">↔️</button>
-          <button class="btn-tiny" data-act="rollback" title="Quay lại nút này">↩️</button>
+          <button class="btn-micro" data-act="compare" title="So sánh nút này với nút hiện tại">↔️</button>
+          <button class="btn-micro" data-act="rollback" title="Quay lại nút này">↩️</button>
         </div>
       `;
 
@@ -955,7 +976,7 @@
     if (!currentSession || !currentSession.nodes[nodeId]) return;
     const targetNode = currentSession.nodes[nodeId];
     customCompareBeforeUri = targetNode.outputImageUri || targetNode.inputImageUri;
-    lblBefore.textContent = `#${targetNode.operationLabel}`;
+    lblBefore.querySelector('span:last-child').textContent = `#${targetNode.operationLabel}`;
     imgBefore.src = customCompareBeforeUri;
     beforeClipContainer.style.width = '50%';
     sliderDivider.style.left = '50%';
@@ -971,7 +992,7 @@
 
     beforeClipContainer.style.width = '50%';
     sliderDivider.style.left = '50%';
-    lblBefore.textContent = customCompareBeforeUri ? 'SO SÁNH' : 'GỐC';
+    lblBefore.querySelector('span:last-child').textContent = customCompareBeforeUri ? 'SO SÁNH' : 'GỐC';
 
     metricModel.textContent = node.metrics.model || 'Runware BiRefNet';
     metricLatency.textContent = (node.metrics.latencyMs || 0) + ' ms';
@@ -980,7 +1001,7 @@
     // Read real image resolution
     const tempImg = new Image();
     tempImg.onload = () => {
-      metricRes.textContent = `${tempImg.naturalWidth} x ${tempImg.naturalHeight}px`;
+      metricRes.textContent = `${tempImg.naturalWidth} × ${tempImg.naturalHeight}px`;
     };
     tempImg.src = imgAfter.src;
 
@@ -1047,11 +1068,11 @@
 
         case 'apiKeyStatus':
           if (msg.hasApiKey) {
-            keyIndicator.className = 'indicator live';
-            keyLabel.textContent = '🔑 Live API (' + msg.apiKeyMasked + ')';
+            keyIndicator.className = 'status-dot live';
+            keyLabel.textContent = msg.apiKeyMasked ? `Live (${msg.apiKeyMasked})` : 'Live API';
           } else {
-            keyIndicator.className = 'indicator';
-            keyLabel.textContent = '🔑 Nhập API Key';
+            keyIndicator.className = 'status-dot';
+            keyLabel.textContent = '🔑 Nhập Key';
           }
           break;
 

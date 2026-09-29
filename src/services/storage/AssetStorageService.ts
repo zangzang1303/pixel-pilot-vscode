@@ -47,8 +47,8 @@ export class AssetStorageService {
           ext = 'svg';
         }
       } else if (fs.existsSync(dataUriOrBuffer)) {
-        // It's already a file path on disk, return as-is
-        return dataUriOrBuffer;
+        buffer = await fs.promises.readFile(dataUriOrBuffer);
+        ext = path.extname(dataUriOrBuffer).toLowerCase().replace('.', '') || 'png';
       } else {
         buffer = Buffer.from(dataUriOrBuffer, 'utf-8');
       }
