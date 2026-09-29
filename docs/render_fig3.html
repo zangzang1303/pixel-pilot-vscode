@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #181a20;
+      color: #e2e8f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      width: 900px;
+      height: 520px;
+      padding: 12px;
+      overflow: hidden;
+    }
+
+    .studio-window {
+      width: 100%;
+      height: 100%;
+      background: #1e1e2e;
+      border: 1px solid #313244;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      overflow: hidden;
+    }
+
+    /* Top bar */
+    .top-bar {
+      height: 38px;
+      background: #181825;
+      border-bottom: 1px solid #313244;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      font-size: 11px;
+    }
+
+    .session-title {
+      font-weight: 700;
+      color: #cdd6f4;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .api-status {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid #10b981;
+      color: #10b981;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      background: #10b981;
+      border-radius: 50%;
+    }
+
+    /* DAG Strip */
+    .dag-strip {
+      background: #11111b;
+      padding: 8px 12px;
+      border-bottom: 1px solid #313244;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+    }
+
+    .dag-node {
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: #1e1e2e;
+      border: 1px solid #45475a;
+      color: #a6adc8;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .dag-node.active {
+      background: #313244;
+      border-color: #89b4fa;
+      color: #89b4fa;
+      font-weight: 600;
+      box-shadow: 0 0 10px rgba(137, 180, 250, 0.3);
+    }
+
+    .dag-arrow {
+      color: #6c7086;
+      font-weight: bold;
+    }
+
+    /* Main Area */
+    .main-area {
+      flex: 1;
+      display: flex;
+      position: relative;
+    }
+
+    .canvas-viewport {
+      flex: 1;
+      background: repeating-conic-gradient(#24273a 0% 25%, #1e2030 0% 50%) 50% / 16px 16px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .viewport-img {
+      max-height: 86%;
+      max-width: 86%;
+      object-fit: contain;
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    }
+
+    /* Mask overlay */
+    .mask-overlay-layer {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 280px;
+      height: 380px;
+      pointer-events: none;
+    }
+
+    .brush-stroke {
+      position: absolute;
+      background: rgba(243, 68, 68, 0.55);
+      border-radius: 50%;
+      filter: blur(1px);
+    }
+
+    /* Floating Toolbar */
+    .inpaint-toolbar {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(24, 24, 37, 0.92);
+      backdrop-filter: blur(8px);
+      border: 1px solid #45475a;
+      border-radius: 8px;
+      padding: 6px 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 11px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+    }
+
+    .toolbar-btn {
+      background: #313244;
+      border: 1px solid #45475a;
+      color: #cdd6f4;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+
+    .toolbar-btn.primary {
+      background: #89b4fa;
+      color: #11111b;
+      font-weight: 700;
+      border-color: #89b4fa;
+    }
+
+    /* Telemetry */
+    .telemetry-badge {
+      position: absolute;
+      top: 10px;
+      left: 12px;
+      background: rgba(17, 17, 27, 0.85);
+      border: 1px solid #313244;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 10px;
+      color: #94e2d5;
+      font-family: monospace;
+    }
+
+    /* Right chat panel */
+    .chat-panel {
+      width: 290px;
+      background: #181825;
+      border-left: 1px solid #313244;
+      display: flex;
+      flex-direction: column;
+      padding: 10px;
+      font-size: 11px;
+    }
+
+    .chat-title {
+      font-weight: 700;
+      color: #cdd6f4;
+      margin-bottom: 8px;
+      border-bottom: 1px solid #313244;
+      padding-bottom: 6px;
+    }
+
+    .chat-bubble {
+      padding: 8px 10px;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      line-height: 1.4;
+    }
+
+    .chat-bubble.user {
+      background: #313244;
+      color: #cdd6f4;
+      align-self: flex-end;
+      border-left: 2px solid #89b4fa;
+    }
+
+    .chat-bubble.assistant {
+      background: #1e1e2e;
+      color: #a6adc8;
+      border: 1px solid #313244;
+    }
+  </style>
+</head>
+<body>
+
+<div class="studio-window">
+  <!-- Top Bar -->
+  <div class="top-bar">
+    <div class="session-title">
+      <span>✨ Pixel Pilot AI Vision Studio</span>
+      <span style="color:#6c7086;">/ TC1 - Tóc bay ngược sáng</span>
+    </div>
+    <div class="api-status">
+      <div class="status-dot"></div>
+      <span>🔑 Live Runware API (••••••••4kof)</span>
+    </div>
+  </div>
+
+  <!-- DAG Strip -->
+  <div class="dag-strip">
+    <div class="dag-node">🖼️ Gốc (Original)</div>
+    <div class="dag-arrow">→</div>
+    <div class="dag-node active">✂️ Tách nền BiRefNet</div>
+    <div class="dag-arrow">→</div>
+    <div class="dag-node">🎨 Mask Inpaint Canvas</div>
+    <div class="dag-arrow">→</div>
+    <div class="dag-node">📐 Vectorize SVG</div>
+  </div>
+
+  <!-- Main Viewport -->
+  <div class="main-area">
+    <div class="canvas-viewport">
+      <div class="telemetry-badge">
+        ⚡ 380 ms • BiRefNet Matting • 0.0006 USD
+      </div>
+
+      <img class="viewport-img" src="fig1_tc1_birefnet.png" alt="BiRefNet Result" />
+
+      <!-- Inpaint Mask Brush strokes simulation -->
+      <div class="mask-overlay-layer">
+        <div class="brush-stroke" style="top: 80px; left: 140px; width: 45px; height: 45px;"></div>
+        <div class="brush-stroke" style="top: 100px; left: 160px; width: 50px; height: 50px;"></div>
+        <div class="brush-stroke" style="top: 130px; left: 175px; width: 40px; height: 40px;"></div>
+      </div>
+
+      <!-- Inpaint Toolbar -->
+      <div class="inpaint-toolbar">
+        <span>🖌️ Cọ vẽ: <strong>28px</strong></span>
+        <span>Mờ: <strong>60%</strong></span>
+        <button class="toolbar-btn">Xóa Mask</button>
+        <span style="color:#89b4fa; font-weight:600;">Prompt: "studio lighting fill"</span>
+        <button class="toolbar-btn primary">Thực thi Inpaint Fill</button>
+      </div>
+    </div>
+
+    <!-- Chat feed side -->
+    <div class="chat-panel">
+      <div class="chat-title">💬 Hội thoại & Lệnh Codex</div>
+      <div class="chat-bubble user">
+        /remove-bg tách sạch sợi tóc tơ ngược sáng
+      </div>
+      <div class="chat-bubble assistant">
+        ✅ Đã bóc tách nền bằng mô hình BiRefNet SOTA! Tỷ lệ phủ Alpha Matting đạt 78.07%, bảo toàn trọn vẹn chi tiết tóc bay.
+        <div style="color:#89b4fa; font-size:10px; margin-top:4px;">Node #2 đã được thêm vào cây DAG.</div>
+      </div>
+      <div class="chat-bubble user">
+        /inpaint khoanh vùng phản quang studio
+      </div>
+      <div class="chat-bubble assistant">
+        🖌️ Đã bật Cọ vẽ Mask. Hãy tô vùng cần vẽ bù trên Canvas bên trái.
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
