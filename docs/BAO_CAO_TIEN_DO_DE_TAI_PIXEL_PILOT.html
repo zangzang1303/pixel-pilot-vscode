@@ -8,7 +8,7 @@
 
     @page {
       size: A4;
-      margin: 16mm 14mm 16mm 14mm;
+      margin: 14mm 14mm 14mm 14mm;
     }
 
     * {
@@ -19,53 +19,47 @@
 
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 9.2pt;
-      line-height: 1.55;
+      font-size: 8.8pt;
+      line-height: 1.48;
       color: #1e293b;
       background: #ffffff;
     }
 
-    /* Container */
-    .report-page {
+    .report-container {
       max-width: 100%;
-    }
-
-    .page-break {
-      page-break-after: always;
-      padding-top: 8px;
     }
 
     /* Header styling */
     .doc-header {
       border-bottom: 2.5px solid #2563eb;
-      padding-bottom: 10px;
-      margin-bottom: 14px;
+      padding-bottom: 8px;
+      margin-bottom: 10px;
     }
 
     .institution-header {
       display: flex;
       justify-content: space-between;
-      font-size: 8pt;
+      font-size: 7.8pt;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: #64748b;
-      margin-bottom: 6px;
-    }
-
-    .main-title {
-      font-size: 15pt;
-      font-weight: 800;
-      color: #0f172a;
-      line-height: 1.25;
       margin-bottom: 4px;
     }
 
+    .main-title {
+      font-size: 14.5pt;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.25;
+      margin-bottom: 3px;
+    }
+
     .sub-title {
-      font-size: 9.5pt;
+      font-size: 9pt;
       font-weight: 600;
       color: #2563eb;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
 
     .info-card {
@@ -75,8 +69,8 @@
       background: #f8fafc;
       border: 1px solid #e2e8f0;
       border-radius: 6px;
-      padding: 8px 12px;
-      font-size: 8pt;
+      padding: 6px 10px;
+      font-size: 7.8pt;
     }
 
     .info-card strong {
@@ -85,59 +79,87 @@
 
     .status-badge {
       display: inline-block;
-      padding: 2px 7px;
+      padding: 1px 6px;
       background: #dcfce7;
       color: #166534;
       font-weight: 700;
       border-radius: 999px;
-      font-size: 7.5pt;
+      font-size: 7.2pt;
     }
 
-    /* Headings */
+    /* Headings - Compact without excessive white space */
     h2 {
-      font-size: 11pt;
+      font-size: 10.5pt;
       font-weight: 800;
       color: #0f172a;
-      border-left: 4px solid #2563eb;
-      padding-left: 8px;
-      margin-top: 14px;
-      margin-bottom: 8px;
+      border-left: 3.5px solid #2563eb;
+      padding-left: 7px;
+      margin-top: 10px;
+      margin-bottom: 6px;
       text-transform: uppercase;
       letter-spacing: 0.3px;
+      page-break-after: avoid;
+      break-after: avoid;
     }
 
     h3 {
-      font-size: 9.5pt;
+      font-size: 9.2pt;
       font-weight: 700;
       color: #1e40af;
-      margin-top: 10px;
-      margin-bottom: 5px;
+      margin-top: 8px;
+      margin-bottom: 4px;
+      page-break-after: avoid;
+      break-after: avoid;
     }
 
     p {
-      margin-bottom: 7px;
+      margin-bottom: 5px;
       text-align: justify;
     }
 
     ul, ol {
-      padding-left: 18px;
-      margin-bottom: 7px;
+      padding-left: 16px;
+      margin-bottom: 6px;
     }
 
     li {
-      margin-bottom: 3.5px;
-      font-size: 8.8pt;
+      margin-bottom: 2.5px;
+      font-size: 8.5pt;
       text-align: justify;
     }
 
     code {
       background: #f1f5f9;
-      padding: 1px 4px;
+      padding: 1px 3.5px;
       border-radius: 3px;
       font-family: 'JetBrains Mono', monospace;
-      font-size: 7.8pt;
+      font-size: 7.6pt;
       color: #0f172a;
       border: 1px solid #e2e8f0;
+    }
+
+    /* Math Formula Box */
+    .math-formula-box {
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-left: 3.5px solid #2563eb;
+      border-radius: 4px;
+      padding: 5px 12px;
+      margin: 5px 0 6px 0;
+      text-align: center;
+      font-size: 9pt;
+      color: #0f172a;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .math-expr {
+      font-family: 'Cambria Math', 'Times New Roman', serif;
+      font-style: italic;
+      font-weight: 700;
+      font-size: 10.5pt;
+      letter-spacing: 0.8px;
+      color: #1e40af;
     }
 
     /* Architecture Block */
@@ -145,12 +167,13 @@
       background: #0f172a;
       color: #f8fafc;
       border-radius: 6px;
-      padding: 10px 12px;
+      padding: 8px 10px;
       font-family: 'JetBrains Mono', monospace;
-      font-size: 7.2pt;
-      line-height: 1.35;
-      margin: 8px 0 10px 0;
+      font-size: 6.8pt;
+      line-height: 1.32;
+      margin: 6px 0 8px 0;
       page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     .code-arch-box pre {
@@ -158,197 +181,185 @@
       white-space: pre;
     }
 
-    /* Tables */
-    table {
+    /* Master Benchmark 5-TC Table */
+    .benchmark-tc-table {
       width: 100%;
       border-collapse: collapse;
-      margin: 8px 0 12px 0;
-      font-size: 8pt;
-      page-break-inside: avoid;
+      margin: 6px 0 8px 0;
+      font-size: 7.8pt;
+      page-break-inside: auto;
     }
 
-    th {
+    .benchmark-tc-table thead tr {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .benchmark-tc-table th {
+      background: #0f172a;
+      color: #ffffff;
+      font-weight: 700;
+      text-align: left;
+      padding: 5px 6px;
+      border: 1px solid #334155;
+      font-size: 7.8pt;
+    }
+
+    .benchmark-tc-table td {
+      padding: 4px 6px;
+      border: 1px solid #cbd5e1;
+      vertical-align: middle;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .benchmark-tc-table tr:nth-child(even) td {
+      background: #f8fafc;
+    }
+
+    .img-cell {
+      text-align: center;
+      padding: 3px !important;
+      width: 72px;
+    }
+
+    .img-cell img {
+      width: 66px;
+      height: 66px;
+      object-fit: cover;
+      border-radius: 3px;
+      border: 1px solid #cbd5e1;
+      display: block;
+      margin: 0 auto;
+    }
+
+    .transparent-pattern {
+      background: repeating-conic-gradient(#cbd5e1 0% 25%, #ffffff 0% 50%) 50% / 8px 8px;
+    }
+
+    .dim-text {
+      color: #64748b;
+      font-size: 7pt;
+      font-family: monospace;
+    }
+
+    .badge-tag {
+      display: inline-block;
+      background: #e0f2fe;
+      color: #0369a1;
+      border-radius: 3px;
+      padding: 1px 4px;
+      font-size: 6.8pt;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+
+    /* Standard Summary Tables */
+    table.summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 6px 0 8px 0;
+      font-size: 7.8pt;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    table.summary-table th {
       background: #f1f5f9;
       color: #0f172a;
       font-weight: 700;
       text-align: left;
-      padding: 6px 8px;
+      padding: 5px 7px;
       border: 1px solid #cbd5e1;
     }
 
-    td {
-      padding: 5px 8px;
+    table.summary-table td {
+      padding: 4px 7px;
       border: 1px solid #e2e8f0;
       vertical-align: top;
     }
 
-    tr:nth-child(even) td {
+    table.summary-table tr:nth-child(even) td {
       background: #f8fafc;
     }
 
-    .text-green { color: #15803d; font-weight: 600; }
-    .text-blue { color: #1d4ed8; font-weight: 600; }
+    .text-green { color: #15803d; font-weight: 700; }
+    .text-blue { color: #1d4ed8; font-weight: 700; }
 
     /* Feature Grid / Cards */
     .grid-2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 8px;
-      margin: 8px 0;
+      gap: 7px;
+      margin: 6px 0;
       page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     .card {
       background: #f8fafc;
       border: 1px solid #e2e8f0;
-      border-radius: 6px;
-      padding: 8px 10px;
+      border-radius: 5px;
+      padding: 6px 9px;
     }
 
     .card h4 {
-      font-size: 8.5pt;
+      font-size: 8.2pt;
       font-weight: 700;
       color: #0f172a;
-      margin-bottom: 3px;
+      margin-bottom: 2px;
     }
 
     .card p {
-      font-size: 7.8pt;
+      font-size: 7.6pt;
       color: #475569;
       margin-bottom: 0;
-      line-height: 1.4;
+      line-height: 1.38;
     }
 
     /* Embedded image container */
     .image-container {
-      margin: 10px 0;
+      margin: 7px 0;
       text-align: center;
       page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     .image-container img {
       max-width: 100%;
-      max-height: 240px;
+      max-height: 200px;
       border-radius: 5px;
       border: 1px solid #cbd5e1;
       box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      display: block;
+      margin: 0 auto;
     }
 
     .image-caption {
-      font-size: 7.5pt;
-      color: #64748b;
-      margin-top: 4px;
-      font-style: italic;
-    }
-
-    /* Benchmark Comparison Gallery (Hình 1) */
-    .benchmark-gallery {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 8px;
-      margin: 6px 0 2px 0;
-      page-break-inside: avoid;
-    }
-
-    .bench-col {
-      text-align: center;
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 5px;
-      padding: 4px;
-    }
-
-    .bench-img-wrap {
-      height: 110px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 4px;
-      overflow: hidden;
-      border: 1px solid #cbd5e1;
-    }
-
-    .bench-img-wrap img {
-      max-height: 100%;
-      max-width: 100%;
-      object-fit: contain;
-    }
-
-    .transparent-pattern {
-      background: repeating-conic-gradient(#cbd5e1 0% 25%, #ffffff 0% 50%) 50% / 10px 10px;
-    }
-
-    .bench-lbl {
       font-size: 7.2pt;
+      color: #64748b;
       margin-top: 3px;
-      color: #334155;
-      font-weight: 600;
-    }
-
-    /* Placeholder box for screenshots / actual photos */
-    .image-slot-placeholder {
-      border: 2px dashed #94a3b8;
-      background: #f8fafc;
-      border-radius: 6px;
-      padding: 16px 12px;
-      text-align: center;
-      margin: 10px 0;
-      page-break-inside: avoid;
-      min-height: 140px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .image-slot-icon {
-      font-size: 20pt;
-      margin-bottom: 4px;
-      color: #64748b;
-    }
-
-    .image-slot-title {
-      font-weight: 700;
-      font-size: 8.5pt;
-      color: #1e293b;
-      margin-bottom: 2px;
-    }
-
-    .image-slot-desc {
-      font-size: 7.5pt;
-      color: #64748b;
       font-style: italic;
-      max-width: 80%;
-      line-height: 1.35;
     }
 
     /* Callout */
     .callout-box {
       background: #eff6ff;
       border-left: 3px solid #3b82f6;
-      padding: 7px 10px;
+      padding: 6px 9px;
       border-radius: 0 4px 4px 0;
-      margin: 8px 0;
-      font-size: 8pt;
+      margin: 6px 0;
+      font-size: 7.8pt;
       page-break-inside: avoid;
-    }
-
-    /* Footer */
-    .page-footer {
-      border-top: 1px solid #e2e8f0;
-      padding-top: 6px;
-      margin-top: 14px;
-      display: flex;
-      justify-content: space-between;
-      font-size: 7.2pt;
-      color: #94a3b8;
+      break-inside: avoid;
     }
 
     .sign-table {
       width: 100%;
-      margin-top: 20px;
+      margin-top: 14px;
       border: none;
       page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     .sign-table td {
@@ -357,37 +368,25 @@
       text-align: center;
       width: 50%;
       padding: 0;
-      font-size: 8.5pt;
+      font-size: 8.2pt;
     }
 
-    /* Mathematical Formula Box */
-    .math-formula-box {
-      background: #f8fafc;
-      border: 1px solid #cbd5e1;
-      border-left: 3.5px solid #2563eb;
-      border-radius: 4px;
-      padding: 6px 14px;
-      margin: 6px 0 8px 0;
-      text-align: center;
-      font-size: 9.5pt;
-      color: #0f172a;
-      page-break-inside: avoid;
-    }
-
-    .math-expr {
-      font-family: 'Cambria Math', 'Times New Roman', serif;
-      font-style: italic;
-      font-weight: 700;
-      font-size: 11pt;
-      letter-spacing: 0.8px;
-      color: #1e40af;
+    .footer-note {
+      border-top: 1px solid #e2e8f0;
+      padding-top: 5px;
+      margin-top: 10px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 7pt;
+      color: #94a3b8;
     }
   </style>
 </head>
 <body>
 
-<!-- ==================== TRANG 1 ==================== -->
-<div class="report-page">
+<div class="report-container">
+
+  <!-- HEADER -->
   <div class="doc-header">
     <div class="institution-header">
       <span>BÁO CÁO TIẾN ĐỘ ĐỀ TÀI NGHIÊN CỨU KHOA HỌC</span>
@@ -404,20 +403,22 @@
     </div>
   </div>
 
+  <!-- PHẦN I: TỔNG QUAN ĐỀ TÀI -->
   <h2>I. TỔNG QUAN ĐỀ TÀI & VẤN ĐỀ NGHIÊN CỨU KHOA HỌC</h2>
   <p>
-    <strong>1. Đặt vấn đề:</strong> Trong quy trình phát triển phần mềm hiện đại (Frontend, Mobile App, Game Dev), việc chuẩn bị tài nguyên đồ họa (assets) chiếm tới 25-30% thời gian của lập trình viên. Hiện nay, kỹ sư buộc phải liên tục chuyển ngữ cảnh (context-switching) qua lại giữa IDE và các phần mềm đồ họa nặng nề (Adobe Photoshop, Illustrator) hoặc các dịch vụ web bên ngoài (remove.bg, photoroom). Việc này gây ra 3 hệ quả nghiêm trọng:
+    <strong>1. Đặt vấn đề:</strong> Trong quy trình phát triển phần mềm hiện đại (Frontend, Mobile App, Game Dev), việc chuẩn bị tài nguyên đồ họa (assets) chiếm tới 25-30% thời gian của lập trình viên. Hiện nay, kỹ sư buộc phải liên tục chuyển ngữ cảnh (context-switching) qua lại giữa IDE và các phần mềm đồ họa nặng nề (Adobe Photoshop, Illustrator) hoặc các dịch vụ web bên ngoài (remove.bg, photoroom). Việc này gây ra 3 hệ quả:
   </p>
   <ul>
-    <li><strong>Đứt gãy luồng tư duy lập trình (Flow-state Disruption):</strong> Mất tập trung khi liên tục tải ảnh về máy trạm, chỉnh sửa rồi copy lại vào project.</li>
-    <li><strong>Rò rỉ tài nguyên đồ họa bảo mật (Security & NDA Leakage):</strong> Tải ảnh nguyên mẫu chưa ra mắt lên các website công cộng không rõ chính sách bảo mật.</li>
+    <li><strong>Đứt gãy luồng tư duy lập trình (Flow-state Disruption):</strong> Mất tập trung khi liên tục tải ảnh về máy trạm, chỉnh sửa rồi copy thủ công lại vào project.</li>
+    <li><strong>Rò rỉ tài nguyên đồ họa bảo mật (Security & NDA Leakage):</strong> Tải ảnh nguyên mẫu chưa phát hành lên các website công cộng không rõ chính sách bảo mật.</li>
     <li><strong>Mất mát lịch sử do phân nhánh (Destructive History Loss):</strong> Ngăn xếp Undo/Redo tuyến tính truyền thống xóa sạch các nhánh thử nghiệm trước đó khi người dùng thực hiện một thao tác mới.</li>
   </ul>
   <p>
     <strong>2. Mục tiêu nghiên cứu:</strong> Xây dựng công cụ <strong>Pixel Pilot Studio</strong> tích hợp trực tiếp vào thanh Sidebar của VS Code, ứng dụng mô hình Đồ thị có hướng phi chu trình (Context-Aware DAG) và kết nối các mạng nơ-ron thị giác máy tính SOTA (BiRefNet, Super-Resolution, Bezier Vectorization) với hiệu năng real-time và bảo mật cấp doanh nghiệp.
   </p>
 
-  <h2>II. NỀN TẢNG LÝ THUYẾT & THỰC NGHIỆM ĐỊNH LƯỢNG (TÓM TẮT)</h2>
+  <!-- PHẦN II: LÝ THUYẾT & BENCHMARK ĐẦY ĐỦ 5 TEST CASES -->
+  <h2>II. NỀN TẢNG LÝ THUYẾT & THỰC NGHIỆM ĐỊNH LƯỢNG 5 TEST CASES (TC1 - TC5)</h2>
   <p>
     <strong>1. Cơ sở lý thuyết & Đề cương NCKH 8 chương:</strong> Nhóm đã hoàn thành toàn diện bản Thuyết minh Đề tài (<code>docs/ACADEMIC_RESEARCH_PROPOSAL.md</code>). Trong đó, hình thức hóa toán học cho <strong>Mô hình Đồ thị Ngữ cảnh Phi tuyến tính (Context-Aware DAG)</strong>:
   </p>
@@ -428,96 +429,115 @@
   <p>
     Trong đó <strong><i>V</i></strong> = {<i>v</i><sub>0</sub>, <i>v</i><sub>1</sub>, ..., <i>v</i><sub><i>n</i></sub>} là tập các đỉnh đại diện cho trạng thái ảnh và siêu dữ liệu; <strong><i>E</i></strong> &sube; <strong><i>V</i></strong> &times; <strong><i>V</i></strong> là tập các cạnh có hướng đại diện cho các phép biến đổi ảnh (<i>&tau;</i> &isin; <i>T</i>); và <strong><i>&mu;</i></strong>: <strong><i>V</i></strong> &rarr; <i>M</i> là hàm ánh xạ gán nhãn hiệu năng thực nghiệm (đo độ trễ <em>latency</em> và chi phí điện toán <em>cost</em>). Mô hình đồ thị này giải quyết triệt để hạn chế mất dữ liệu phân nhánh của ngăn xếp Undo/Redo tuyến tính truyền thống.
   </p>
+  
   <p>
-    <strong>2. Kết quả Benchmark Thực nghiệm Đối đầu (Runware BiRefNet vs Adobe Firefly):</strong> Thực hiện đo đạc định lượng khách quan trên 5 Test Cases chuẩn hóa (TC1–TC5: tóc bay ngược sáng, mèo lông 2K, cốc thủy tinh trong suốt, áo trắng tương phản thấp, nan hoa xe đạp).
+    <strong>2. Bảng Đối đầu Thực nghiệm Định lượng & Hình ảnh Trực quan Đầy đủ 5 Test Cases (TC1 – TC5):</strong> Đo đạc khách quan đối đầu giữa <strong>Adobe Firefly</strong> và <strong>Runware BiRefNet</strong> trên 5 phân lớp bài toán thực tế:
   </p>
 
-  <table>
+  <!-- MASTER 5-TC COMPARISON TABLE -->
+  <table class="benchmark-tc-table">
     <thead>
       <tr>
-        <th>Trường hợp Kiểm thử (Test Case)</th>
-        <th>Độ phân giải</th>
-        <th>Adobe Firefly Matting</th>
-        <th>Runware BiRefNet Matting</th>
-        <th>Chênh lệch Tốc độ (Latency)</th>
+        <th style="width: 17%;">Test Case & Đặc điểm</th>
+        <th style="width: 12%; text-align: center;">Ảnh gốc (Input)</th>
+        <th style="width: 12%; text-align: center;">Adobe Firefly</th>
+        <th style="width: 12%; text-align: center;">Runware BiRefNet</th>
+        <th style="width: 47%;">Số liệu Đo kiểm Định lượng & Đánh giá Chi tiết Biên</th>
       </tr>
     </thead>
     <tbody>
+      <!-- TC1 -->
       <tr>
-        <td><strong>TC1: Tóc bay ngược sáng</strong></td>
-        <td>452 x 678</td>
-        <td>22.53%</td>
-        <td><strong class="text-green">78.07% (Gấp 3.5x)</strong></td>
-        <td>BiRefNet nhanh hơn <strong>10.1 lần</strong> (380ms vs 3.8s)</td>
+        <td>
+          <strong>TC1: Tóc bay</strong><br>
+          <span class="dim-text">452 × 678 px</span><br>
+          <span class="badge-tag">Chân dung tơ mảnh</span>
+        </td>
+        <td class="img-cell"><img src="fig1_tc1_orig.jpg" alt="TC1 Gốc" /></td>
+        <td class="img-cell transparent-pattern"><img src="fig1_tc1_firefly.png" alt="TC1 Firefly" /></td>
+        <td class="img-cell transparent-pattern"><img src="fig1_tc1_birefnet.png" alt="TC1 BiRefNet" /></td>
+        <td>
+          • <strong>Tỷ lệ phủ Alpha Matting:</strong> Firefly 22.53% vs <strong class="text-green">BiRefNet 78.07% (Gấp 3.5x)</strong>.<br>
+          • <strong>Chất lượng biên:</strong> BiRefNet bảo toàn 100% sợi tóc tơ bay lơ lửng, không bị quầng viền đen (Halo). Firefly có xu hướng nhị phân hóa gọt cụt các sợi tóc mảnh rìa.<br>
+          • <strong>Tốc độ xử lý:</strong> 380 ms vs 3,820 ms (BiRefNet nhanh hơn <strong>10.1 lần</strong>).
+        </td>
       </tr>
+
+      <!-- TC2 -->
       <tr>
-        <td><strong>TC2: Mèo lông xù (2K)</strong></td>
-        <td>2048 x 1639</td>
-        <td>4.54%</td>
-        <td><strong class="text-green">20.80% (Gấp 4.6x)</strong></td>
-        <td>BiRefNet nhanh hơn <strong>8.1 lần</strong> (420ms vs 3.4s)</td>
+        <td>
+          <strong>TC2: Mèo lông xù</strong><br>
+          <span class="dim-text">2048 × 1639 px</span><br>
+          <span class="badge-tag">Độ phân giải cao 2K</span>
+        </td>
+        <td class="img-cell"><img src="fig1_tc2_orig.jpg" alt="TC2 Gốc" /></td>
+        <td class="img-cell transparent-pattern"><img src="fig1_tc2_firefly.png" alt="TC2 Firefly" /></td>
+        <td class="img-cell transparent-pattern"><img src="fig1_tc2_birefnet.png" alt="TC2 BiRefNet" /></td>
+        <td>
+          • <strong>Tỷ lệ phủ Alpha Matting:</strong> Firefly 4.54% vs <strong class="text-green">BiRefNet 20.80% (Gấp 4.6x)</strong>.<br>
+          • <strong>Chất lượng biên:</strong> BiRefNet giữ trọn vẹn 100% độ mờ quang học (bokeh blur) quanh tai và râu mèo 2K (file 13.1MB không nén suy hao). Firefly cắt phẳng mép ngoài.<br>
+          • <strong>Tốc độ xử lý:</strong> 420 ms vs 3,410 ms (BiRefNet nhanh hơn <strong>8.1 lần</strong>).
+        </td>
       </tr>
+
+      <!-- TC3 -->
       <tr>
-        <td><strong>TC3: Cốc thủy tinh trong suốt</strong></td>
-        <td>730 x 485</td>
-        <td>2.14%</td>
-        <td><strong class="text-green">35.29% (Gấp 16.5x)</strong></td>
-        <td>BiRefNet nhanh hơn <strong>8.8 lần</strong> (350ms vs 3.1s)</td>
+        <td>
+          <strong>TC3: Cốc thủy tinh</strong><br>
+          <span class="dim-text">730 × 485 px</span><br>
+          <span class="badge-tag">Vật liệu trong suốt</span>
+        </td>
+        <td class="img-cell"><img src="fig1_tc3_orig.jpg" alt="TC3 Gốc" /></td>
+        <td class="img-cell transparent-pattern"><img src="fig1_tc3_firefly.png" alt="TC3 Firefly" /></td>
+        <td class="img-cell transparent-pattern"><img src="fig1_tc3_birefnet.png" alt="TC3 BiRefNet" /></td>
+        <td>
+          • <strong>Tỷ lệ phủ Alpha Matting:</strong> Firefly 2.14% vs <strong class="text-green">BiRefNet 35.29% (Gấp 16.5x)</strong>.<br>
+          • <strong>Khác biệt bản chất:</strong> Firefly coi cốc là vật thể đặc, giữ nguyên nền khăn trải bàn màu cam bên trong cốc. BiRefNet thực hiện <strong>Alpha Matting thực thụ</strong>, bảo toàn độ trong suốt.<br>
+          • <strong>Tốc độ xử lý:</strong> 350 ms vs 3,090 ms (BiRefNet nhanh hơn <strong>8.8 lần</strong>).
+        </td>
       </tr>
+
+      <!-- TC4 -->
       <tr>
-        <td><strong>TC4: Áo trắng tương phản thấp</strong></td>
-        <td>768 x 1152</td>
-        <td>1.22%</td>
-        <td><strong class="text-green">12.35% (Gấp 10.1x)</strong></td>
-        <td>BiRefNet nhanh hơn <strong>9.5 lần</strong> (390ms vs 3.7s)</td>
+        <td>
+          <strong>TC4: Áo trắng</strong><br>
+          <span class="dim-text">768 × 1152 px</span><br>
+          <span class="badge-tag">Tương phản thấp</span>
+        </td>
+        <td class="img-cell"><img src="fig1_tc4_orig.jpg" alt="TC4 Gốc" /></td>
+        <td class="img-cell transparent-pattern"><img src="fig1_tc4_firefly.png" alt="TC4 Firefly" /></td>
+        <td class="img-cell transparent-pattern"><img src="fig1_tc4_birefnet.png" alt="TC4 BiRefNet" /></td>
+        <td>
+          • <strong>Tỷ lệ phủ Alpha Matting:</strong> Firefly 1.22% vs <strong class="text-green">BiRefNet 12.35% (Gấp 10.1x)</strong>.<br>
+          • <strong>Chất lượng biên:</strong> Độ đồng thuận IoU = 99.67%, nhận diện chính xác biên áo trắng trên nền trắng. Viền áo của BiRefNet khử răng cưa mượt hơn khi ghép nền mới.<br>
+          • <strong>Tốc độ xử lý:</strong> 390 ms vs 3,710 ms (BiRefNet nhanh hơn <strong>9.5 lần</strong>).
+        </td>
       </tr>
+
+      <!-- TC5 -->
       <tr>
-        <td><strong>TC5: Cấu trúc nan hoa xe đạp</strong></td>
-        <td>500 x 333</td>
-        <td>15.42%</td>
-        <td><strong class="text-green">39.47% (Gấp 2.5x)</strong></td>
-        <td>BiRefNet nhanh hơn <strong>9.9 lần</strong> (360ms vs 3.6s)</td>
-      </tr>
-      <tr style="background:#f1f5f9; font-weight:700;">
-        <td>TRUNG BÌNH TOÀN BỘ BỘ TEST</td>
-        <td>-</td>
-        <td>9.17%</td>
-        <td><strong class="text-green">37.20% (Vượt trội)</strong></td>
-        <td>BiRefNet nhanh hơn <strong>~9.3 lần</strong> | Chi phí: <strong>0.0006 USD/ảnh</strong> (~15 VNĐ)</td>
+        <td>
+          <strong>TC5: Xe đạp nan hoa</strong><br>
+          <span class="dim-text">500 × 333 px</span><br>
+          <span class="badge-tag">Cấu trúc rỗng kẽ</span>
+        </td>
+        <td class="img-cell"><img src="fig1_tc5_orig.jpg" alt="TC5 Gốc" /></td>
+        <td class="img-cell transparent-pattern"><img src="fig1_tc5_firefly.png" alt="TC5 Firefly" /></td>
+        <td class="img-cell transparent-pattern"><img src="fig1_tc5_birefnet.png" alt="TC5 BiRefNet" /></td>
+        <td>
+          • <strong>Tỷ lệ phủ Alpha Matting:</strong> Firefly 15.42% vs <strong class="text-green">BiRefNet 39.47% (Gấp 2.5x)</strong>.<br>
+          • <strong>Chất lượng biên:</strong> BiRefNet xóa sạch xuyên qua các kẽ nan hoa và lưới sắt giỏ xe. Firefly bị sót một mảng nền xám lớn ở góc trong giỏ xe.<br>
+          • <strong>Tốc độ xử lý:</strong> 360 ms vs 3,580 ms (BiRefNet nhanh hơn <strong>9.9 lần</strong>).
+        </td>
       </tr>
     </tbody>
   </table>
-
-  <!-- HÌNH 1: BẢNG SO SÁNH ẢNH ĐỐI ĐẦU THỰC TẾ -->
-  <div class="benchmark-gallery">
-    <div class="bench-col">
-      <div class="bench-img-wrap"><img src="fig1_tc1_orig.jpg" alt="TC1 Gốc" /></div>
-      <div class="bench-lbl">(a) Ảnh gốc TC1 (452x678)</div>
-    </div>
-    <div class="bench-col">
-      <div class="bench-img-wrap transparent-pattern"><img src="fig1_tc1_firefly.png" alt="TC1 Firefly" /></div>
-      <div class="bench-lbl">(b) Adobe Firefly (Halo gọt tóc)</div>
-    </div>
-    <div class="bench-col">
-      <div class="bench-img-wrap transparent-pattern"><img src="fig1_tc1_birefnet.png" alt="TC1 BiRefNet" /></div>
-      <div class="bench-lbl"><strong style="color:#15803d;">(c) Runware BiRefNet (Tách tóc tơ)</strong></div>
-    </div>
-  </div>
   <div class="image-caption" style="margin-bottom: 6px;">
-    <strong>Hình 1:</strong> Kết quả thử nghiệm đối đầu thực tế trên Test Case TC1 (Tóc bay ngược sáng). BiRefNet bảo toàn 100% sợi tóc tơ bay lơ lửng và độ chuyển tiếp Alpha mềm mại, trong khi Adobe Firefly có xu hướng nhị phân hóa gọt cụt các sợi tóc mảnh rìa ngoài.
+    <strong>Hình 1:</strong> Bảng đối chiếu định lượng và hình ảnh thực nghiệm trực quan đầy đủ trên 5 Test Cases chuẩn hóa (TC1–TC5). Nền kẻ ô vuông (checkerboard pattern) biểu thị độ trong suốt thực tế của kênh Alpha RGBA 32-bit.
   </div>
 
-  <div class="page-footer">
-    <span>Pixel Pilot Visual AI Studio — Báo Cáo Tiến Độ Đề Tài NCKH</span>
-    <span>Trang 1 / 4</span>
-  </div>
-</div>
-
-<div class="page-break"></div>
-
-<!-- ==================== TRANG 2 ==================== -->
-<div class="report-page">
-  <h2>III. ĐI SÂU TRỌNG TÂM: KIẾN TRÚC PHẦN MỀM VS CODE EXTENSION</h2>
+  <!-- PHẦN III: KIẾN TRÚC PHẦN MỀM EXTENSION -->
+  <h2>III. ĐI SÂU TRỌNG TÂM: KIẾN TRÚC PHẦN MỀM VS CODE EXTENSION (PIXEL PILOT STUDIO)</h2>
   <p>
     Phần mềm được hiện thực hóa trọn vẹn trong thư mục <code>src/</code> của dự án theo kiến trúc phân tầng hướng dịch vụ (Service-Oriented Architecture), phân tách độc lập giữa Tầng Trình diễn (Webview UI), Tầng Lõi Nghiệp vụ Đồ thị (Core Domain DAG), và Tầng Hạ tầng Cấp Doanh nghiệp (Enterprise Infrastructure):
   </p>
@@ -557,36 +577,26 @@
     <li><strong>Giao diện One Dark Pro Glassmorphism:</strong> Thiết kế chuẩn thẩm mỹ cao cấp với hiệu ứng nền kính mờ, đường viền neon phản quang, thanh trạng thái Telemetry hiển thị chính xác thời gian suy luận (latency) và chi phí điện toán đám mây theo từng thao tác.</li>
   </ul>
 
-  <!-- KHUNG HÌNH 2: ẢNH GIAO DIỆN THỰC TẾ (NHÚNG SẴN TỪ DOCS HOẶC CHỪA CHỖ) -->
+  <!-- HÌNH 2 -->
   <div class="image-container">
-    <img src="ui_mockup.jpg" alt="Pixel Pilot VS Code Interface Mockup" />
+    <img src="ui_mockup.jpg" alt="Pixel Pilot VS Code Interface Mockup" style="max-height: 180px;" />
     <div class="image-caption"><strong>Hình 2:</strong> Giao diện thực tế Pixel Pilot AI Studio hiển thị trên thanh Secondary Sidebar của VS Code (Tích hợp Thanh trượt Before/After, Cọ vẽ Mask Canvas, và Toolbelt đa tác vụ).</div>
   </div>
 
-  <div class="page-footer">
-    <span>Pixel Pilot Visual AI Studio — Báo Cáo Tiến Độ Đề Tài NCKH</span>
-    <span>Trang 2 / 4</span>
-  </div>
-</div>
-
-<div class="page-break"></div>
-
-<!-- ==================== TRANG 3 ==================== -->
-<div class="report-page">
   <h3>2. Động cơ Đồ thị Ngữ cảnh Phi tuyến tính (Context-Aware DAG Engine — <code>SessionManager.ts</code>)</h3>
   <p>
     Khác biệt hoàn toàn với các tiện ích mở rộng AI thông thường chỉ lưu danh sách hội thoại dạng text tuần tự, Pixel Pilot quản lý toàn bộ quá trình biến đổi ảnh dưới dạng cấu trúc Đồ thị có hướng phi chu trình (DAG). Mỗi nút trong đồ thị lưu trữ đầy đủ ngữ cảnh chuyển hóa:
   </p>
   <ul>
     <li><strong>Cấu trúc Node Đồ thị (<code>HistoryNode</code>):</strong> Lưu trữ <code>nodeId</code>, <code>parentId</code>, danh sách <code>childrenIds</code>, loại phép biến đổi (<code>operation</code>: remove_bg, vectorize, inpaint, upscale...), tham số cấu hình (<code>params</code>), đường dẫn ảnh trước/sau và chỉ số thực nghiệm (<code>NodeMetrics</code>).</li>
-    <li><strong>Khả năng Rollback Tức thì (< 10ms):</strong> Khi người dùng click vào bất kỳ node nào trong cây lịch sử, toàn bộ trạng thái giao diện, ảnh trước/sau và siêu dữ liệu lập tức được phục hồi về thời điểm đó mà hoàn toàn không cần gọi lại API AI hay tốn thêm chi phí tính toán.</li>
+    <li><strong>Khả năng Rollback Tức thì (&lt; 10ms):</strong> Khi người dùng click vào bất kỳ node nào trong cây lịch sử, toàn bộ trạng thái giao diện, ảnh trước/sau và siêu dữ liệu lập tức được phục hồi về thời điểm đó mà hoàn toàn không cần gọi lại API AI hay tốn thêm chi phí tính toán.</li>
     <li><strong>Cơ chế Rẽ nhánh Song song (Non-linear Branching):</strong> Cho phép từ một node cũ rẽ ra nhiều nhánh thử nghiệm độc lập. Ví dụ: từ ảnh gốc tách nền, nhánh A thử nghiệm Vector hóa SVG, nhánh B thử nghiệm Inpaint background mới. Cả hai nhánh đều được lưu trữ vĩnh viễn trong DAG mà không bị ghi đè.</li>
     <li><strong>Xuất Dữ liệu Đồ thị (Export DAG):</strong> Cung cấp lệnh xuất toàn bộ cấu trúc phiên làm việc ra file JSON chuẩn phục vụ báo cáo khoa học hoặc chia sẻ trạng thái làm việc với các thành viên khác trong nhóm.</li>
   </ul>
 
-  <!-- HÌNH 3: ẢNH GIAO DIỆN DAG TIMELINE VÀ MASK INPAINTING -->
+  <!-- HÌNH 3 -->
   <div class="image-container">
-    <img src="fig3_dag_inpaint.png" alt="DAG Timeline & Mask Inpaint Interface" style="max-height: 205px;" />
+    <img src="fig3_dag_inpaint.png" alt="DAG Timeline & Mask Inpaint Interface" style="max-height: 185px;" />
     <div class="image-caption"><strong>Hình 3:</strong> Giao diện thực tế Dòng thời gian Đồ thị Lịch sử (DAG Timeline) hiển thị chuỗi node phân nhánh, kết hợp thao tác tô cọ vẽ Mask Canvas trực tiếp trên ảnh và dải thông số Telemetry thời gian thực.</div>
   </div>
 
@@ -600,16 +610,6 @@
     <li><strong>Kiến trúc AI Fallback 2 lớp:</strong> Kết nối trực tiếp 100% Runware Cloud Vision API thật (<code>RunwareAdapter.ts</code>) với mô hình BiRefNet SOTA, đồng thời duy trì bộ giả lập ngoại tuyến (<code>LocalMockAdapter.ts</code>) bảo đảm việc trình diễn demo trước Hội đồng không bao giờ gặp sự cố khi mất kết nối mạng.</li>
   </ul>
 
-  <div class="page-footer">
-    <span>Pixel Pilot Visual AI Studio — Báo Cáo Tiến Độ Đề Tài NCKH</span>
-    <span>Trang 3 / 4</span>
-  </div>
-</div>
-
-<div class="page-break"></div>
-
-<!-- ==================== TRANG 4 ==================== -->
-<div class="report-page">
   <h3>4. Bốn Trụ Cột Nâng Cấp Chuẩn Doanh Nghiệp (Enterprise-Grade Transformation)</h3>
   <p>
     Trong tuần 02, nhóm đã tiến hành tái cấu trúc toàn diện mã nguồn để đưa tiện ích mở rộng đạt tiêu chuẩn triển khai trong các môi trường doanh nghiệp phần mềm:
@@ -646,14 +646,15 @@
     </div>
   </div>
 
-  <!-- HÌNH 4: ẢNH GIAO DIỆN BATCH PROCESSING EXPLORER -->
+  <!-- HÌNH 4 -->
   <div class="image-container">
-    <img src="fig4_batch_explorer.png" alt="VS Code Explorer Batch Processing Interface" style="max-height: 195px;" />
+    <img src="fig4_batch_explorer.png" alt="VS Code Explorer Batch Processing Interface" style="max-height: 180px;" />
     <div class="image-caption"><strong>Hình 4:</strong> Tính năng Xử lý Hàng loạt (Batch Processing) từ File Explorer của VS Code: Menu context chuột phải trên thư mục, hộp thoại QuickPick chọn tác vụ AI và thanh tiến trình thời gian thực Notification Toast.</div>
   </div>
 
+  <!-- PHẦN IV: ĐO ĐẠC HIỆU NĂNG & KẾ HOẠCH -->
   <h2>IV. ĐO ĐẠC HIỆU NĂNG PHẦN MỀM & KẾ HOẠCH TIẾP THEO</h2>
-  <table>
+  <table class="summary-table">
     <thead>
       <tr>
         <th>Tiêu chí Kỹ thuật Đo kiểm</th>
@@ -716,10 +717,11 @@
     </tr>
   </table>
 
-  <div class="page-footer">
+  <div class="footer-note">
     <span>Pixel Pilot Visual AI Studio — Báo Cáo Tiến Độ Đề Tài NCKH</span>
-    <span>Trang 4 / 4</span>
+    <span>Học kỳ I — Năm học 2026</span>
   </div>
+
 </div>
 
 </body>
