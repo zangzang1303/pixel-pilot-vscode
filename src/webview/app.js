@@ -142,6 +142,7 @@
     try { setupSessionControls(); } catch (e) { console.error('setupSessionControls error:', e); }
     try { setupApiKeyModal(); } catch (e) { console.error('setupApiKeyModal error:', e); }
     try { setupCodexPromptBar(); } catch (e) { console.error('setupCodexPromptBar error:', e); }
+    try { setupCategoryNav(); } catch (e) { console.error('setupCategoryNav error:', e); }
     try { setupSmartToolbelt(); } catch (e) { console.error('setupSmartToolbelt error:', e); }
     try { setupDeckTabs(); } catch (e) { console.error('setupDeckTabs error:', e); }
     try { setupInpaint(); } catch (e) { console.error('setupInpaint error:', e); }
@@ -321,7 +322,36 @@
     });
   }
 
-  // --- Smart Studio 1-Click Action Toolbelt ---
+  // --- Category Navigation & Quick Action Toolbelt ---
+  function setupCategoryNav() {
+    const nav = document.getElementById('studio-category-nav');
+    if (!nav) return;
+    const catButtons = nav.querySelectorAll('.cat-pill-btn');
+    const actButtons = document.querySelectorAll('.quick-act-btn');
+
+    function filterCategory(cat) {
+      actButtons.forEach((btn) => {
+        if (btn.dataset.cat === cat) {
+          btn.style.display = 'inline-flex';
+        } else {
+          btn.style.display = 'none';
+        }
+      });
+    }
+
+    // Default to 'popular'
+    filterCategory('popular');
+
+    catButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        catButtons.forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        const cat = btn.dataset.cat;
+        filterCategory(cat);
+      });
+    });
+  }
+
   function setupSmartToolbelt() {
     document.querySelectorAll('.deck-card, .quick-act-btn').forEach((card) => {
       card.addEventListener('click', () => {
@@ -339,6 +369,7 @@
     if (!inputImg) return;
 
     switch (action) {
+      // 1. Background Magic
       case 'remove_bg':
         showScanner('Tách nền BiRefNet SOTA');
         sendMessage({
@@ -349,6 +380,152 @@
         });
         break;
 
+      case 'quick_bg':
+        promptTextarea.value = 'Đổi nền thành: ';
+        promptTextarea.focus();
+        promptTextarea.setSelectionRange(15, 15);
+        break;
+
+      case 'white_bg':
+        runClientWhiteBg(inputImg, activeNode.nodeId);
+        break;
+
+      case 'bg_sunset':
+        showScanner('Đang tạo nền Bãi biển Hoàng hôn...');
+        sendMessage({
+          command: 'runOperation',
+          nodeId: activeNode.nodeId,
+          operation: 'replace_bg',
+          prompt: 'tropical sunset beach with golden hour sunlight, palm trees, calm ocean waves',
+          operationLabel: 'Đổi nền: Bãi biển Hoàng hôn'
+        });
+        break;
+
+      case 'bg_cyberpunk':
+        showScanner('Đang tạo nền Cyberpunk Neon...');
+        sendMessage({
+          command: 'runOperation',
+          nodeId: activeNode.nodeId,
+          operation: 'replace_bg',
+          prompt: 'futuristic cyberpunk neon night city street, wet reflective pavement, vibrant teal and magenta lights',
+          operationLabel: 'Đổi nền: Cyberpunk Neon'
+        });
+        break;
+
+      case 'bg_office':
+        showScanner('Đang tạo nền Văn phòng Hiện đại...');
+        sendMessage({
+          command: 'runOperation',
+          nodeId: activeNode.nodeId,
+          operation: 'replace_bg',
+          prompt: 'luxury modern architectural executive tech office, floor to ceiling windows, soft ambient daylight',
+          operationLabel: 'Đổi nền: Văn phòng Hiện đại'
+        });
+        break;
+
+      case 'bg_gradient':
+        runClientGradientBg(inputImg, activeNode.nodeId);
+        break;
+
+      // 2. AI Style Transfer
+      case 'style_anime':
+        showScanner('Biến đổi phong cách Anime Makoto Shinkai...');
+        sendMessage({
+          command: 'runOperation',
+          nodeId: activeNode.nodeId,
+          operation: 'style_transfer',
+          style: 'anime',
+          operationLabel: 'Phong cách: Anime (Makoto Shinkai)'
+        });
+        break;
+
+      case 'style_3d':
+        showScanner('Biến đổi phong cách 3D Pixar Animation...');
+        sendMessage({
+          command: 'runOperation',
+          nodeId: activeNode.nodeId,
+          operation: 'style_transfer',
+          style: '3d_pixar',
+          operationLabel: 'Phong cách: 3D Pixar Disney'
+        });
+        break;
+
+      case 'style_pixel':
+        showScanner('Biến đổi phong cách Pixel Art 16-bit...');
+        sendMessage({
+          command: 'runOperation',
+          nodeId: activeNode.nodeId,
+          operation: 'style_transfer',
+          style: 'pixel_art',
+          operationLabel: 'Phong cách: Pixel Art Retro'
+        });
+        break;
+
+      case 'style_cyberpunk':
+        showScanner('Biến đổi phong cách Cyberpunk Synthwave...');
+        sendMessage({
+          command: 'runOperation',
+          nodeId: activeNode.nodeId,
+          operation: 'style_transfer',
+          style: 'cyberpunk',
+          operationLabel: 'Phong cách: Cyberpunk Synthwave'
+        });
+        break;
+
+      case 'style_oil':
+        showScanner('Biến đổi phong cách Tranh Sơn Dầu...');
+        sendMessage({
+          command: 'runOperation',
+          nodeId: activeNode.nodeId,
+          operation: 'style_transfer',
+          style: 'oil_painting',
+          operationLabel: 'Phong cách: Tranh Sơn Dầu'
+        });
+        break;
+
+      case 'style_sketch':
+        showScanner('Biến đổi phong cách Phác thảo Chì Than...');
+        sendMessage({
+          command: 'runOperation',
+          nodeId: activeNode.nodeId,
+          operation: 'style_transfer',
+          style: 'sketch',
+          operationLabel: 'Phong cách: Phác Thảo Chì'
+        });
+        break;
+
+      // 3. Inpaint & Edit
+      case 'inpaint_brush':
+        if (!inpaintMode) {
+          btnToggleBrush.click();
+        }
+        break;
+
+      case 'inpaint_remove':
+        if (!inpaintMode) btnToggleBrush.click();
+        promptTextarea.value = 'Xóa người/vật thể trong vùng tô đỏ';
+        promptTextarea.focus();
+        break;
+
+      case 'inpaint_glasses':
+        if (!inpaintMode) btnToggleBrush.click();
+        promptTextarea.value = 'Thêm kính râm phi công thời trang cao cấp';
+        promptTextarea.focus();
+        break;
+
+      case 'inpaint_hat':
+        if (!inpaintMode) btnToggleBrush.click();
+        promptTextarea.value = 'Thêm mũ len hoặc mũ lưỡi trai thời trang';
+        promptTextarea.focus();
+        break;
+
+      case 'inpaint_clothes':
+        if (!inpaintMode) btnToggleBrush.click();
+        promptTextarea.value = 'Thay trang phục thành áo vest đen sang trọng';
+        promptTextarea.focus();
+        break;
+
+      // 4. Enhance & Color Grading
       case 'upscale_4x':
         showScanner('Upscale 4x Super-Resolution');
         sendMessage({
@@ -360,6 +537,51 @@
         });
         break;
 
+      case 'upscale_2x':
+        showScanner('Upscale 2x HD');
+        sendMessage({
+          command: 'runOperation',
+          nodeId: activeNode.nodeId,
+          operation: 'upscale',
+          factor: 2,
+          operationLabel: 'Upscale 2x HD'
+        });
+        break;
+
+      case 'enhance_hdr':
+        showScanner('Tăng sáng & Cân bằng HDR AI...');
+        sendMessage({
+          command: 'runOperation',
+          nodeId: activeNode.nodeId,
+          operation: 'enhance',
+          enhanceType: 'hdr',
+          operationLabel: 'Tăng sáng & Cân bằng HDR AI'
+        });
+        break;
+
+      case 'enhance_clarity':
+        showScanner('Làm nét chi tiết & Khử mờ AI...');
+        sendMessage({
+          command: 'runOperation',
+          nodeId: activeNode.nodeId,
+          operation: 'enhance',
+          enhanceType: 'clarity',
+          operationLabel: 'Làm nét & Khử mờ AI'
+        });
+        break;
+
+      case 'enhance_vintage':
+        showScanner('Áp dụng tone màu Vintage Film 35mm...');
+        sendMessage({
+          command: 'runOperation',
+          nodeId: activeNode.nodeId,
+          operation: 'enhance',
+          enhanceType: 'vintage',
+          operationLabel: 'Tone màu Vintage Film 35mm'
+        });
+        break;
+
+      // 5. Developer & Export Toolkit
       case 'vectorize':
         showScanner('Vectorize sang SVG');
         sendMessage({
@@ -368,10 +590,6 @@
           operation: 'vectorize',
           operationLabel: 'Vectorize sang SVG'
         });
-        break;
-
-      case 'white_bg':
-        runClientWhiteBg(inputImg, activeNode.nodeId);
         break;
 
       case 'avatar':
@@ -384,12 +602,6 @@
 
       case 'export_webp':
         runClientWebp(inputImg, activeNode.nodeId);
-        break;
-
-      case 'inpaint_brush':
-        if (!inpaintMode) {
-          btnToggleBrush.click();
-        }
         break;
     }
   }
@@ -526,6 +738,52 @@
       sendMessage({
         command: 'exportIconBundle',
         icons
+      });
+    };
+    img.src = imgSrc;
+  }
+
+  function runClientGradientBg(imgSrc, parentNodeId) {
+    showScanner('Đang tạo nền Gradient Nghệ Thuật...');
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth || 1024;
+      c.height = img.naturalHeight || 1024;
+      const cCtx = c.getContext('2d');
+
+      // Luxury Neon Sunset Radial Gradient
+      const grad = cCtx.createLinearGradient(0, 0, c.width, c.height);
+      grad.addColorStop(0, '#0f172a');
+      grad.addColorStop(0.35, '#312e81');
+      grad.addColorStop(0.7, '#701a75');
+      grad.addColorStop(1, '#0284c7');
+      cCtx.fillStyle = grad;
+      cCtx.fillRect(0, 0, c.width, c.height);
+
+      // Subtle Glow Ambient Light
+      const glow = cCtx.createRadialGradient(
+        c.width / 2, c.height / 2, 20,
+        c.width / 2, c.height / 2, c.width * 0.6
+      );
+      glow.addColorStop(0, 'rgba(236, 72, 153, 0.45)');
+      glow.addColorStop(1, 'transparent');
+      cCtx.fillStyle = glow;
+      cCtx.fillRect(0, 0, c.width, c.height);
+
+      // Draw subject cutout on top
+      cCtx.drawImage(img, 0, 0, c.width, c.height);
+      const dataUri = c.toDataURL('image/png');
+
+      sendMessage({
+        command: 'saveClientNode',
+        nodeId: parentNodeId,
+        operation: 'replace_bg',
+        operationLabel: 'Nền Gradient Nghệ Thuật',
+        dataUri,
+        model: 'Neon Ambient Compositor (Client GPU)',
+        latencyMs: 16
       });
     };
     img.src = imgSrc;

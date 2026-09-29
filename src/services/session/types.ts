@@ -6,6 +6,10 @@ export type OperationType =
   | 'upscale'
   | 'vectorize'
   | 'inpaint'
+  | 'replace_bg'
+  | 'style_transfer'
+  | 'enhance'
+  | 'color_grade'
   | 'mask'
   | 'canny'
   | 'lineart'
@@ -80,4 +84,7 @@ export interface ParsedIntent {
   factor?: 2 | 4;
   promptText?: string;
   preprocessor?: 'canny' | 'lineart' | 'softedge' | 'depth';
+  style?: string;
+  bgPreset?: string;
+  enhanceType?: 'clarity' | 'hdr' | 'face_restore' | 'vintage';
 }

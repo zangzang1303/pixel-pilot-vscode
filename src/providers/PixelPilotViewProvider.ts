@@ -408,7 +408,9 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       factor: intent.factor,
       prompt: intent.promptText || promptText,
       mask: message.mask || '',
-      preprocessor: intent.preprocessor
+      preprocessor: intent.preprocessor,
+      style: intent.style,
+      enhanceType: intent.enhanceType
     });
   }
 
@@ -482,6 +484,15 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'extend':
           res = await this.runwareAdapter.extendCanvas(realInput, 'all', message.prompt);
+          break;
+        case 'replace_bg':
+          res = await this.runwareAdapter.replaceBackground(realInput, message.prompt || 'luxury modern studio');
+          break;
+        case 'style_transfer':
+          res = await this.runwareAdapter.styleTransfer(realInput, message.style || 'anime', message.prompt);
+          break;
+        case 'enhance':
+          res = await this.runwareAdapter.enhanceImage(realInput, message.enhanceType || 'clarity');
           break;
         default:
           res = {

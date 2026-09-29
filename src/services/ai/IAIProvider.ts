@@ -43,4 +43,19 @@ export interface IAIProvider {
    * Mở rộng biên khung hình (Outpainting / Extend)
    */
   extendCanvas(imageInput: string, direction: 'all' | 'horizontal' | 'vertical', prompt?: string): Promise<AIResult>;
+
+  /**
+   * Thay thế và tổng hợp nền mới bằng AI theo câu lệnh hoặc bối cảnh
+   */
+  replaceBackground(imageInput: string, prompt: string): Promise<AIResult>;
+
+  /**
+   * Biến đổi ảnh theo phong cách nghệ thuật AI (Anime, 3D, Cyberpunk, Pixel Art, Oil Painting)
+   */
+  styleTransfer(imageInput: string, style: string, customPrompt?: string): Promise<AIResult>;
+
+  /**
+   * Nâng cấp chất lượng chi tiết, khử mờ, cân bằng sáng AI
+   */
+  enhanceImage(imageInput: string, type?: 'clarity' | 'hdr' | 'face_restore' | 'vintage'): Promise<AIResult>;
 }

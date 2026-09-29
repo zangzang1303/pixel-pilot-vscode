@@ -157,4 +157,43 @@ export class LocalMockAdapter implements IAIProvider {
       }
     };
   }
+
+  public async replaceBackground(imageInput: string, prompt: string): Promise<AIResult> {
+    await this.sleep(600);
+    return {
+      success: true,
+      outputImageUri: imageInput,
+      metrics: {
+        model: 'Generative Background Compositor (Local Mock)',
+        latencyMs: 600,
+        costUsd: 0.002
+      }
+    };
+  }
+
+  public async styleTransfer(imageInput: string, style: string, customPrompt?: string): Promise<AIResult> {
+    await this.sleep(650);
+    return {
+      success: true,
+      outputImageUri: imageInput,
+      metrics: {
+        model: `Style Transfer (${style.toUpperCase()} - Local Mock)`,
+        latencyMs: 650,
+        costUsd: 0.002
+      }
+    };
+  }
+
+  public async enhanceImage(imageInput: string, type: 'clarity' | 'hdr' | 'face_restore' | 'vintage' = 'clarity'): Promise<AIResult> {
+    await this.sleep(450);
+    return {
+      success: true,
+      outputImageUri: imageInput,
+      metrics: {
+        model: `AI Enhancer (${type.toUpperCase()} - Local Mock)`,
+        latencyMs: 450,
+        costUsd: 0.001
+      }
+    };
+  }
 }

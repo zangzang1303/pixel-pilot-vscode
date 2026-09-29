@@ -13,6 +13,45 @@ export class IntentRouter {
     if (text.startsWith('/remove-bg') || text.startsWith('/nobg') || text.startsWith('/tach-nen')) {
       return { operation: 'remove_background', label: 'Tách nền 1-Click (BiRefNet SOTA)' };
     }
+    if (text.startsWith('/replace-bg') || text.startsWith('/bg ') || text.startsWith('/doi-nen')) {
+      const promptParam = raw.replace(/^\/(replace-bg|bg|doi-nen)\s*/i, '').trim();
+      return {
+        operation: 'replace_bg',
+        label: `Đổi nền AI: "${promptParam || 'Studio hiện đại'}"`,
+        promptText: promptParam || 'luxury modern studio with soft lighting'
+      };
+    }
+    if (text.startsWith('/anime')) {
+      return { operation: 'style_transfer', style: 'anime', label: 'Phong cách Anime (Makoto Shinkai)' };
+    }
+    if (text.startsWith('/3d') || text.startsWith('/pixar')) {
+      return { operation: 'style_transfer', style: '3d_pixar', label: 'Phong cách 3D Pixar Animation' };
+    }
+    if (text.startsWith('/pixel') || text.startsWith('/pixelart')) {
+      return { operation: 'style_transfer', style: 'pixel_art', label: 'Phong cách Pixel Art 16-bit Retro' };
+    }
+    if (text.startsWith('/cyberpunk')) {
+      return { operation: 'style_transfer', style: 'cyberpunk', label: 'Phong cách Cyberpunk Neon Synthwave' };
+    }
+    if (text.startsWith('/oil') || text.startsWith('/oilpainting')) {
+      return { operation: 'style_transfer', style: 'oil_painting', label: 'Phong cách Tranh Sơn Dầu Cổ Điển' };
+    }
+    if (text.startsWith('/sketch') || text.startsWith('/chi-than')) {
+      return { operation: 'style_transfer', style: 'sketch', label: 'Phong cách Phác thảo Chì Than' };
+    }
+    if (text.startsWith('/style')) {
+      const styleName = raw.replace(/^\/style\s*/i, '').trim() || 'anime';
+      return { operation: 'style_transfer', style: styleName, label: `Biến đổi phong cách: ${styleName}`, promptText: styleName };
+    }
+    if (text.startsWith('/hdr') || text.startsWith('/tang-sang')) {
+      return { operation: 'enhance', enhanceType: 'hdr', label: 'Tăng sáng & Cân bằng HDR AI' };
+    }
+    if (text.startsWith('/enhance') || text.startsWith('/lam-net') || text.startsWith('/restore')) {
+      return { operation: 'enhance', enhanceType: 'clarity', label: 'Nâng cấp làm nét & Khử mờ AI' };
+    }
+    if (text.startsWith('/vintage') || text.startsWith('/film')) {
+      return { operation: 'enhance', enhanceType: 'vintage', label: 'Tone màu Vintage Film cổ điển' };
+    }
     if (text.startsWith('/vectorize') || text.startsWith('/svg')) {
       return { operation: 'vectorize', label: 'Vectorize sang SVG' };
     }
@@ -25,7 +64,7 @@ export class IntentRouter {
     if (text.startsWith('/canny') || text.startsWith('/edge')) {
       return { operation: 'canny', label: 'Canny Edge Detection', preprocessor: 'canny' };
     }
-    if (text.startsWith('/lineart') || text.startsWith('/sketch')) {
+    if (text.startsWith('/lineart')) {
       return { operation: 'lineart', label: 'Line Art Extraction', preprocessor: 'lineart' };
     }
     if (text.startsWith('/mask')) {
@@ -56,7 +95,34 @@ export class IntentRouter {
     }
 
     // 2. Natural Language Intent Matching (Vietnamese & English)
-    // Background Matting
+
+    // Background Replacement / Generative Background
+    if (
+      text.includes('thay nền') ||
+      text.includes('đổi nền') ||
+      text.includes('ghép nền') ||
+      text.includes('tạo nền') ||
+      text.includes('đổi phông') ||
+      text.includes('chuyển nền') ||
+      text.includes('replace background') ||
+      text.includes('change background') ||
+      text.includes('new background') ||
+      (text.includes('nền') && (text.includes('bãi biển') || text.includes('hoàng hôn') || text.includes('studio') || text.includes('văn phòng') || text.includes('cyberpunk') || text.includes('thiên nhiên') || text.includes('vũ trụ') || text.includes('quán cà phê') || text.includes('gradient')))
+    ) {
+      // Clean query to formulate prompt
+      let cleanPrompt = raw
+        .replace(/^(hãy|làm ơn|vui lòng|giúp|tôi muốn|thay|đổi|tạo|ghép|chuyển)\s*/gi, '')
+        .replace(/^(nền|phông nền|phông|background)\s*(thành|sang|cho|về)?\s*/gi, '')
+        .trim();
+      if (!cleanPrompt) cleanPrompt = 'luxury minimalist studio background';
+      return {
+        operation: 'replace_bg',
+        label: `Đổi nền AI: "${cleanPrompt}"`,
+        promptText: cleanPrompt
+      };
+    }
+
+    // Background Matting / Removal
     if (
       text.includes('tách nền') ||
       text.includes('xóa nền') ||
@@ -68,6 +134,37 @@ export class IntentRouter {
       text.includes('birefnet')
     ) {
       return { operation: 'remove_background', label: 'Tách nền 1-Click (BiRefNet SOTA)' };
+    }
+
+    // AI Style Transfer
+    if (text.includes('anime') || text.includes('manga') || text.includes('hoạt hình nhật') || text.includes('ghibli')) {
+      return { operation: 'style_transfer', style: 'anime', label: 'Phong cách Anime (Makoto Shinkai)', promptText: raw };
+    }
+    if (text.includes('pixar') || text.includes('disney') || text.includes('hoạt hình 3d') || (text.includes('3d') && text.includes('phong cách'))) {
+      return { operation: 'style_transfer', style: '3d_pixar', label: 'Phong cách 3D Pixar Animation', promptText: raw };
+    }
+    if (text.includes('pixel') || text.includes('pixel art') || text.includes('8-bit') || text.includes('16-bit')) {
+      return { operation: 'style_transfer', style: 'pixel_art', label: 'Phong cách Pixel Art 16-bit Retro', promptText: raw };
+    }
+    if (text.includes('cyberpunk') || text.includes('synthwave') || text.includes('neon') || text.includes('tương lai')) {
+      return { operation: 'style_transfer', style: 'cyberpunk', label: 'Phong cách Cyberpunk Neon Synthwave', promptText: raw };
+    }
+    if (text.includes('sơn dầu') || text.includes('oil painting') || text.includes('tranh vẽ cổ điển')) {
+      return { operation: 'style_transfer', style: 'oil_painting', label: 'Phong cách Tranh Sơn Dầu Cổ Điển', promptText: raw };
+    }
+    if (text.includes('chì than') || text.includes('phác thảo') || text.includes('sketch') || text.includes('bút chì')) {
+      return { operation: 'style_transfer', style: 'sketch', label: 'Phong cách Phác thảo Chì Than', promptText: raw };
+    }
+
+    // AI Enhancements & Retouch
+    if (text.includes('tăng sáng') || text.includes('hdr') || text.includes('cân bằng sáng') || text.includes('relight')) {
+      return { operation: 'enhance', enhanceType: 'hdr', label: 'Tăng sáng & Cân bằng HDR AI' };
+    }
+    if (text.includes('vintage') || text.includes('màu phim') || text.includes('phim cổ điển') || text.includes('hoài cổ')) {
+      return { operation: 'enhance', enhanceType: 'vintage', label: 'Tone màu Vintage Film cổ điển' };
+    }
+    if (text.includes('làm nét') || text.includes('khử mờ') || text.includes('làm rõ') || text.includes('phục hồi') || text.includes('deblur')) {
+      return { operation: 'enhance', enhanceType: 'clarity', label: 'Nâng cấp làm nét & Khử mờ AI' };
     }
 
     // Vectorize / SVG
@@ -87,7 +184,6 @@ export class IntentRouter {
     if (
       text.includes('upscale') ||
       text.includes('phóng to') ||
-      text.includes('làm nét') ||
       text.includes('tăng độ phân giải') ||
       text.includes('super resolution') ||
       text.includes('2x')
@@ -101,7 +197,7 @@ export class IntentRouter {
     }
 
     // Line Art
-    if (text.includes('line art') || text.includes('lineart') || text.includes('nét vẽ') || text.includes('anime') || text.includes('sketch') || text.includes('phác thảo')) {
+    if (text.includes('line art') || text.includes('lineart') || text.includes('nét vẽ')) {
       return { operation: 'lineart', label: 'Line Art Extraction', preprocessor: 'lineart' };
     }
 
@@ -148,3 +244,4 @@ export class IntentRouter {
     };
   }
 }
+

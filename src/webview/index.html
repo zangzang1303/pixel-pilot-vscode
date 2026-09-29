@@ -229,18 +229,63 @@
       </div>
     </section>
 
-    <!-- Codex Bottom Prompt Bar with Quick Action Toolbar -->
+    <!-- Codex Bottom Prompt Bar with AI Studio Tools -->
     <footer class="codex-prompt-footer">
-      <!-- Modern AI Quick Action Toolbar -->
+      <!-- AI Category Tabs -->
+      <div class="studio-category-nav" id="studio-category-nav">
+        <button class="cat-pill-btn active" data-cat="popular">🔥 Phổ biến</button>
+        <button class="cat-pill-btn" data-cat="background">🌅 Nền AI</button>
+        <button class="cat-pill-btn" data-cat="styles">🎨 Phong cách</button>
+        <button class="cat-pill-btn" data-cat="inpaint">🖌️ Sửa chi tiết</button>
+        <button class="cat-pill-btn" data-cat="enhance">🌟 Nâng cấp</button>
+        <button class="cat-pill-btn" data-cat="export">🛠️ Xuất file</button>
+      </div>
+
+      <!-- Modern AI Action Toolbar -->
       <div class="studio-quick-toolbar" id="toolbelt-section">
-        <button class="quick-act-btn glow-cyan" data-action="remove_bg" title="Tách nền bằng BiRefNet SOTA"><span class="act-icon">✂️</span> Tách nền</button>
-        <button class="quick-act-btn glow-purple" data-action="upscale_4x" title="Phóng to 4x siêu nét Super-Resolution"><span class="act-icon">⚡</span> Phóng to 4x</button>
-        <button class="quick-act-btn glow-emerald" data-action="vectorize" title="Chuyển đổi sang Vector SVG"><span class="act-icon">📐</span> Vector SVG</button>
-        <button class="quick-act-btn glow-white" data-action="white_bg" title="Tạo nền trắng Studio E-Commerce"><span class="act-icon">⬜</span> Nền trắng</button>
-        <button class="quick-act-btn glow-blue" data-action="avatar" title="Tạo Avatar tròn 1:1"><span class="act-icon">👤</span> Avatar</button>
-        <button class="quick-act-btn glow-amber" data-action="icons" title="Bộ Favicon Web/PWA"><span class="act-icon">📱</span> Icons</button>
-        <button class="quick-act-btn glow-teal" data-action="export_webp" title="Nén WebP dung lượng nhẹ"><span class="act-icon">💾</span> WebP</button>
-        <button class="quick-act-btn glow-rose" data-action="inpaint_brush" title="Bật cọ vẽ Inpaint"><span class="act-icon">🖌️</span> Inpaint</button>
+        <!-- 1. POPULAR (DEFAULT) -->
+        <button class="quick-act-btn glow-cyan" data-cat="popular" data-action="remove_bg" title="Tách nền bằng BiRefNet SOTA"><span class="act-icon">✂️</span> Tách nền</button>
+        <button class="quick-act-btn glow-amber" data-cat="popular" data-action="quick_bg" title="Đổi nền AI theo bối cảnh hoặc câu lệnh"><span class="act-icon">🌅</span> Đổi nền AI</button>
+        <button class="quick-act-btn glow-purple" data-cat="popular" data-action="upscale_4x" title="Phóng to 4x siêu nét Super-Resolution"><span class="act-icon">⚡</span> Phóng to 4x</button>
+        <button class="quick-act-btn glow-rose" data-cat="popular" data-action="inpaint_brush" title="Bật cọ vẽ Inpaint để xóa hoặc thay vật thể"><span class="act-icon">🖌️</span> Cọ Inpaint</button>
+        <button class="quick-act-btn glow-pink" data-cat="popular" data-action="style_anime" title="Chuyển sang phong cách Anime Makoto Shinkai"><span class="act-icon">🎌</span> Anime</button>
+        <button class="quick-act-btn glow-emerald" data-cat="popular" data-action="vectorize" title="Chuyển đổi sang Vector SVG"><span class="act-icon">📐</span> Vector SVG</button>
+
+        <!-- 2. BACKGROUND -->
+        <button class="quick-act-btn glow-cyan" data-cat="background" data-action="remove_bg" title="Tách nền trong suốt (PNG Cutout)"><span class="act-icon">✂️</span> Tách nền</button>
+        <button class="quick-act-btn glow-white" data-cat="background" data-action="white_bg" title="Nền trắng Studio E-Commerce chuẩn bán hàng"><span class="act-icon">⬜</span> Nền trắng</button>
+        <button class="quick-act-btn glow-amber" data-cat="background" data-action="bg_sunset" title="Ghép nền bãi biển nhiệt đới hoàng hôn"><span class="act-icon">🌴</span> Bãi biển</button>
+        <button class="quick-act-btn glow-blue" data-cat="background" data-action="bg_cyberpunk" title="Ghép nền thành phố tương lai Neon Cyberpunk"><span class="act-icon">🏙️</span> Cyberpunk</button>
+        <button class="quick-act-btn glow-purple" data-cat="background" data-action="bg_office" title="Ghép nền văn phòng công nghệ hiện đại"><span class="act-icon">🏢</span> Văn phòng</button>
+        <button class="quick-act-btn glow-teal" data-cat="background" data-action="bg_gradient" title="Ghép nền màu gradient nghệ thuật"><span class="act-icon">🎨</span> Gradient</button>
+
+        <!-- 3. STYLES -->
+        <button class="quick-act-btn glow-pink" data-cat="styles" data-action="style_anime" title="Phong cách Anime điện ảnh Makoto Shinkai"><span class="act-icon">🎌</span> Anime</button>
+        <button class="quick-act-btn glow-amber" data-cat="styles" data-action="style_3d" title="Phong cách 3D hoạt hình Pixar Disney"><span class="act-icon">🧸</span> 3D Pixar</button>
+        <button class="quick-act-btn glow-emerald" data-cat="styles" data-action="style_pixel" title="Phong cách Pixel Art 16-bit Retro Arcade"><span class="act-icon">👾</span> Pixel Art</button>
+        <button class="quick-act-btn glow-blue" data-cat="styles" data-action="style_cyberpunk" title="Phong cách Cyberpunk tương lai Synthwave"><span class="act-icon">🤖</span> Cyberpunk</button>
+        <button class="quick-act-btn glow-purple" data-cat="styles" data-action="style_oil" title="Phong cách Tranh Sơn Dầu cổ điển Rembrandt"><span class="act-icon">🖌️</span> Sơn dầu</button>
+        <button class="quick-act-btn glow-white" data-cat="styles" data-action="style_sketch" title="Phong cách Phác thảo Chì Than vẽ tay"><span class="act-icon">✏️</span> Chì than</button>
+
+        <!-- 4. INPAINT & EDIT -->
+        <button class="quick-act-btn glow-rose" data-cat="inpaint" data-action="inpaint_brush" title="Bật/Tắt cọ vẽ Inpaint trên Canvas"><span class="act-icon">🖌️</span> Bật cọ vẽ</button>
+        <button class="quick-act-btn glow-amber" data-cat="inpaint" data-action="inpaint_remove" title="Tô vùng và xóa người hoặc vật thể thừa"><span class="act-icon">🚫</span> Xóa vật thể</button>
+        <button class="quick-act-btn glow-cyan" data-cat="inpaint" data-action="inpaint_glasses" title="Tô vùng mắt và thêm kính râm sành điệu"><span class="act-icon">🕶️</span> Thêm kính râm</button>
+        <button class="quick-act-btn glow-purple" data-cat="inpaint" data-action="inpaint_hat" title="Tô vùng đầu và thêm mũ nón"><span class="act-icon">🎩</span> Thêm mũ</button>
+        <button class="quick-act-btn glow-teal" data-cat="inpaint" data-action="inpaint_clothes" title="Tô trang phục và đổi màu/kiểu áo"><span class="act-icon">👕</span> Đổi áo</button>
+
+        <!-- 5. ENHANCE & RESTORE -->
+        <button class="quick-act-btn glow-purple" data-cat="enhance" data-action="upscale_4x" title="Phóng to 4x Ultra HD Super-Resolution"><span class="act-icon">⚡</span> Phóng to 4x</button>
+        <button class="quick-act-btn glow-cyan" data-cat="enhance" data-action="upscale_2x" title="Phóng to 2x HD"><span class="act-icon">🔍</span> Phóng to 2x</button>
+        <button class="quick-act-btn glow-amber" data-cat="enhance" data-action="enhance_hdr" title="Tăng sáng thông minh & Cân bằng màu HDR"><span class="act-icon">💡</span> Tăng sáng HDR</button>
+        <button class="quick-act-btn glow-emerald" data-cat="enhance" data-action="enhance_clarity" title="Làm nét chi tiết & Khử mờ AI"><span class="act-icon">🌟</span> Làm nét ảnh</button>
+        <button class="quick-act-btn glow-rose" data-cat="enhance" data-action="enhance_vintage" title="Tone màu phim điện ảnh Vintage 35mm"><span class="act-icon">🎞️</span> Màu Vintage</button>
+
+        <!-- 6. EXPORT & UTILS -->
+        <button class="quick-act-btn glow-emerald" data-cat="export" data-action="vectorize" title="Chuyển đổi sang Vector SVG chuẩn Bézier"><span class="act-icon">📐</span> Vector SVG</button>
+        <button class="quick-act-btn glow-blue" data-cat="export" data-action="avatar" title="Tạo Avatar tròn 1:1 chuẩn Avatar Profile"><span class="act-icon">👤</span> Avatar 1:1</button>
+        <button class="quick-act-btn glow-amber" data-cat="export" data-action="icons" title="Xuất trọn bộ Favicon & Icon ứng dụng Web/PWA"><span class="act-icon">📱</span> Bộ Icons</button>
+        <button class="quick-act-btn glow-teal" data-cat="export" data-action="export_webp" title="Nén WebP dung lượng nhẹ tối ưu tải trang"><span class="act-icon">💾</span> Nén WebP</button>
       </div>
 
       <!-- Modern Prompt Input Container -->
@@ -251,7 +296,7 @@
         <textarea
           id="prompt-textarea"
           rows="1"
-          placeholder="Mô tả chỉnh sửa (vd: 'Tách nền', 'Phóng to 4x', 'Tạo nền trắng')..."
+          placeholder="Mô tả chỉnh sửa (vd: 'Đổi nền hoàng hôn', 'Phong cách anime', 'Làm nét')..."
         ></textarea>
         <button id="btn-send-prompt" class="send-btn" title="Gửi câu lệnh (Enter)">
           <span>➤</span>
@@ -259,7 +304,7 @@
       </div>
 
       <div class="prompt-hint-row">
-        <span>💡 Bấm nút thao tác nhanh bên trên hoặc nhập lệnh. Kéo thả hoặc dán ảnh (<b>Ctrl + V</b>).</span>
+        <span>💡 Nhập yêu cầu chỉnh sửa ảnh bằng tiếng Việt (AI tự nhận diện). Hỗ trợ kéo thả hoặc <b>Ctrl + V</b>.</span>
       </div>
     </footer>
 
