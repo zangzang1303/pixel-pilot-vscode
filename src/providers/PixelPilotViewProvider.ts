@@ -6,25 +6,40 @@ import { SessionManager } from '../services/session/SessionManager';
 import { RunwareAdapter } from '../services/ai/RunwareAdapter';
 import { IntentRouter } from '../services/ai/IntentRouter';
 import { OperationType, AIResult } from '../services/session/types';
+import { SecretManager } from '../services/security/SecretManager';
+import { AssetStorageService } from '../services/storage/AssetStorageService';
+import { EnterpriseConfigManager } from '../services/config/EnterpriseConfigManager';
 
 export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'pixelPilot.sidebarView';
   private _view?: vscode.WebviewView;
   private sessionManager: SessionManager;
   private runwareAdapter: RunwareAdapter;
+  private secretManager: SecretManager;
+  private assetStorage: AssetStorageService;
+  private configManager: EnterpriseConfigManager;
   private context: vscode.ExtensionContext;
+  private uriToPathMap: Map<string, string> = new Map();
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     this.sessionManager = new SessionManager(workspaceRoot || context.globalStorageUri.fsPath);
+    this.secretManager = new SecretManager(context);
+    this.assetStorage = new AssetStorageService(context);
+    this.configManager = new EnterpriseConfigManager(workspaceRoot);
+    this.runwareAdapter = new RunwareAdapter('');
 
-    // Read configured Runware API key
-    const config = vscode.workspace.getConfiguration('pixelPilot');
-    const apiKey = config.get<string>('apiKey') || process.env.RUNWARE_API_KEY || '';
-
-    this.runwareAdapter = new RunwareAdapter(apiKey);
+    // Preload API Key from SecretStorage asynchronously
+    this.secretManager.getApiKey().then((key) => {
+      if (key) this.runwareAdapter.setApiKey(key);
+    });
   }
+
+  public getRunwareAdapter(): RunwareAdapter { return this.runwareAdapter; }
+  public getSecretManager(): SecretManager { return this.secretManager; }
+  public getAssetStorage(): AssetStorageService { return this.assetStorage; }
+  public getConfigManager(): EnterpriseConfigManager { return this.configManager; }
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -37,7 +52,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       enableScripts: true,
       localResourceRoots: [
         vscode.Uri.file(path.join(this.context.extensionPath, 'src', 'webview')),
-        vscode.Uri.file(path.join(this.context.extensionPath, 'media'))
+        vscode.Uri.file(path.join(this.context.extensionPath, 'media')),
+        this.context.globalStorageUri
       ]
     };
 
@@ -60,18 +76,24 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             : '';
 
           if (fs.existsSync(defaultTestImg)) {
-            const b64 = fs.readFileSync(defaultTestImg).toString('base64');
-            activeSession = this.sessionManager.createSession(`data:image/jpeg;base64,${b64}`, 'TC1 - Tóc bay ngược sáng');
+            const cachedPath = await this.assetStorage.saveToCache(defaultTestImg);
+            const webviewUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : defaultTestImg;
+            this.uriToPathMap.set(webviewUri, cachedPath);
+            activeSession = this.sessionManager.createSession(webviewUri, 'TC1 - Tóc bay ngược sáng');
           } else {
             activeSession = this.sessionManager.createSession('', 'Phiên làm việc mới');
           }
         }
 
-        const hasKey = !!this.runwareAdapter.getApiKey();
+        const apiKey = await this.secretManager.getApiKey();
+        if (apiKey) {
+          this.runwareAdapter.setApiKey(apiKey);
+        }
+        const masked = await this.secretManager.getMaskedApiKey();
         this.postToWebview({
           type: 'apiKeyStatus',
-          hasApiKey: hasKey,
-          apiKeyMasked: hasKey ? '••••••••' + this.runwareAdapter.getApiKey().slice(-4) : ''
+          hasApiKey: !!apiKey,
+          apiKeyMasked: masked
         });
 
         this.broadcastSessionState();
@@ -81,16 +103,28 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       case 'saveApiKey': {
         const key = (message.apiKey || '').trim();
         if (key) {
-          const config = vscode.workspace.getConfiguration('pixelPilot');
-          await config.update('apiKey', key, vscode.ConfigurationTarget.Global);
+          await this.secretManager.setApiKey(key);
           this.runwareAdapter.setApiKey(key);
-          vscode.window.showInformationMessage('✨ Pixel Pilot: Đã lưu Runware API Key thành công!');
+          const masked = await this.secretManager.getMaskedApiKey();
+          vscode.window.showInformationMessage('🔒 Pixel Pilot Enterprise: Đã lưu API Key vào SecretStorage an toàn!');
           this.postToWebview({
             type: 'apiKeyStatus',
             hasApiKey: true,
-            apiKeyMasked: '••••••••' + key.slice(-4)
+            apiKeyMasked: masked
           });
         }
+        break;
+      }
+
+      case 'clearApiKey': {
+        await this.secretManager.deleteApiKey();
+        this.runwareAdapter.setApiKey('');
+        this.postToWebview({
+          type: 'apiKeyStatus',
+          hasApiKey: false,
+          apiKeyMasked: ''
+        });
+        vscode.window.showInformationMessage('🔒 Pixel Pilot: Đã xóa API Key khỏi SecretStorage.');
         break;
       }
 
@@ -105,12 +139,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
         if (fileUris && fileUris[0]) {
           const filePath = fileUris[0].fsPath;
-          const ext = path.extname(filePath).toLowerCase().replace('.', '') || 'png';
-          const fileBuf = await vscode.workspace.fs.readFile(fileUris[0]);
-          const base64 = Buffer.from(fileBuf).toString('base64');
-          const dataUri = `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${base64}`;
+          const cachedPath = await this.assetStorage.saveToCache(filePath);
+          const webviewUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : filePath;
+          this.uriToPathMap.set(webviewUri, cachedPath);
 
-          const session = this.sessionManager.createSession(dataUri, path.basename(filePath));
+          const session = this.sessionManager.createSession(webviewUri, path.basename(filePath));
           this.broadcastSessionState();
         }
         break;
@@ -255,6 +288,9 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
+    // Resolve real input file path or data URI
+    const realInput = this.uriToPathMap.get(inputImg) || inputImg;
+
     // Check Runware API key
     if (!this.runwareAdapter.getApiKey()) {
       this.postToWebview({ type: 'apiKeyMissing' });
@@ -267,31 +303,31 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     try {
       switch (op) {
         case 'remove_background':
-          res = await this.runwareAdapter.removeBackground(inputImg);
+          res = await this.runwareAdapter.removeBackground(realInput);
           break;
         case 'upscale':
-          res = await this.runwareAdapter.upscale(inputImg, message.factor || 2);
+          res = await this.runwareAdapter.upscale(realInput, message.factor || 2);
           break;
         case 'vectorize':
-          res = await this.runwareAdapter.vectorize(inputImg);
+          res = await this.runwareAdapter.vectorize(realInput);
           break;
         case 'inpaint':
-          res = await this.runwareAdapter.inpaint(inputImg, message.mask || '', message.prompt || 'high quality restoration');
+          res = await this.runwareAdapter.inpaint(realInput, message.mask || '', message.prompt || 'high quality restoration');
           break;
         case 'mask':
-          res = await this.runwareAdapter.extractMask(inputImg);
+          res = await this.runwareAdapter.extractMask(realInput);
           break;
         case 'canny':
-          res = await this.runwareAdapter.detectEdges(inputImg, 'canny');
+          res = await this.runwareAdapter.detectEdges(realInput, 'canny');
           break;
         case 'lineart':
-          res = await this.runwareAdapter.detectEdges(inputImg, 'lineart');
+          res = await this.runwareAdapter.detectEdges(realInput, 'lineart');
           break;
         case 'caption':
-          res = await this.runwareAdapter.generateCaption(inputImg);
+          res = await this.runwareAdapter.generateCaption(realInput);
           break;
         case 'extend':
-          res = await this.runwareAdapter.extendCanvas(inputImg, 'all', message.prompt);
+          res = await this.runwareAdapter.extendCanvas(realInput, 'all', message.prompt);
           break;
         default:
           res = {
@@ -302,14 +338,23 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       }
 
       if (res.success) {
-        const outputUri = res.outputImageUri || inputImg;
+        let displayUri = res.outputImageUri || inputImg;
+        if (res.outputImageUri && this._view) {
+          const cachedPath = await this.assetStorage.saveToCache(
+            res.outputImageUri,
+            op === 'vectorize' ? 'svg' : 'png'
+          );
+          displayUri = this.assetStorage.getWebviewUri(cachedPath, this._view.webview);
+          this.uriToPathMap.set(displayUri, cachedPath);
+        }
+
         this.sessionManager.addOperationNode(
           session.sessionId,
           parentNode.nodeId,
           op,
           message.operationLabel || op,
           inputImg,
-          outputUri,
+          displayUri,
           res.metrics,
           {
             maskUri: res.maskUri,
@@ -361,7 +406,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
     if (saveUri) {
       let buffer: Buffer;
-      if (node.outputImageUri.startsWith('data:image')) {
+      const realPath = this.uriToPathMap.get(node.outputImageUri) || node.outputImageUri;
+      if (fs.existsSync(realPath)) {
+        buffer = await fs.promises.readFile(realPath);
+      } else if (node.outputImageUri.startsWith('data:image')) {
         const b64 = node.outputImageUri.split(',')[1];
         buffer = Buffer.from(b64, 'base64');
       } else {

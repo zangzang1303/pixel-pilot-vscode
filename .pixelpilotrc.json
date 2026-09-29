@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0",
+  "designSystem": {
+    "iconSizes": [16, 24, 32, 48, 64],
+    "defaultFormat": "webp",
+    "webpQuality": 85,
+    "maxDimension": 2048,
+    "namingConvention": "kebab-case",
+    "autoCleanSvg": true
+  },
+  "enterpriseApi": {
+    "zeroDataRetention": true,
+    "timeoutMs": 60000,
+    "provider": "runware"
+  },
+  "auditLogging": {
+    "enabled": true,
+    "logFileName": ".pixelpilot_audit.log"
+  }
+}

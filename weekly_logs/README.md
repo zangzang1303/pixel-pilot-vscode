@@ -11,7 +11,8 @@
 | Tuần | Thời Gian | Trọng Tâm Nghiên Cứu & Phát Triển | Trạng Thái | Chi Tiết |
 | :---: | :---: | :--- | :---: | :---: |
 | **Tuần 01** | *Khởi động đề tài* | Hoàn thiện Thuyết minh đề tài (Proposal), Xây dựng Benchmark thực nghiệm (TC1-TC5), Triển khai kiến trúc VS Code Extension & kết nối 100% Runware Production API | <span style="color:#22c55e">✅ Hoàn thành xuất sắc</span> | [WEEK_01.md](./WEEK_01.md) |
-| **Tuần 02** | *Tối ưu hóa & Đánh giá* | Tối ưu hóa Memory Footprint & Caching cho DAG Tree, Bổ sung bộ lọc nhanh (Preset Filters), Chuẩn bị Slide báo cáo giữa kỳ | ⏳ *Kế hoạch* | *Đang cập nhật* |
+| **Tuần 02** | *Chuẩn hóa Doanh nghiệp (Enterprise-Grade)* | Nâng cấp bảo mật SecretStorage, Tối ưu hóa Bộ đệm Nhị phân Disk Cache (Zero-IPC), Động cơ Xử lý Hàng loạt (Batch Processing) & Cấu hình `.pixelpilotrc.json` | <span style="color:#22c55e">✅ Hoàn thành 100%</span> | [WEEK_02.md](./WEEK_02.md) |
+| **Tuần 03** | *Kiểm thử & Đóng gói Phân phối* | Xây dựng bộ Unit Tests, Tối ưu gói bundle với Esbuild (<3MB), Quốc tế hóa đa ngôn ngữ (@vscode/l10n) | ⏳ *Kế hoạch* | *Đang cập nhật* |
 
 ---
 

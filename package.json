@@ -73,7 +73,23 @@
       },
       {
         "command": "pixelPilot.setApiKey",
-        "title": "Pixel Pilot: Set Runware API Key"
+        "title": "Pixel Pilot: Set Runware API Key (Encrypted SecretStorage)"
+      },
+      {
+        "command": "pixelPilot.clearApiKey",
+        "title": "Pixel Pilot: Xóa API Key khỏi SecretStorage"
+      },
+      {
+        "command": "pixelPilot.batchProcessFolder",
+        "title": "Pixel Pilot Enterprise: Xử lý Hàng loạt (Batch Process Assets...)"
+      },
+      {
+        "command": "pixelPilot.initEnterpriseConfig",
+        "title": "Pixel Pilot Enterprise: Khởi tạo Cấu hình Chuẩn Doanh nghiệp (.pixelpilotrc.json)"
+      },
+      {
+        "command": "pixelPilot.clearCache",
+        "title": "Pixel Pilot Enterprise: Dọn dẹp Bộ nhớ Cache Đĩa cứng"
       },
       {
         "command": "pixelPilot.moveToRightSide",
@@ -96,6 +112,11 @@
           "command": "pixelPilot.upscaleImage",
           "when": "resourceExtname =~ /\\.(png|jpe?g|webp|bmp)$/i",
           "group": "pixelPilot@3"
+        },
+        {
+          "command": "pixelPilot.batchProcessFolder",
+          "when": "explorerResourceIsFolder",
+          "group": "pixelPilot@4"
         }
       ]
     },
