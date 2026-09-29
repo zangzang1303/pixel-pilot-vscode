@@ -10,6 +10,7 @@ export type OperationType =
   | 'style_transfer'
   | 'enhance'
   | 'color_grade'
+  | 'recolor'
   | 'mask'
   | 'canny'
   | 'lineart'
@@ -87,4 +88,6 @@ export interface ParsedIntent {
   style?: string;
   bgPreset?: string;
   enhanceType?: 'clarity' | 'hdr' | 'face_restore' | 'vintage';
+  colorTarget?: 'hair' | 'clothes' | 'general';
+  targetColor?: 'red' | 'blue' | 'green' | 'purple' | 'pink' | 'yellow' | 'orange' | 'black' | 'white' | 'brown';
 }

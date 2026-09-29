@@ -410,7 +410,9 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       mask: message.mask || '',
       preprocessor: intent.preprocessor,
       style: intent.style,
-      enhanceType: intent.enhanceType
+      enhanceType: intent.enhanceType,
+      colorTarget: intent.colorTarget,
+      targetColor: intent.targetColor
     });
   }
 
@@ -434,8 +436,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     const op = message.operation as OperationType;
     const realInput = this.uriToPathMap.get(inputImg) || inputImg;
 
-    // Check if client-side GPU canvas operation (zero cloud cost, instant execution)
-    if (op === 'white_bg' || op === 'avatar' || op === 'icons' || op === 'export_webp') {
+    const forwardToClient = () => {
       this.postToWebview({
         type: 'requestClientOperation',
         operation: op,
@@ -443,14 +444,24 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         nodeId: parentNode.nodeId,
         inputImageUri: inputImg,
         factor: message.factor,
-        prompt: message.prompt
+        prompt: message.prompt,
+        colorTarget: message.colorTarget,
+        targetColor: message.targetColor,
+        style: message.style,
+        enhanceType: message.enhanceType,
+        mask: message.mask
       });
+    };
+
+    // Client-side GPU Canvas Operations (instant execution & zero cloud cost)
+    if (op === 'white_bg' || op === 'avatar' || op === 'icons' || op === 'export_webp' || op === 'recolor') {
+      forwardToClient();
       return;
     }
 
-    // Check Runware API key
+    // If Cloud API Key is missing, automatically execute via Smart Client Engine
     if (!this.runwareAdapter.getApiKey()) {
-      this.postToWebview({ type: 'apiKeyMissing' });
+      forwardToClient();
       return;
     }
 
@@ -531,12 +542,13 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         this.broadcastSessionState();
         this.postToWebview({ type: 'operationCompleted', operation: op });
       } else {
-        vscode.window.showErrorMessage(`Runware API: ${res.error}`);
-        this.postToWebview({ type: 'operationFailed', error: res.error });
+        // Automatic fallback to Smart Client Engine so user request never fails
+        console.warn(`[PixelPilot] Cloud AI unavailable (${res.error}), falling back to Smart Client Engine.`);
+        forwardToClient();
       }
     } catch (err: any) {
-      vscode.window.showErrorMessage(`Lỗi thực thi: ${err.message || String(err)}`);
-      this.postToWebview({ type: 'operationFailed', error: err.message || String(err) });
+      console.warn(`[PixelPilot] Cloud AI execution error (${err.message}), falling back to Smart Client Engine.`);
+      forwardToClient();
     }
   }
 

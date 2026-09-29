@@ -96,6 +96,57 @@ export class IntentRouter {
 
     // 2. Natural Language Intent Matching (Vietnamese & English)
 
+    // Color modification / Recoloring (Hair, Clothes, General items)
+    const hasColorWord = text.includes('màu') || text.includes('nhuộm') || text.includes('color') || text.includes('biến');
+    const isHair = text.includes('tóc') || text.includes('mái tóc') || text.includes('hair');
+    const isClothes = text.includes('áo') || text.includes('váy') || text.includes('quần') || text.includes('trang phục') || text.includes('shirt') || text.includes('clothes');
+
+    let targetColor: 'red' | 'blue' | 'green' | 'purple' | 'pink' | 'yellow' | 'orange' | 'black' | 'white' | 'brown' | undefined;
+    let colorNameVi = '';
+    if (text.includes('đỏ') || text.includes('red') || text.includes('hồng đào') || text.includes('ruby')) {
+      targetColor = 'red';
+      colorNameVi = 'Đỏ Ruby';
+    } else if (text.includes('xanh lá') || text.includes('green') || text.includes('lục')) {
+      targetColor = 'green';
+      colorNameVi = 'Xanh Lá';
+    } else if (text.includes('xanh dương') || text.includes('xanh biển') || text.includes('blue') || text.includes('cyan') || (text.includes('xanh') && !text.includes('lá'))) {
+      targetColor = 'blue';
+      colorNameVi = 'Xanh Biển';
+    } else if (text.includes('tím') || text.includes('purple') || text.includes('violet')) {
+      targetColor = 'purple';
+      colorNameVi = 'Tím Khói';
+    } else if (text.includes('hồng') || text.includes('pink')) {
+      targetColor = 'pink';
+      colorNameVi = 'Hồng Pastel';
+    } else if (text.includes('vàng') || text.includes('yellow') || text.includes('gold')) {
+      targetColor = 'yellow';
+      colorNameVi = 'Vàng Kim';
+    } else if (text.includes('cam') || text.includes('orange')) {
+      targetColor = 'orange';
+      colorNameVi = 'Cam San Hô';
+    } else if (text.includes('đen') || text.includes('black') || text.includes('tối')) {
+      targetColor = 'black';
+      colorNameVi = 'Đen Tuyền';
+    } else if (text.includes('trắng') || text.includes('bạch kim') || text.includes('bạc') || text.includes('silver') || text.includes('white')) {
+      targetColor = 'white';
+      colorNameVi = 'Bạch Kim';
+    } else if (text.includes('nâu') || text.includes('brown')) {
+      targetColor = 'brown';
+      colorNameVi = 'Nâu Hạt Dẻ';
+    }
+
+    if (targetColor && (isHair || isClothes || hasColorWord)) {
+      const target = isHair ? 'hair' : isClothes ? 'clothes' : 'general';
+      const targetLabel = isHair ? 'mái tóc' : isClothes ? 'trang phục' : 'chi tiết';
+      return {
+        operation: 'recolor',
+        label: `Biến đổi màu ${targetLabel} sang ${colorNameVi}`,
+        promptText: raw,
+        colorTarget: target,
+        targetColor
+      };
+    }
+
     // Background Replacement / Generative Background
     if (
       text.includes('thay nền') ||
