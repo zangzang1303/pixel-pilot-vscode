@@ -161,7 +161,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('pixelPilot.removeBackground', async (uri?: vscode.Uri) => {
       await vscode.commands.executeCommand('workbench.view.extension.pixel-pilot');
       if (uri) {
-        vscode.window.showInformationMessage(`✨ Pixel Pilot: Đang nạp ảnh ${path.basename(uri.fsPath)} vào Studio...`);
+        await provider.loadFileAndExecute(uri.fsPath, 'remove_background', 'Tách nền 1-Click (BiRefNet SOTA)');
       }
     })
   );
@@ -171,7 +171,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('pixelPilot.vectorizeImage', async (uri?: vscode.Uri) => {
       await vscode.commands.executeCommand('workbench.view.extension.pixel-pilot');
       if (uri) {
-        vscode.window.showInformationMessage(`✨ Pixel Pilot: Đang nạp ảnh ${path.basename(uri.fsPath)} để chuyển đổi Vector...`);
+        await provider.loadFileAndExecute(uri.fsPath, 'vectorize', 'Vectorize sang SVG');
       }
     })
   );
@@ -181,7 +181,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('pixelPilot.upscaleImage', async (uri?: vscode.Uri) => {
       await vscode.commands.executeCommand('workbench.view.extension.pixel-pilot');
       if (uri) {
-        vscode.window.showInformationMessage(`✨ Pixel Pilot: Đang nạp ảnh ${path.basename(uri.fsPath)} để Upscale siêu nét...`);
+        await provider.loadFileAndExecute(uri.fsPath, 'upscale', 'Upscale 2x HD');
       }
     })
   );

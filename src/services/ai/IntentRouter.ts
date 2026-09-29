@@ -38,6 +38,18 @@ export class IntentRouter {
       const promptParam = raw.replace(/^\/(extend|outpaint)\s*/i, '');
       return { operation: 'extend', label: 'Mở rộng khung hình (Extend)', promptText: promptParam };
     }
+    if (text.startsWith('/white-bg') || text.startsWith('/whitebg') || text.startsWith('/ecommerce')) {
+      return { operation: 'white_bg', label: 'Nền trắng Studio E-Commerce' };
+    }
+    if (text.startsWith('/avatar') || text.startsWith('/pfp')) {
+      return { operation: 'avatar', label: 'Tạo Avatar Tròn / Bo góc' };
+    }
+    if (text.startsWith('/icons') || text.startsWith('/favicon')) {
+      return { operation: 'icons', label: 'Xuất bộ Favicon & App Icons' };
+    }
+    if (text.startsWith('/webp') || text.startsWith('/export-webp')) {
+      return { operation: 'export_webp', label: 'Nén Quick Export WebP (85%)' };
+    }
     if (text.startsWith('/inpaint') || text.startsWith('/edit') || text.startsWith('/fill')) {
       const promptParam = raw.replace(/^\/(inpaint|edit|fill)\s*/i, '');
       return { operation: 'inpaint', label: 'Generative Inpaint Fill', promptText: promptParam };
@@ -106,6 +118,26 @@ export class IntentRouter {
     // Outpainting / Extend
     if (text.includes('mở rộng ảnh') || text.includes('nới rộng') || text.includes('outpaint') || text.includes('extend')) {
       return { operation: 'extend', label: 'Mở rộng khung hình (Extend)', promptText: raw };
+    }
+
+    // White Studio E-Commerce
+    if (text.includes('nền trắng') || text.includes('phông trắng') || text.includes('white background') || text.includes('ecommerce') || text.includes('sản phẩm')) {
+      return { operation: 'white_bg', label: 'Nền trắng Studio E-Commerce' };
+    }
+
+    // Avatar Maker
+    if (text.includes('avatar') || text.includes('ảnh đại diện') || text.includes('hình tròn') || text.includes('profile')) {
+      return { operation: 'avatar', label: 'Tạo Avatar Tròn / Bo góc' };
+    }
+
+    // Icons / Favicon
+    if (text.includes('favicon') || text.includes('tạo icon') || text.includes('bộ icon') || text.includes('app icon')) {
+      return { operation: 'icons', label: 'Xuất bộ Favicon & App Icons' };
+    }
+
+    // WebP Export
+    if (text.includes('webp') || text.includes('nén ảnh') || text.includes('tối ưu dung lượng')) {
+      return { operation: 'export_webp', label: 'Nén Quick Export WebP (85%)' };
     }
 
     // 3. Default: Generative Inpaint & Edit with user prompt

@@ -220,6 +220,110 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         break;
       }
 
+      case 'copyToClipboard': {
+        if (message.text) {
+          await vscode.env.clipboard.writeText(message.text);
+          vscode.window.showInformationMessage(message.notice || 'Đã sao chép vào Clipboard!');
+        }
+        break;
+      }
+
+      case 'openBatchDialog': {
+        await vscode.commands.executeCommand('pixelPilot.batchProcessFolder');
+        break;
+      }
+
+      case 'openEnterpriseConfig': {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (workspaceRoot) {
+          const configPath = path.join(workspaceRoot, '.pixelpilotrc.json');
+          if (!fs.existsSync(configPath)) {
+            await this.configManager.initConfigFile();
+          }
+          const doc = await vscode.workspace.openTextDocument(configPath);
+          await vscode.window.showTextDocument(doc);
+        } else {
+          vscode.window.showInformationMessage('Vui lòng mở một Workspace để chỉnh sửa cấu hình .pixelpilotrc.json');
+        }
+        break;
+      }
+
+      case 'savePastedImage': {
+        if (message.dataUri) {
+          const cachedPath = await this.assetStorage.saveToCache(message.dataUri, 'png');
+          const webviewUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : cachedPath;
+          this.uriToPathMap.set(webviewUri, cachedPath);
+          const title = message.title || `Ảnh dán (${new Date().toLocaleTimeString()})`;
+          this.sessionManager.createSession(webviewUri, title);
+          this.broadcastSessionState();
+          vscode.window.showInformationMessage(`✨ Pixel Pilot: Đã nạp ảnh mới từ Clipboard/Kéo thả!`);
+        }
+        break;
+      }
+
+      case 'saveClientNode': {
+        const session = this.sessionManager.getActiveSession();
+        if (session && message.dataUri) {
+          const parentNode = session.nodes[message.nodeId] || session.nodes[session.currentNodeId];
+          if (parentNode) {
+            const cachedPath = await this.assetStorage.saveToCache(message.dataUri, message.ext || 'png');
+            const displayUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : cachedPath;
+            this.uriToPathMap.set(displayUri, cachedPath);
+
+            this.sessionManager.addOperationNode(
+              session.sessionId,
+              parentNode.nodeId,
+              message.operation || 'preprocess',
+              message.operationLabel || 'Canvas Operation',
+              parentNode.outputImageUri || parentNode.inputImageUri,
+              displayUri,
+              {
+                model: message.model || 'Client GPU Canvas 2D Engine',
+                latencyMs: message.latencyMs || 12,
+                costUsd: 0
+              },
+              {
+                prompt: message.prompt,
+                textResult: message.textResult
+              }
+            );
+            this.broadcastSessionState();
+            this.postToWebview({ type: 'operationCompleted', operation: message.operation });
+          }
+        }
+        break;
+      }
+
+      case 'exportIconBundle': {
+        const session = this.sessionManager.getActiveSession();
+        if (session && message.icons && Array.isArray(message.icons)) {
+          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          const targetDir = workspaceRoot
+            ? path.join(workspaceRoot, 'assets', 'icons')
+            : path.join(this.context.globalStorageUri.fsPath, 'icons');
+          if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+          }
+
+          for (const icon of message.icons) {
+            if (icon.size && icon.dataUri) {
+              const b64 = icon.dataUri.split(',')[1];
+              const filePath = path.join(targetDir, `icon_${icon.size}x${icon.size}.png`);
+              await fs.promises.writeFile(filePath, Buffer.from(b64, 'base64'));
+            }
+          }
+
+          const openFolderAction = await vscode.window.showInformationMessage(
+            `✅ Pixel Pilot Enterprise: Đã xuất bộ ${message.icons.length} icon chuẩn Web/PWA vào: ${targetDir}`,
+            'Mở thư mục'
+          );
+          if (openFolderAction === 'Mở thư mục') {
+            await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(targetDir));
+          }
+        }
+        break;
+      }
+
       case 'exportDAG': {
         const activeSession = this.sessionManager.getActiveSession();
         if (activeSession) {
@@ -288,8 +392,22 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    // Resolve real input file path or data URI
+    const op = message.operation as OperationType;
     const realInput = this.uriToPathMap.get(inputImg) || inputImg;
+
+    // Check if client-side GPU canvas operation (zero cloud cost, instant execution)
+    if (op === 'white_bg' || op === 'avatar' || op === 'icons' || op === 'export_webp') {
+      this.postToWebview({
+        type: 'requestClientOperation',
+        operation: op,
+        operationLabel: message.operationLabel || op,
+        nodeId: parentNode.nodeId,
+        inputImageUri: inputImg,
+        factor: message.factor,
+        prompt: message.prompt
+      });
+      return;
+    }
 
     // Check Runware API key
     if (!this.runwareAdapter.getApiKey()) {
@@ -297,7 +415,6 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const op = message.operation as OperationType;
     let res: AIResult;
 
     try {
@@ -450,6 +567,33 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   private postToWebview(message: any): void {
     if (this._view) {
       this._view.webview.postMessage(message);
+    }
+  }
+
+  /**
+   * Loads an image file from path into a new session and immediately triggers an AI operation
+   */
+  public async loadFileAndExecute(filePath: string, operation?: OperationType, operationLabel?: string): Promise<void> {
+    if (!fs.existsSync(filePath)) {
+      vscode.window.showErrorMessage(`Không tìm thấy file ảnh: ${filePath}`);
+      return;
+    }
+
+    const cachedPath = await this.assetStorage.saveToCache(filePath);
+    const webviewUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : filePath;
+    this.uriToPathMap.set(webviewUri, cachedPath);
+
+    const title = path.basename(filePath);
+    const session = this.sessionManager.createSession(webviewUri, title);
+    this.broadcastSessionState();
+
+    if (operation) {
+      await this.executeOperation({
+        nodeId: session.rootNodeId,
+        operation,
+        operationLabel: operationLabel || operation,
+        factor: operation === 'upscale' ? 2 : undefined
+      });
     }
   }
 

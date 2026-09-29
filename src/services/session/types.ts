@@ -11,7 +11,11 @@ export type OperationType =
   | 'lineart'
   | 'caption'
   | 'extend'
-  | 'preprocess';
+  | 'preprocess'
+  | 'white_bg'
+  | 'avatar'
+  | 'icons'
+  | 'export_webp';
 
 export interface NodeMetrics {
   model: string;
