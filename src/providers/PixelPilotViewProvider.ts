@@ -149,7 +149,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           canSelectMany: false,
           openLabel: 'Chọn ảnh nạp vào Pixel Pilot',
           filters: {
-            'Images': ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'svg']
+            'Images': ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'svg', 'gif', 'tiff', 'ico'],
+            'All Files': ['*']
           }
         });
 
@@ -161,6 +162,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
           const session = this.sessionManager.createSession(webviewUri, path.basename(filePath));
           this.broadcastSessionState();
+          vscode.window.showInformationMessage(`✨ Pixel Pilot: Đã nạp ảnh "${path.basename(filePath)}"`);
         }
         break;
       }

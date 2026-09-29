@@ -134,20 +134,20 @@
 
   // --- Initialization ---
   function init() {
-    setupSlider();
-    setupViewModes();
-    setupZoomAndPan();
-    setupDragAndDrop();
-    setupClipboardPaste();
-    setupSessionControls();
-    setupApiKeyModal();
-    setupCodexPromptBar();
-    setupSmartToolbelt();
-    setupDeckTabs();
-    setupInpaint();
-    setupBackgroundToggles();
-    setupSvgInspectorModal();
-    setupMessageListener();
+    try { setupSlider(); } catch (e) { console.error('setupSlider error:', e); }
+    try { setupViewModes(); } catch (e) { console.error('setupViewModes error:', e); }
+    try { setupZoomAndPan(); } catch (e) { console.error('setupZoomAndPan error:', e); }
+    try { setupDragAndDrop(); } catch (e) { console.error('setupDragAndDrop error:', e); }
+    try { setupClipboardPaste(); } catch (e) { console.error('setupClipboardPaste error:', e); }
+    try { setupSessionControls(); } catch (e) { console.error('setupSessionControls error:', e); }
+    try { setupApiKeyModal(); } catch (e) { console.error('setupApiKeyModal error:', e); }
+    try { setupCodexPromptBar(); } catch (e) { console.error('setupCodexPromptBar error:', e); }
+    try { setupSmartToolbelt(); } catch (e) { console.error('setupSmartToolbelt error:', e); }
+    try { setupDeckTabs(); } catch (e) { console.error('setupDeckTabs error:', e); }
+    try { setupInpaint(); } catch (e) { console.error('setupInpaint error:', e); }
+    try { setupBackgroundToggles(); } catch (e) { console.error('setupBackgroundToggles error:', e); }
+    try { setupSvgInspectorModal(); } catch (e) { console.error('setupSvgInspectorModal error:', e); }
+    try { setupMessageListener(); } catch (e) { console.error('setupMessageListener error:', e); }
 
     sendMessage({ command: 'webviewReady' });
   }
@@ -162,44 +162,48 @@
 
   // --- Zoom & Pan Engine ---
   function setupZoomAndPan() {
-    btnZoomIn.addEventListener('click', () => setZoom(zoomLevel + 0.25));
-    btnZoomOut.addEventListener('click', () => setZoom(zoomLevel - 0.25));
-    btnZoomReset.addEventListener('click', () => {
+    if (btnZoomIn) btnZoomIn.addEventListener('click', () => setZoom(zoomLevel + 0.25));
+    if (btnZoomOut) btnZoomOut.addEventListener('click', () => setZoom(zoomLevel - 0.25));
+    if (btnZoomReset) btnZoomReset.addEventListener('click', () => {
       panX = 0;
       panY = 0;
       setZoom(1.0);
     });
-    btnZoomFit.addEventListener('click', () => {
+    if (btnZoomFit) btnZoomFit.addEventListener('click', () => {
       panX = 0;
       panY = 0;
       setZoom(1.0);
     });
 
-    btnPanToggle.addEventListener('click', () => {
-      panMode = !panMode;
-      btnPanToggle.classList.toggle('active', panMode);
-      zoomStage.classList.toggle('panning', panMode);
-    });
+    if (btnPanToggle) {
+      btnPanToggle.addEventListener('click', () => {
+        panMode = !panMode;
+        btnPanToggle.classList.toggle('active', panMode);
+        if (zoomStage) zoomStage.classList.toggle('panning', panMode);
+      });
+    }
 
-    // Mouse Wheel Zoom (Ctrl + Wheel or Trackpad Pinch)
-    canvasWrapper.addEventListener('wheel', (e) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const delta = e.deltaY < 0 ? 0.15 : -0.15;
-        setZoom(zoomLevel + delta);
-      }
-    }, { passive: false });
+    if (canvasWrapper) {
+      // Mouse Wheel Zoom (Ctrl + Wheel or Trackpad Pinch)
+      canvasWrapper.addEventListener('wheel', (e) => {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          const delta = e.deltaY < 0 ? 0.15 : -0.15;
+          setZoom(zoomLevel + delta);
+        }
+      }, { passive: false });
 
-    // Drag Pan Event Handlers
-    canvasWrapper.addEventListener('mousedown', (e) => {
-      if (panMode || e.button === 1) {
-        isPanningMouse = true;
-        startPanX = e.clientX - panX;
-        startPanY = e.clientY - panY;
-        zoomStage.classList.add('panning');
-        e.preventDefault();
-      }
-    });
+      // Drag Pan Event Handlers
+      canvasWrapper.addEventListener('mousedown', (e) => {
+        if (panMode || e.button === 1) {
+          isPanningMouse = true;
+          startPanX = e.clientX - panX;
+          startPanY = e.clientY - panY;
+          if (zoomStage) zoomStage.classList.add('panning');
+          e.preventDefault();
+        }
+      });
+    }
 
     window.addEventListener('mousemove', (e) => {
       if (isPanningMouse) {
@@ -212,7 +216,7 @@
     window.addEventListener('mouseup', () => {
       if (isPanningMouse) {
         isPanningMouse = false;
-        if (!panMode) zoomStage.classList.remove('panning');
+        if (!panMode && zoomStage) zoomStage.classList.remove('panning');
       }
     });
   }
@@ -669,45 +673,61 @@
       }
     });
 
-    btnSessionDropdown.addEventListener('click', () => {
-      const isOpen = sessionDrawer.style.display === 'flex';
-      sessionDrawer.style.display = isOpen ? 'none' : 'flex';
-      if (!isOpen) renderSessionList();
-    });
+    if (btnSessionDropdown) {
+      btnSessionDropdown.addEventListener('click', () => {
+        const isOpen = sessionDrawer && sessionDrawer.style.display === 'flex';
+        if (sessionDrawer) sessionDrawer.style.display = isOpen ? 'none' : 'flex';
+        if (!isOpen) renderSessionList();
+      });
+    }
 
-    btnCloseDrawer.addEventListener('click', () => {
-      sessionDrawer.style.display = 'none';
-    });
+    if (btnCloseDrawer) {
+      btnCloseDrawer.addEventListener('click', () => {
+        if (sessionDrawer) sessionDrawer.style.display = 'none';
+      });
+    }
 
-    btnNewSession.addEventListener('click', () => {
-      sendMessage({ command: 'newSession' });
-      sessionDrawer.style.display = 'none';
-      if (moreMenuDropdown) moreMenuDropdown.style.display = 'none';
-    });
+    if (btnNewSession) {
+      btnNewSession.addEventListener('click', () => {
+        sendMessage({ command: 'newSession' });
+        if (sessionDrawer) sessionDrawer.style.display = 'none';
+        if (moreMenuDropdown) moreMenuDropdown.style.display = 'none';
+      });
+    }
 
-    btnDrawerNewSession.addEventListener('click', () => {
-      sendMessage({ command: 'newSession' });
-      sessionDrawer.style.display = 'none';
-    });
+    if (btnDrawerNewSession) {
+      btnDrawerNewSession.addEventListener('click', () => {
+        sendMessage({ command: 'newSession' });
+        if (sessionDrawer) sessionDrawer.style.display = 'none';
+      });
+    }
 
-    btnMoveRight.addEventListener('click', () => {
-      sendMessage({ command: 'moveToRightSide' });
-      if (moreMenuDropdown) moreMenuDropdown.style.display = 'none';
-    });
+    if (btnMoveRight) {
+      btnMoveRight.addEventListener('click', () => {
+        sendMessage({ command: 'moveToRightSide' });
+        if (moreMenuDropdown) moreMenuDropdown.style.display = 'none';
+      });
+    }
 
-    btnBatchProcess.addEventListener('click', () => {
-      sendMessage({ command: 'openBatchDialog' });
-      if (moreMenuDropdown) moreMenuDropdown.style.display = 'none';
-    });
+    if (btnBatchProcess) {
+      btnBatchProcess.addEventListener('click', () => {
+        sendMessage({ command: 'openBatchDialog' });
+        if (moreMenuDropdown) moreMenuDropdown.style.display = 'none';
+      });
+    }
 
-    btnEnterpriseConfig.addEventListener('click', () => {
-      sendMessage({ command: 'openEnterpriseConfig' });
-      if (moreMenuDropdown) moreMenuDropdown.style.display = 'none';
-    });
+    if (btnEnterpriseConfig) {
+      btnEnterpriseConfig.addEventListener('click', () => {
+        sendMessage({ command: 'openEnterpriseConfig' });
+        if (moreMenuDropdown) moreMenuDropdown.style.display = 'none';
+      });
+    }
 
-    btnExportDag.addEventListener('click', () => {
-      sendMessage({ command: 'exportDAG' });
-    });
+    if (btnExportDag) {
+      btnExportDag.addEventListener('click', () => {
+        sendMessage({ command: 'exportDAG' });
+      });
+    }
 
     if (btnSelectFile) {
       btnSelectFile.addEventListener('click', () => {
@@ -717,6 +737,13 @@
     if (btnAttachFile) {
       btnAttachFile.addEventListener('click', () => {
         sendMessage({ command: 'selectWorkspaceFile' });
+      });
+    }
+    if (emptyPlaceholder) {
+      emptyPlaceholder.addEventListener('click', (e) => {
+        if (e.target.tagName !== 'BUTTON') {
+          sendMessage({ command: 'selectWorkspaceFile' });
+        }
       });
     }
   }
@@ -997,6 +1024,7 @@
 
   // --- Inpaint Canvas Brush ---
   function setupInpaint() {
+    if (!btnToggleBrush || !inpaintCanvas) return;
     btnToggleBrush.addEventListener('click', () => {
       inpaintMode = !inpaintMode;
       inpaintCanvas.style.display = inpaintMode ? 'block' : 'none';
