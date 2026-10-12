@@ -1,20 +1,22 @@
-// VisionAgentOrchestrator.ts - Context-Aware Vision & LLM Agent Orchestrator
-import { ParsedIntent } from '../session/types';
-import { AgentToolRegistry } from './AgentToolRegistry';
+import { ChatMessage, ParsedIntent } from '../session/types';
 import { LLMConfig, LLMProvider } from './LLMProvider';
 
 export interface AgentContext {
   currentImageUri?: string;
+  imageTitle?: string;
   width?: number;
   height?: number;
   currentNodeId?: string;
   previousOperations?: string[];
+  conversationHistory?: ChatMessage[];
 }
 
 export interface AgentDecision {
-  toolName: string;
-  args: Record<string, any>;
-  intent: ParsedIntent;
+  type: 'chat' | 'tool_call';
+  replyText?: string;
+  toolName?: string;
+  args?: Record<string, any>;
+  intent?: ParsedIntent;
   thought: string;
   reasoningSteps: string[];
   llmModelUsed?: string;

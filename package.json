@@ -1,35 +1,40 @@
 {
   "name": "pixel-pilot-vscode",
-  "displayName": "Pixel Pilot - Visual AI Studio for VS Code",
-  "description": "Context-Aware Visual AI Assistant & Multi-Task SOTA Vision Studio for Developers (Matting, Vectorize, Inpaint, Upscale, DAG History)",
-  "version": "1.0.0",
+  "displayName": "Pixel Pilot",
+  "description": "All-in-one AI Image Studio & Visual Assistant: Local InvokeAI T2I, Background Removal, Upscaling, Vectorize SVG, Inpainting & Code Auto-Insert.",
+  "version": "1.1.0",
   "publisher": "pixel-pilot-team",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pixel-pilot/pixel-pilot-vscode"
+    "url": "https://github.com/zangzang1303/pixel-pilot-vscode"
   },
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
     "Machine Learning",
+    "Programming Languages",
     "Other"
   ],
   "keywords": [
     "ai",
-    "vision",
+    "image-studio",
+    "invokeai",
     "remove-background",
-    "matting",
-    "birefnet",
-    "vectorize",
+    "stable-diffusion",
     "upscale",
-    "inpaint",
-    "dag",
-    "context-aware"
+    "inpaint"
   ],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onView:pixelPilot.sidebarView"
+    "onView:pixelPilot.sidebarView",
+    "onCommand:pixel-pilot.openStudio",
+    "onCommand:pixelPilot.openStudio",
+    "onCommand:pixel-pilot.upscaleImage",
+    "onCommand:pixelPilot.upscaleImage",
+    "onCommand:pixelPilot.removeBackground",
+    "onCommand:pixelPilot.vectorizeImage",
+    "onCommand:pixelPilot.batchProcessFolder"
   ],
   "contributes": {
     "viewsContainers": {
@@ -46,109 +51,117 @@
         {
           "type": "webview",
           "id": "pixelPilot.sidebarView",
-          "name": "Pixel Pilot AI Studio"
+          "name": "AI Studio Assistant"
         }
       ]
     },
     "commands": [
       {
+        "command": "pixel-pilot.openStudio",
+        "title": "Pixel Pilot: Open AI Studio (Canvas)",
+        "category": "Pixel Pilot"
+      },
+      {
         "command": "pixelPilot.openSidebar",
-        "title": "Pixel Pilot: Open AI Studio Sidebar"
+        "title": "Pixel Pilot: Open Sidebar Assistant",
+        "category": "Pixel Pilot"
+      },
+      {
+        "command": "pixel-pilot.upscaleImage",
+        "title": "Pixel Pilot: Upscale Image (2x)",
+        "category": "Pixel Pilot"
       },
       {
         "command": "pixelPilot.removeBackground",
-        "title": "Pixel Pilot: Remove Background (BiRefNet 1-Click)"
-      },
-      {
-        "command": "pixelPilot.upscaleImage",
-        "title": "Pixel Pilot: Upscale Image (2x/4x Super-Resolution)"
+        "title": "Pixel Pilot: Remove Background (BiRefNet)",
+        "category": "Pixel Pilot"
       },
       {
         "command": "pixelPilot.vectorizeImage",
-        "title": "Pixel Pilot: Vectorize to SVG"
-      },
-      {
-        "command": "pixelPilot.newSession",
-        "title": "Pixel Pilot: New Session"
-      },
-      {
-        "command": "pixelPilot.setApiKey",
-        "title": "Pixel Pilot: Set Runware API Key (Encrypted SecretStorage)"
-      },
-      {
-        "command": "pixelPilot.clearApiKey",
-        "title": "Pixel Pilot: Xóa API Key khỏi SecretStorage"
+        "title": "Pixel Pilot: Vectorize to SVG",
+        "category": "Pixel Pilot"
       },
       {
         "command": "pixelPilot.batchProcessFolder",
-        "title": "Pixel Pilot Enterprise: Xử lý Hàng loạt (Batch Process Assets...)"
+        "title": "Pixel Pilot: Batch Process Folder...",
+        "category": "Pixel Pilot"
       },
       {
-        "command": "pixelPilot.initEnterpriseConfig",
-        "title": "Pixel Pilot Enterprise: Khởi tạo Cấu hình Chuẩn Doanh nghiệp (.pixelpilotrc.json)"
+        "command": "pixelPilot.setApiKey",
+        "title": "Pixel Pilot: Configure AI API Key",
+        "category": "Pixel Pilot"
+      },
+      {
+        "command": "pixelPilot.clearApiKey",
+        "title": "Pixel Pilot: Clear API Key",
+        "category": "Pixel Pilot"
       },
       {
         "command": "pixelPilot.clearCache",
-        "title": "Pixel Pilot Enterprise: Dọn dẹp Bộ nhớ Cache Đĩa cứng"
+        "title": "Pixel Pilot: Clear Disk Cache",
+        "category": "Pixel Pilot"
       },
       {
-        "command": "pixelPilot.moveToRightSide",
-        "title": "Pixel Pilot: Chuyển sang Sidebar bên phải (Codex View)"
+        "command": "pixel-pilot.checkStatus",
+        "title": "Pixel Pilot: Check InvokeAI Server Status",
+        "category": "Pixel Pilot"
       }
     ],
     "menus": {
       "explorer/context": [
         {
-          "command": "pixelPilot.removeBackground",
+          "command": "pixel-pilot.openStudio",
           "when": "resourceExtname =~ /\\.(png|jpe?g|webp|bmp)$/i",
           "group": "pixelPilot@1"
         },
         {
-          "command": "pixelPilot.vectorizeImage",
+          "command": "pixelPilot.removeBackground",
           "when": "resourceExtname =~ /\\.(png|jpe?g|webp|bmp)$/i",
           "group": "pixelPilot@2"
         },
         {
-          "command": "pixelPilot.upscaleImage",
+          "command": "pixel-pilot.upscaleImage",
           "when": "resourceExtname =~ /\\.(png|jpe?g|webp|bmp)$/i",
           "group": "pixelPilot@3"
         },
         {
+          "command": "pixelPilot.vectorizeImage",
+          "when": "resourceExtname =~ /\\.(png|jpe?g|webp|bmp)$/i",
+          "group": "pixelPilot@4"
+        },
+        {
           "command": "pixelPilot.batchProcessFolder",
           "when": "explorerResourceIsFolder",
-          "group": "pixelPilot@4"
+          "group": "pixelPilot@5"
         }
       ]
     },
     "configuration": {
-      "title": "Pixel Pilot",
+      "title": "Pixel Pilot (AI Studio)",
       "properties": {
-        "pixelPilot.apiKey": {
+        "pixelPilot.invokeAIServerUrl": {
           "type": "string",
-          "default": "",
-          "description": "Runware API Key for Cloud Vision Inference"
-        },
-        "pixelPilot.offlineMode": {
-          "type": "boolean",
-          "default": false,
-          "description": "Use Local Simulation Mode (Offline Mock Engine for defense & testing)"
-        },
-        "pixelPilot.autoSave": {
-          "type": "boolean",
-          "default": false,
-          "description": "Automatically save output images alongside the original image"
+          "default": "http://127.0.0.1:9090",
+          "description": "Local InvokeAI server instance URL (default: http://127.0.0.1:9090)."
         }
       }
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run build",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "benchmark": "node benchmark/run_benchmark.js"
+    "mock:invokeai": "node scripts/mock_invokeai.mjs",
+    "build:webview": "npm --prefix webview-ui run build",
+    "build": "npm run build:webview && npm run compile"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "sharp": "^0.33.5"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "@types/sharp": "^0.31.1",
     "@types/vscode": "^1.85.0",
     "typescript": "^5.3.3"
   }

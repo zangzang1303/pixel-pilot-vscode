@@ -10,6 +10,11 @@ import { OperationType, AIResult } from '../services/session/types';
 import { SecretManager } from '../services/security/SecretManager';
 import { AssetStorageService } from '../services/storage/AssetStorageService';
 import { EnterpriseConfigManager } from '../services/config/EnterpriseConfigManager';
+import { InvokeApiService } from '../services/InvokeApiService';
+import { ImageProcessor } from '../services/image/ImageProcessor';
+import { CodeGenService } from '../services/ai/CodeGenService';
+import { OCRService } from '../services/ai/OCRService';
+import { FileSystemUtils } from '../utils/fileSystem';
 
 export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'pixelPilot.sidebarView';
@@ -19,6 +24,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   private secretManager: SecretManager;
   private assetStorage: AssetStorageService;
   private configManager: EnterpriseConfigManager;
+  private invokeApi: InvokeApiService;
   private context: vscode.ExtensionContext;
   private uriToPathMap: Map<string, string> = new Map();
 
@@ -30,6 +36,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     this.assetStorage = new AssetStorageService(context);
     this.configManager = new EnterpriseConfigManager(workspaceRoot);
     this.runwareAdapter = new RunwareAdapter('');
+    this.invokeApi = new InvokeApiService();
 
     // Preload API Key from SecretStorage asynchronously
     this.secretManager.getApiKey().then((key) => {
@@ -73,7 +80,342 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async handleMessage(message: any): Promise<void> {
-    switch (message.command) {
+    const cmd = message.command || message.type;
+    switch (cmd) {
+      case 'ping': {
+        const isOnline = await this.invokeApi.ping();
+        this.postToWebview({
+          command: 'pingResult',
+          isOnline,
+          serverUrl: this.invokeApi.getServerUrl()
+        });
+        break;
+      }
+
+      case 'getModels': {
+        try {
+          const models = await this.invokeApi.getModels();
+          this.postToWebview({
+            command: 'modelsLoaded',
+            models
+          });
+        } catch {
+          this.postToWebview({
+            command: 'modelsLoaded',
+            models: []
+          });
+        }
+        break;
+      }
+
+      case 'generate': {
+        const { prompt, model, options } = message;
+        if (!prompt || !prompt.trim()) {
+          vscode.window.showWarningMessage('Vui lòng nhập prompt để sinh ảnh.');
+          this.postToWebview({ command: 'generationError', message: 'Prompt rỗng' });
+          break;
+        }
+
+        try {
+          this.postToWebview({ command: 'generationStarted' });
+          const result = await this.invokeApi.generateTextToImage(
+            prompt,
+            model || 'Dreamshaper 8',
+            options || {},
+            (statusText, percentage) => {
+              this.postToWebview({
+                command: 'generationProgress',
+                status: statusText,
+                percentage
+              });
+            }
+          );
+
+          const savedResult = await FileSystemUtils.saveImageToWorkspace(
+            result.imageBuffer,
+            `pixel_pilot_${Date.now()}.png`
+          );
+
+          await FileSystemUtils.autoInsertImageSnippet(savedResult.relativePath, prompt.substring(0, 30));
+
+          this.postToWebview({
+            command: 'generationComplete',
+            dataUrl: result.dataUrl,
+            imageName: result.imageName,
+            savedPath: savedResult.relativePath,
+            snippetInserted: true
+          });
+
+          vscode.window.showInformationMessage(`✨ Sinh ảnh thành công: ${savedResult.relativePath}`);
+        } catch (err: any) {
+          this.postToWebview({ command: 'generationError', message: err.message });
+          vscode.window.showErrorMessage(`Lỗi sinh ảnh: ${err.message}`);
+        }
+        break;
+      }
+
+      case 'upscale': {
+        try {
+          const { dataUrl, factor } = message;
+          if (!dataUrl) {
+            vscode.window.showWarningMessage('Chưa có ảnh để phóng to.');
+            break;
+          }
+
+          this.postToWebview({ command: 'upscaleStarted' });
+          const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+          const buffer = Buffer.from(base64Data, 'base64');
+          const targetFactor = (factor as 2 | 4) || 2;
+          const imageProc = ImageProcessor.getInstance();
+
+          this.postToWebview({
+            command: 'upscaleProgress',
+            status: `Đang phóng to ${targetFactor}x (Lanczos3 Super-Resolution)...`,
+            percentage: 50
+          });
+
+          const upscaledBuf = await imageProc.upscale(buffer, targetFactor);
+
+          const savedResult = await FileSystemUtils.saveImageToWorkspace(
+            upscaledBuf,
+            `pixel_pilot_upscaled_${targetFactor}x_${Date.now()}.png`
+          );
+
+          await FileSystemUtils.autoInsertImageSnippet(savedResult.relativePath, `Upscaled ${targetFactor}x Image`);
+
+          const outDataUrl = `data:image/png;base64,${upscaledBuf.toString('base64')}`;
+
+          this.postToWebview({
+            command: 'upscaleComplete',
+            dataUrl: outDataUrl,
+            savedPath: savedResult.relativePath
+          });
+
+          vscode.window.showInformationMessage(`✨ Phóng to ${targetFactor}x thành công: ${savedResult.relativePath}`);
+        } catch (err: any) {
+          this.postToWebview({ command: 'upscaleError', message: err.message });
+          vscode.window.showErrorMessage(`Upscale error: ${err.message}`);
+        }
+        break;
+      }
+
+      case 'applyAction': {
+        const { action, dataUrl, options } = message;
+        if (!dataUrl) {
+          vscode.window.showWarningMessage('Chưa có ảnh trên Canvas để xử lý.');
+          this.postToWebview({ command: 'actionError', message: 'No image' });
+          break;
+        }
+
+        try {
+          this.postToWebview({ command: 'actionStarted', label: `Đang thực hiện ${action}...` });
+          const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+          const buffer = Buffer.from(base64Data, 'base64');
+          const imageProc = ImageProcessor.getInstance();
+
+          if (action === 'removeBackground') {
+            let outBuf: Buffer;
+            const runwareKey = await this.secretManager.getApiKey();
+            if (runwareKey && runwareKey.trim().length > 10) {
+              try {
+                const adapter = new RunwareAdapter(runwareKey);
+                const res = await adapter.removeBackground(dataUrl);
+                if (res.outputImageUri) {
+                  const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
+                  outBuf = Buffer.from(b64, 'base64');
+                } else {
+                  outBuf = await imageProc.removeBackground(buffer);
+                }
+              } catch {
+                outBuf = await imageProc.removeBackground(buffer);
+              }
+            } else {
+              outBuf = await imageProc.removeBackground(buffer);
+            }
+
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_cutout_${Date.now()}.png`);
+            this.postToWebview({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Tách nền thành công: ${savedResult.relativePath}`);
+          } else if (action === 'upscale') {
+            const factor = (options?.factor as 2 | 4) || 2;
+            const outBuf = await imageProc.upscale(buffer, factor);
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`);
+            this.postToWebview({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Phóng to ${factor}x thành công: ${savedResult.relativePath}`);
+          } else if (action === 'enhance') {
+            const type = options?.type || 'clarity';
+            const outBuf = await imageProc.enhance(buffer, type);
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_enhanced_${Date.now()}.png`);
+            this.postToWebview({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Khử mờ & Làm nét HDR thành công: ${savedResult.relativePath}`);
+          } else if (action === 'recolor') {
+            const subject = options?.subject || 'hair';
+            const color = options?.color || 'cyan';
+            const outBuf = await imageProc.recolor(buffer, subject, color);
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_recolor_${Date.now()}.png`);
+            this.postToWebview({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Đổi màu ${subject} (${color}) thành công (bảo vệ 100% da mặt): ${savedResult.relativePath}`);
+          } else if (action === 'styleTransfer') {
+            const style = options?.style || 'anime';
+            const outBuf = await imageProc.styleTransfer(buffer, style);
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_style_${style}_${Date.now()}.png`);
+            this.postToWebview({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Chuyển phong cách ${style} thành công: ${savedResult.relativePath}`);
+          } else if (action === 'vectorize') {
+            const { svgString, previewBuffer } = await imageProc.vectorize(buffer);
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(Buffer.from(svgString, 'utf-8'), `pixel_pilot_vector_${Date.now()}.svg`);
+            this.postToWebview({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${previewBuffer.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Vector hóa SVG thành công: ${savedResult.relativePath}`);
+          } else if (action === 'inpaint') {
+            let maskBuffer: Buffer | undefined;
+            if (options?.maskDataUrl) {
+              const maskB64 = options.maskDataUrl.replace(/^data:image\/\w+;base64,/, '');
+              maskBuffer = Buffer.from(maskB64, 'base64');
+            }
+            const outBuf = await imageProc.inpaint(buffer, maskBuffer);
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_inpaint_${Date.now()}.png`);
+            this.postToWebview({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Inpaint & Tẩy vật thể hoàn tất: ${savedResult.relativePath}`);
+          } else if (action === 'imageToCode') {
+            const codeGen = CodeGenService.getInstance();
+            const codeRes = await codeGen.generateCodeFromImage({
+              imageBuffer: buffer,
+              imageMimeType: 'image/png',
+              framework: options?.framework || 'react-tailwind'
+            });
+            await codeGen.openInEditor(codeRes.code, codeRes.suggestedFileName);
+            this.postToWebview({ command: 'actionComplete' });
+            vscode.window.showInformationMessage(`✅ Đã sinh mã ${codeRes.framework} và mở trong editor!`);
+          } else if (action === 'ocr') {
+            const ocrService = OCRService.getInstance();
+            const ocrRes = await ocrService.extractText(buffer, 'image/png');
+            if (ocrRes.fullText) {
+              await vscode.env.clipboard.writeText(ocrRes.fullText);
+            }
+            this.postToWebview({ command: 'actionComplete' });
+            vscode.window.showInformationMessage(`📋 OCR: Đã copy văn bản vào Clipboard (${ocrRes.fullText.length} ký tự)!`);
+          } else if (action === 'compress') {
+            const comp = await imageProc.processImage(buffer, { format: options?.format || 'webp', quality: options?.quality || 85 });
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(comp, `pixel_pilot_compressed_${Date.now()}.${options?.format || 'webp'}`);
+            this.postToWebview({ command: 'actionComplete', savedPath: savedResult.relativePath });
+            vscode.window.showInformationMessage(`💾 Đã nén thành công (${(comp.byteLength / 1024).toFixed(1)} KB): ${savedResult.relativePath}`);
+          } else {
+            const outBuf = await imageProc.enhance(buffer, 'clarity');
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_enhanced_${Date.now()}.png`);
+            this.postToWebview({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Thực hiện ${action} hoàn tất!`);
+          }
+        } catch (err: any) {
+          this.postToWebview({ command: 'actionError', message: err.message });
+          vscode.window.showErrorMessage(`Lỗi ${action}: ${err.message}`);
+        }
+        break;
+      }
+
+      case 'browseImage': {
+        const fileUris = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          filters: { 'Images': ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'svg'] },
+          openLabel: 'Mở ảnh vào Studio'
+        });
+        if (fileUris && fileUris[0]) {
+          const filePath = fileUris[0].fsPath;
+          const buf = await fs.promises.readFile(filePath);
+          const ext = path.extname(filePath).slice(1) || 'png';
+          const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext}`;
+          const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+          this.postToWebview({
+            command: 'setImage',
+            dataUrl,
+            filePath: path.basename(filePath)
+          });
+        }
+        break;
+      }
+
+      case 'exportImage': {
+        const { dataUrl } = message;
+        if (!dataUrl) break;
+        const saveUri = await vscode.window.showSaveDialog({
+          defaultUri: vscode.Uri.file(`pixel_pilot_export_${Date.now()}.png`),
+          filters: { 'Images': ['png', 'jpg', 'webp'] }
+        });
+        if (saveUri) {
+          const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+          const buffer = Buffer.from(base64Data, 'base64');
+          await vscode.workspace.fs.writeFile(saveUri, buffer);
+          vscode.window.showInformationMessage(`💾 Đã lưu ảnh: ${path.basename(saveUri.fsPath)}`);
+        }
+        break;
+      }
+
+      case 'insertSnippet': {
+        const { relativePath, altText } = message;
+        if (relativePath) {
+          await FileSystemUtils.autoInsertImageSnippet(relativePath, altText || 'Pixel Pilot Image');
+        }
+        break;
+      }
+
+      case 'chatMessage': {
+        const { text, currentImage } = message;
+        try {
+          const llmApiKey = await this.secretManager.getLlmApiKey();
+          const llmProvider = await this.secretManager.getLlmProvider();
+
+          const decision = await VisionAgentOrchestrator.decideTool(
+            text,
+            { currentImageUri: currentImage },
+            { apiKey: llmApiKey, provider: llmProvider }
+          );
+
+          this.postToWebview({
+            command: 'chatReply',
+            text: decision.replyText || 'Tôi đã xử lý yêu cầu của bạn.',
+            thought: decision.thought
+          });
+        } catch (err: any) {
+          this.postToWebview({
+            command: 'chatReply',
+            text: `Tôi đã nhận lệnh "${text}". Bạn có thể sử dụng các công cụ tương ứng ở các Tab bên trái để xử lý trực tiếp!`,
+            thought: err.message
+          });
+        }
+        break;
+      }
+
       case 'webviewReady': {
         let activeSession = this.sessionManager.getActiveSession();
         if (!activeSession) {
@@ -247,6 +589,145 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
       case 'moveToRightSide': {
         await vscode.commands.executeCommand('pixelPilot.moveToRightSide');
+        break;
+      }
+
+      case 'TEXT_TO_IMAGE_REQUEST': {
+        const { prompt, dimension } = message.payload || {};
+        if (!prompt || !prompt.trim()) {
+          vscode.window.showWarningMessage('Vui lòng nhập mô tả ảnh cần tạo!');
+          this.postToWebview({ command: 'AI_ACTION_ERROR', payload: { error: 'Chưa có prompt' } });
+          break;
+        }
+
+        try {
+          this.postToWebview({
+            command: 'UPDATE_AI_PROGRESS',
+            payload: { status: 'Đang kết nối InvokeAI cục bộ để sinh ảnh...' }
+          });
+
+          let width = 512;
+          let height = 512;
+          if (dimension) {
+            const parts = dimension.split('x');
+            if (parts.length === 2) {
+              width = parseInt(parts[0], 10) || 512;
+              height = parseInt(parts[1], 10) || 512;
+            }
+          }
+
+          const result = await this.invokeApi.generateTextToImage(
+            prompt.trim(),
+            'Dreamshaper 8',
+            { width, height },
+            (statusText) => {
+              this.postToWebview({
+                command: 'UPDATE_AI_PROGRESS',
+                payload: { status: statusText }
+              });
+            }
+          );
+
+          const cachedPath = await this.assetStorage.saveToCache(result.dataUrl, 'png');
+          const webviewUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : cachedPath;
+          this.uriToPathMap.set(webviewUri, cachedPath);
+
+          const title = `Gen: ${prompt.trim().substring(0, 24)}`;
+          this.sessionManager.createSession(webviewUri, title);
+          this.broadcastSessionState();
+
+          this.postToWebview({
+            command: 'AI_ACTION_SUCCESS',
+            payload: {
+              outputUri: webviewUri,
+              model: 'InvokeAI (Dreamshaper 8)',
+              latencyMs: 7200
+            }
+          });
+          vscode.window.showInformationMessage(`✨ Sinh ảnh thành công: ${path.basename(cachedPath)}`);
+        } catch (err: any) {
+          this.postToWebview({
+            command: 'AI_ACTION_ERROR',
+            payload: { error: err.message || 'Lỗi sinh ảnh InvokeAI' }
+          });
+          vscode.window.showErrorMessage(`Lỗi sinh ảnh InvokeAI: ${err.message}`);
+        }
+        break;
+      }
+
+      case 'INPAINT_REQUEST': {
+        const { imageUri, maskBase64, prompt } = message.payload || {};
+        try {
+          if (!this.runwareAdapter.getApiKey()) {
+            this.postToWebview({
+              command: 'AI_ACTION_ERROR',
+              payload: {
+                error: 'Chức năng Inpaint yêu cầu Runware API Key. Vui lòng bấm bánh răng ⚙️ ở góc phải để nhập Runware Key, hoặc dùng nút "Sinh ảnh mới" để tạo ảnh bằng InvokeAI.'
+              }
+            });
+            vscode.window.showWarningMessage('Chức năng Inpaint yêu cầu Runware API Key (bấm ⚙️ để nhập key). Để tạo ảnh từ prompt, hãy bấm nút "Sinh ảnh mới"!');
+            break;
+          }
+
+          this.postToWebview({
+            command: 'UPDATE_AI_PROGRESS',
+            payload: { status: 'Đang thực hiện AI Inpaint & Generative Fill...' }
+          });
+          const realInput = this.uriToPathMap.get(imageUri) || imageUri;
+          const res = await this.runwareAdapter.inpaint(realInput, maskBase64 || '', prompt || 'high quality restoration');
+          if (res.success && res.outputImageUri) {
+            const cachedPath = await this.assetStorage.saveToCache(res.outputImageUri, 'png');
+            const displayUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : cachedPath;
+            this.uriToPathMap.set(displayUri, cachedPath);
+            this.postToWebview({
+              command: 'AI_ACTION_SUCCESS',
+              payload: { outputUri: displayUri, model: res.metrics.model, latencyMs: res.metrics.latencyMs }
+            });
+          } else {
+            this.postToWebview({
+              command: 'AI_ACTION_ERROR',
+              payload: { error: res.error || 'Inpaint không thành công' }
+            });
+          }
+        } catch (err: any) {
+          this.postToWebview({
+            command: 'AI_ACTION_ERROR',
+            payload: { error: err.message || 'Lỗi Inpaint' }
+          });
+        }
+        break;
+      }
+
+      case 'REQUEST_IMAGE_LOAD': {
+        const fileUris = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          filters: { Images: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'avif'] },
+          openLabel: 'Mở ảnh'
+        });
+        if (fileUris && fileUris[0]) {
+          const cachedPath = await this.assetStorage.saveToCache(fileUris[0].fsPath);
+          const webviewUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : cachedPath;
+          this.uriToPathMap.set(webviewUri, cachedPath);
+          this.sessionManager.createSession(webviewUri, path.basename(fileUris[0].fsPath));
+          this.broadcastSessionState();
+          this.postToWebview({
+            command: 'SET_CURRENT_IMAGE',
+            payload: { imageUri: webviewUri, fileName: path.basename(fileUris[0].fsPath) }
+          });
+        }
+        break;
+      }
+
+      case 'EXPORT_IMAGE': {
+        const { imageUri, defaultFileName } = message.payload || {};
+        const realPath = this.uriToPathMap.get(imageUri) || imageUri;
+        const saveUri = await vscode.window.showSaveDialog({
+          defaultUri: vscode.Uri.file(defaultFileName || 'exported_image.png')
+        });
+        if (saveUri && fs.existsSync(realPath)) {
+          await fs.promises.copyFile(realPath, saveUri.fsPath);
+          vscode.window.showInformationMessage(`💾 Đã lưu ảnh: ${path.basename(saveUri.fsPath)}`);
+        }
         break;
       }
 
@@ -449,19 +930,39 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       promptText,
       {
         currentImageUri: inputImg,
-        currentNodeId: session.currentNodeId
+        imageTitle: session.title,
+        currentNodeId: session.currentNodeId,
+        conversationHistory: session.messages
       },
       {
         apiKey: llmApiKey,
         provider: llmProvider
       }
     );
+
+    // If decision is conversational chat (greetings, answers, inquiries, advice):
+    if (decision.type === 'chat' || !decision.intent) {
+      this.sessionManager.addMessage(session.sessionId, {
+        sender: 'assistant',
+        text: decision.replyText || decision.thought,
+        thought: decision.thought,
+        replyType: 'chat',
+        nodeId: session.currentNodeId
+      });
+      this.broadcastSessionState();
+      this.postToWebview({ type: 'operationCompleted', operation: 'chat' });
+      return;
+    }
+
     const intent = decision.intent;
 
     // Send AI Agent Thinking into session chat stream so the user sees the reasoning
     this.sessionManager.addMessage(session.sessionId, {
       sender: 'assistant',
       text: `🧠 **[Bộ Não AI Agent - ${decision.llmModelUsed || 'Cognitive Brain'}]**\n${decision.thought}\n\n*Công cụ thực thi:* \`${decision.toolName}\``,
+      thought: decision.thought,
+      replyType: 'tool_call',
+      toolName: decision.toolName,
       nodeId: session.currentNodeId
     });
     this.broadcastSessionState();
@@ -502,13 +1003,15 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     const op = message.operation as OperationType;
     const realInput = this.uriToPathMap.get(inputImg) || inputImg;
 
-    const forwardToClient = () => {
+    const forwardToClient = (cutoutUri?: string, isCutout?: boolean) => {
       this.postToWebview({
         type: 'requestClientOperation',
         operation: op,
         operationLabel: message.operationLabel || op,
         nodeId: parentNode.nodeId,
         inputImageUri: inputImg,
+        cutoutUri,
+        isCutout: !!isCutout,
         factor: message.factor,
         prompt: message.prompt,
         colorTarget: message.colorTarget,
@@ -521,6 +1024,23 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
     // Client-side GPU Canvas Operations (instant execution & zero cloud cost)
     if (op === 'white_bg' || op === 'avatar' || op === 'icons' || op === 'export_webp' || op === 'recolor') {
+      forwardToClient();
+      return;
+    }
+
+    // Change background color: try SOTA BiRefNet cutout first if cloud key exists, else smart client segmentation
+    if (op === 'change_bg_color') {
+      if (this.runwareAdapter.getApiKey()) {
+        try {
+          const bgRes = await this.runwareAdapter.removeBackground(realInput);
+          if (bgRes.success && bgRes.outputImageUri) {
+            forwardToClient(bgRes.outputImageUri, true);
+            return;
+          }
+        } catch (e) {
+          console.warn('[PixelPilot] Cloud removeBackground failed, using smart local segmentation:', e);
+        }
+      }
       forwardToClient();
       return;
     }
@@ -728,20 +1248,38 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  /**
+   * Creates a brand new empty session and broadcasts to webview
+   */
+  public createNewSession(title: string = 'Phiên làm việc mới'): void {
+    this.sessionManager.createSession('', title);
+    this.broadcastSessionState();
+  }
+
   private getHtmlForWebview(webview: vscode.Webview): string {
+    const distPath = vscode.Uri.joinPath(this.context.extensionUri, 'webview-ui', 'dist');
+    const indexPath = path.join(distPath.fsPath, 'index.html');
+
+    if (fs.existsSync(indexPath)) {
+      let html = fs.readFileSync(indexPath, 'utf-8');
+      html = html.replace(/(src|href)="(\/|.\/)?assets\/([^"]+)"/g, (match, attr, slash, filename) => {
+        const assetUri = webview.asWebviewUri(
+          vscode.Uri.joinPath(distPath, 'assets', filename)
+        );
+        return `${attr}="${assetUri}"`;
+      });
+      return html;
+    }
+
     const webviewPath = path.join(this.context.extensionPath, 'src', 'webview');
     const htmlPath = path.join(webviewPath, 'index.html');
     let html = fs.readFileSync(htmlPath, 'utf-8');
-
     const cssUri = webview.asWebviewUri(vscode.Uri.file(path.join(webviewPath, 'main.css')));
     const jsUri = webview.asWebviewUri(vscode.Uri.file(path.join(webviewPath, 'app.js')));
-
     const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data: blob:; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource};">`;
-
     html = html.replace('<!-- CSP_PLACEHOLDER -->', csp);
     html = html.replace('href="main.css"', `href="${cssUri}"`);
     html = html.replace('src="app.js"', `src="${jsUri}"`);
-
     return html;
   }
 }

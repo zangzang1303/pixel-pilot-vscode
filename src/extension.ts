@@ -5,28 +5,42 @@ import * as fs from 'fs';
 import { PixelPilotViewProvider } from './providers/PixelPilotViewProvider';
 import { BatchProcessor } from './services/batch/BatchProcessor';
 import { OperationType } from './services/session/types';
+import { StudioPanel } from './panels/StudioPanel';
+import { InvokeApiService } from './services/InvokeApiService';
+import { FileSystemUtils } from './utils/fileSystem';
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('✨ Pixel Pilot Enterprise Vision Studio is now active!');
 
-  // Register the Sidebar Webview Provider
+  const invokeApi = new InvokeApiService();
+
+  // 1. Register the Sidebar Webview Provider
   const provider = new PixelPilotViewProvider(context);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(PixelPilotViewProvider.viewType, provider)
   );
 
-  // Command: Open Sidebar
+  // 2. Open Canvas Studio Panel (React + Tailwind + InvokeAI)
+  const openStudioHandler = (uri?: vscode.Uri) => {
+    StudioPanel.createOrShow(context.extensionUri, uri);
+  };
+  context.subscriptions.push(
+    vscode.commands.registerCommand('pixel-pilot.openStudio', openStudioHandler),
+    vscode.commands.registerCommand('pixelPilot.openStudio', openStudioHandler)
+  );
+
+  // 3. Command: Open Sidebar View
   context.subscriptions.push(
     vscode.commands.registerCommand('pixelPilot.openSidebar', async () => {
       await vscode.commands.executeCommand('workbench.view.extension.pixel-pilot');
     })
   );
 
-  // Command: Set Runware API Key (Securely in SecretStorage)
+  // 4. Command: Set Runware / AI API Key (Securely in SecretStorage)
   context.subscriptions.push(
     vscode.commands.registerCommand('pixelPilot.setApiKey', async () => {
       const apiKey = await vscode.window.showInputBox({
-        prompt: 'Nhập Runware API Key của bạn (khóa sẽ được mã hóa an toàn trong OS SecretStorage)',
+        prompt: 'Nhập Runware/AI API Key của bạn (khóa sẽ được mã hóa an toàn trong OS SecretStorage)',
         password: true,
         placeHolder: 'e.g. your_api_key_here'
       });
@@ -34,12 +48,12 @@ export function activate(context: vscode.ExtensionContext) {
       if (apiKey !== undefined && apiKey.trim()) {
         await provider.getSecretManager().setApiKey(apiKey.trim());
         provider.getRunwareAdapter().setApiKey(apiKey.trim());
-        vscode.window.showInformationMessage('🔒 Pixel Pilot Enterprise: Đã lưu API Key vào SecretStorage thành công!');
+        vscode.window.showInformationMessage('🔒 Pixel Pilot: Đã lưu API Key vào SecretStorage thành công!');
       }
     })
   );
 
-  // Command: Clear API Key from SecretStorage
+  // 5. Command: Clear API Key from SecretStorage
   context.subscriptions.push(
     vscode.commands.registerCommand('pixelPilot.clearApiKey', async () => {
       const confirm = await vscode.window.showWarningMessage(
@@ -55,23 +69,23 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Command: Initialize Enterprise Configuration (.pixelpilotrc.json)
+  // 6. Command: Initialize Enterprise Configuration (.pixelpilotrc.json)
   context.subscriptions.push(
     vscode.commands.registerCommand('pixelPilot.initEnterpriseConfig', async () => {
       await provider.getConfigManager().initConfigFile();
     })
   );
 
-  // Command: Clear Disk Cache
+  // 7. Command: Clear Disk Cache
   context.subscriptions.push(
     vscode.commands.registerCommand('pixelPilot.clearCache', async () => {
       const sizeMb = provider.getAssetStorage().getCacheSizeMb();
       await provider.getAssetStorage().clearCache();
-      vscode.window.showInformationMessage(`🧹 Pixel Pilot Enterprise: Đã giải phóng ${sizeMb} MB bộ đệm cache đĩa cứng!`);
+      vscode.window.showInformationMessage(`🧹 Pixel Pilot: Đã giải phóng ${sizeMb} MB bộ đệm cache đĩa cứng!`);
     })
   );
 
-  // Command: Batch Process Folder from File Explorer
+  // 8. Command: Batch Process Folder from File Explorer
   context.subscriptions.push(
     vscode.commands.registerCommand('pixelPilot.batchProcessFolder', async (uri?: vscode.Uri) => {
       let targetUri = uri;
@@ -126,9 +140,7 @@ export function activate(context: vscode.ExtensionContext) {
 
       if (!choice) return;
 
-      // 3. Define output folder
-      const defaultOutputDir = path.join(targetUri.fsPath, 'pixelpilot_output');
-      const outputDir = defaultOutputDir;
+      const outputDir = path.join(targetUri.fsPath, 'pixelpilot_output');
 
       // 4. Check API Key
       const key = await provider.getSecretManager().getApiKey();
@@ -156,7 +168,7 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Command: Quick Remove Background from File Explorer Context Menu
+  // 9. Command: Quick Remove Background from File Explorer Context Menu
   context.subscriptions.push(
     vscode.commands.registerCommand('pixelPilot.removeBackground', async (uri?: vscode.Uri) => {
       await vscode.commands.executeCommand('workbench.view.extension.pixel-pilot');
@@ -166,7 +178,7 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Command: Quick Vectorize
+  // 10. Command: Quick Vectorize
   context.subscriptions.push(
     vscode.commands.registerCommand('pixelPilot.vectorizeImage', async (uri?: vscode.Uri) => {
       await vscode.commands.executeCommand('workbench.view.extension.pixel-pilot');
@@ -176,38 +188,65 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Command: Quick Upscale
-  context.subscriptions.push(
-    vscode.commands.registerCommand('pixelPilot.upscaleImage', async (uri?: vscode.Uri) => {
+  // 11. Command: Upscale Image (Context Menu & Studio)
+  const upscaleHandler = async (uri?: vscode.Uri) => {
+    // If invokeAI is online, use local ESRGAN; otherwise trigger sidebar upscale
+    const isInvokeOnline = await invokeApi.ping();
+    if (isInvokeOnline && uri) {
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Pixel Pilot: Upscaling "${path.basename(uri.fsPath)}" (InvokeAI 2x)...`,
+          cancellable: false
+        },
+        async () => {
+          const fileData = await vscode.workspace.fs.readFile(uri);
+          const result = await invokeApi.upscaleImage(Buffer.from(fileData), 2);
+          const baseName = path.parse(uri.fsPath).name;
+          const savedResult = await FileSystemUtils.saveImageToWorkspace(
+            result.imageBuffer,
+            `${baseName}_upscaled.png`
+          );
+          await FileSystemUtils.autoInsertImageSnippet(savedResult.relativePath, 'Upscaled Image');
+          vscode.window.showInformationMessage(`Upscaled saved to ${savedResult.relativePath}`);
+        }
+      );
+    } else {
       await vscode.commands.executeCommand('workbench.view.extension.pixel-pilot');
       if (uri) {
         await provider.loadFileAndExecute(uri.fsPath, 'upscale', 'Upscale 2x HD');
       }
-    })
-  );
+    }
+  };
 
-  // Command: Move View to Secondary Sidebar (Right Side like Codex)
   context.subscriptions.push(
-    vscode.commands.registerCommand('pixelPilot.moveToRightSide', async () => {
-      try {
-        await vscode.commands.executeCommand('pixelPilot.sidebarView.focus');
-        await vscode.commands.executeCommand('workbench.action.moveFocusedView');
-      } catch {
-        await vscode.commands.executeCommand('workbench.action.toggleAuxiliaryBar');
-      }
-      vscode.window.showInformationMessage('✨ Pixel Pilot: Bạn có thể kéo icon sang thanh bên phải (Secondary Sidebar) để sử dụng song song như Codex!');
+    vscode.commands.registerCommand('pixel-pilot.upscaleImage', upscaleHandler),
+    vscode.commands.registerCommand('pixelPilot.upscaleImage', upscaleHandler)
+  );
+
+  // 12. Command: Check InvokeAI Status
+  context.subscriptions.push(
+    vscode.commands.registerCommand('pixel-pilot.checkStatus', async () => {
+      const isOnline = await invokeApi.ping();
+      vscode.window.showInformationMessage(
+        isOnline
+          ? `🟢 InvokeAI is ONLINE at ${invokeApi.getBaseUrl()}`
+          : `🔴 InvokeAI is OFFLINE at ${invokeApi.getBaseUrl()}`
+      );
     })
   );
 
-  // Status Bar Shortcut Item
+  // 13. Status Bar Shortcut Item
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBarItem.command = 'pixelPilot.openSidebar';
-  statusBarItem.text = '$(sparkle) Pixel Pilot';
-  statusBarItem.tooltip = 'Mở Pixel Pilot Enterprise AI Studio';
+  statusBarItem.command = 'pixel-pilot.openStudio';
+  statusBarItem.text = '$(sparkle) Pixel Pilot Studio';
+  statusBarItem.tooltip = 'Mở Pixel Pilot AI Studio';
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 }
 
 export function deactivate() {
-  console.log('Pixel Pilot extension deactivated.');
+  if (StudioPanel.currentPanel) {
+    StudioPanel.currentPanel.dispose();
+  }
 }

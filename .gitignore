@@ -4,6 +4,7 @@ node_modules/
 # Compilation Output
 out/
 dist/
+webview-ui/dist/
 
 # Environment Variables & Secrets
 .env

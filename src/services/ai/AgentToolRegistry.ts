@@ -29,19 +29,66 @@ export class AgentToolRegistry {
   private static tools: Map<string, ToolDefinition> = new Map();
 
   static {
-    // 1. Tool Recolor (Selective Object / Hair / Clothes Recolor with Skin Protection)
+    // 1. Tool Change Background Color (Dedicated Background Replacement with 100% Subject Preservation)
+    this.register({
+      name: 'change_background_color',
+      displayName: 'Đổi màu phông nền (Background Color)',
+      category: 'background',
+      description: 'Phát hiện biên chủ thể và đổi toàn bộ màu sắc của phông nền phía sau sang một màu đơn sắc hoặc gradient mới (Đỏ, Xanh biển, Trắng Studio, Đen Tuyền, Vàng, Hồng, Tím, Cam, Xám...), bảo toàn 100% nhân vật/vật thể (khuôn mặt, mái tóc, trang phục) phía trước.',
+      parameters: {
+        type: 'object',
+        properties: {
+          color: {
+            type: 'string',
+            description: 'Mã màu sắc đích cho phông nền',
+            enum: ['red', 'blue', 'cyan', 'green', 'purple', 'pink', 'yellow', 'orange', 'black', 'white', 'brown', 'gray']
+          },
+          colorNameVi: {
+            type: 'string',
+            description: 'Tên màu sắc tiếng Việt (ví dụ: Đỏ Ruby, Xanh Biển, Trắng Studio, Đen Tuyền...)'
+          }
+        },
+        required: ['color']
+      },
+      mapToIntent: (args) => {
+        const colorMap: Record<string, string> = {
+          red: 'Đỏ Ruby',
+          blue: 'Xanh Biển',
+          cyan: 'Xanh Da Trời',
+          green: 'Xanh Lá',
+          white: 'Trắng Studio',
+          black: 'Đen Tuyền',
+          yellow: 'Vàng Kim',
+          purple: 'Tím Khói',
+          pink: 'Hồng Pastel',
+          orange: 'Cam San Hô',
+          brown: 'Nâu Hạt Dẻ',
+          gray: 'Xám Hiện Đại'
+        };
+        const colorLabel = args.colorNameVi || colorMap[args.color] || args.color;
+        return {
+          operation: 'change_bg_color',
+          label: `Đổi màu nền sang ${colorLabel} (Bảo toàn chủ thể)`,
+          colorTarget: 'background',
+          targetColor: args.color,
+          promptText: args.color
+        };
+      }
+    });
+
+    // 2. Tool Recolor (Selective Object / Hair / Clothes Recolor with Skin Protection)
     this.register({
       name: 'recolor_subject',
       displayName: 'Đổi màu có chọn lọc (Recolor)',
       category: 'recolor',
-      description: 'Phân tích bức ảnh và đổi màu một đối tượng cụ thể (mái tóc, trang phục, chi tiết) sang màu sắc mới, tự động kích hoạt bộ lọc bảo vệ da mặt (Skin-Tone Protection) để không bao giờ làm biến đổi màu da.',
+      description: 'Phân tích bức ảnh và đổi màu MÁI TÓC hoặc TRANG PHỤC của nhân vật sang màu sắc mới, tự động kích hoạt bộ lọc bảo vệ da mặt (Skin-Tone Protection). CHÚ Ý: CHỈ dùng cho tóc hoặc áo quần, TUYỆT ĐỐI KHÔNG dùng khi người dùng yêu cầu đổi màu nền (đổi màu nền phải dùng change_background_color).',
       parameters: {
         type: 'object',
         properties: {
           target: {
             type: 'string',
-            description: 'Đối tượng cần đổi màu',
-            enum: ['hair', 'clothes', 'general'],
+            description: 'Đối tượng cần đổi màu (chỉ tóc hoặc trang phục)',
+            enum: ['hair', 'clothes'],
             default: 'hair'
           },
           targetColor: {
@@ -62,12 +109,12 @@ export class AgentToolRegistry {
         required: ['target', 'targetColor']
       },
       mapToIntent: (args) => {
-        const targetLabel = args.target === 'hair' ? 'mái tóc' : args.target === 'clothes' ? 'trang phục' : 'chi tiết';
+        const targetLabel = args.target === 'hair' ? 'mái tóc' : 'trang phục';
         const colorLabel = args.colorNameVi || args.targetColor;
         return {
           operation: 'recolor',
           label: `Biến đổi màu ${targetLabel} sang ${colorLabel} (Bảo vệ da mặt)`,
-          colorTarget: args.target || 'hair',
+          colorTarget: args.target === 'clothes' ? 'clothes' : 'hair',
           targetColor: args.targetColor || 'cyan'
         };
       }

@@ -18,6 +18,10 @@ export class SessionManager {
   private saveToDisk(): void {
     if (!this.storageFilePath) return;
     try {
+      const dir = path.dirname(this.storageFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
       const data = Array.from(this.sessions.values());
       fs.writeFileSync(this.storageFilePath, JSON.stringify(data, null, 2), 'utf-8');
     } catch (e) {
@@ -70,7 +74,7 @@ export class SessionManager {
       timestamp: Date.now(),
       text: initialImageUri
         ? `Đã nạp ảnh "${title}". Bạn muốn thực hiện tác vụ gì? Hãy gõ câu lệnh hoặc chọn một trong các thao tác bên dưới.`
-        : 'Chào mừng bạn đến với Pixel Pilot AI Studio! Hãy nạp một ảnh từ Workspace hoặc kéo thả ảnh vào để bắt đầu.',
+        : 'Chào mừng bạn đến với AI Image Studio! Hãy nạp một ảnh từ máy tính hoặc kéo thả ảnh vào để bắt đầu.',
       nodeId: rootNodeId,
       operation: 'original',
       outputImageUri: initialImageUri

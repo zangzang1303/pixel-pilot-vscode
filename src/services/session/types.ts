@@ -3,6 +3,7 @@
 export type OperationType =
   | 'original'
   | 'remove_background'
+  | 'change_bg_color'
   | 'upscale'
   | 'vectorize'
   | 'inpaint'
@@ -57,6 +58,9 @@ export interface ChatMessage {
   operation?: OperationType;
   outputImageUri?: string;
   metrics?: NodeMetrics;
+  thought?: string;                  // Agent reasoning / Chain of Thought
+  replyType?: 'chat' | 'tool_call';  // Whether this was a conversation or tool execution
+  toolName?: string;                 // Executed tool name if any
 }
 
 export interface ImageSession {
@@ -88,6 +92,6 @@ export interface ParsedIntent {
   style?: string;
   bgPreset?: string;
   enhanceType?: 'clarity' | 'hdr' | 'face_restore' | 'vintage';
-  colorTarget?: 'hair' | 'clothes' | 'general';
-  targetColor?: 'red' | 'blue' | 'cyan' | 'green' | 'purple' | 'pink' | 'yellow' | 'orange' | 'black' | 'white' | 'brown';
+  colorTarget?: 'hair' | 'clothes' | 'background' | 'general';
+  targetColor?: 'red' | 'blue' | 'cyan' | 'green' | 'purple' | 'pink' | 'yellow' | 'orange' | 'black' | 'white' | 'brown' | 'gray';
 }
