@@ -8,6 +8,8 @@ import { OperationType } from './services/session/types';
 import { StudioPanel } from './panels/StudioPanel';
 import { InvokeApiService } from './services/InvokeApiService';
 import { FileSystemUtils } from './utils/fileSystem';
+import { ImageProcessor } from './services/image/ImageProcessor';
+import { ComfyUIAdapter } from './services/ai/ComfyUIAdapter';
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('✨ Pixel Pilot Enterprise Vision Studio is now active!');
@@ -36,6 +38,36 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  const broadcastApiKeyStatus = async () => {
+    const key = await provider.getSecretManager().getApiKey();
+    if (key) {
+      provider.getRunwareAdapter().setApiKey(key);
+    }
+    const masked = await provider.getSecretManager().getMaskedApiKey();
+    const msg = {
+      command: 'apiKeyStatus',
+      type: 'apiKeyStatus',
+      hasApiKey: !!key,
+      apiKeyMasked: masked
+    };
+    provider.postToWebview(msg);
+    if (StudioPanel.currentPanel) {
+      StudioPanel.currentPanel.sendMessage(msg);
+    }
+  };
+
+  // Watch for .env file changes to immediately auto-connect
+  const envWatcher = vscode.workspace.createFileSystemWatcher('**/.env');
+  envWatcher.onDidChange(async () => {
+    provider.getRunwareAdapter().updateApiKey();
+    await broadcastApiKeyStatus();
+  });
+  envWatcher.onDidCreate(async () => {
+    provider.getRunwareAdapter().updateApiKey();
+    await broadcastApiKeyStatus();
+  });
+  context.subscriptions.push(envWatcher);
+
   // 4. Command: Set Runware / AI API Key (Securely in SecretStorage)
   context.subscriptions.push(
     vscode.commands.registerCommand('pixelPilot.setApiKey', async () => {
@@ -48,6 +80,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (apiKey !== undefined && apiKey.trim()) {
         await provider.getSecretManager().setApiKey(apiKey.trim());
         provider.getRunwareAdapter().setApiKey(apiKey.trim());
+        await broadcastApiKeyStatus();
         vscode.window.showInformationMessage('🔒 Pixel Pilot: Đã lưu API Key vào SecretStorage thành công!');
       }
     })
@@ -64,6 +97,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (confirm === 'Xóa') {
         await provider.getSecretManager().deleteApiKey();
         provider.getRunwareAdapter().setApiKey('');
+        await broadcastApiKeyStatus();
         vscode.window.showInformationMessage('🔒 Pixel Pilot: Đã xóa API Key khỏi SecretStorage.');
       }
     })
@@ -104,7 +138,10 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       // 1. Scan images
-      const batchProcessor = new BatchProcessor(provider.getRunwareAdapter());
+      const comfy = new ComfyUIAdapter();
+      const isComfyOnline = await comfy.ping();
+      let aiProvider = isComfyOnline ? comfy : provider.getRunwareAdapter();
+      const batchProcessor = new BatchProcessor(aiProvider);
       const images = await batchProcessor.scanImages(targetUri, false);
 
       if (images.length === 0) {
@@ -142,14 +179,16 @@ export function activate(context: vscode.ExtensionContext) {
 
       const outputDir = path.join(targetUri.fsPath, 'pixelpilot_output');
 
-      // 4. Check API Key
-      const key = await provider.getSecretManager().getApiKey();
-      if (!key) {
-        vscode.window.showErrorMessage('Vui lòng cấu hình API Key trước khi xử lý hàng loạt!');
-        await vscode.commands.executeCommand('pixelPilot.setApiKey');
-        return;
+      // 4. Configure Provider
+      if (!isComfyOnline) {
+        const key = await provider.getSecretManager().getApiKey();
+        if (key && key.trim().length > 10) {
+          provider.getRunwareAdapter().setApiKey(key);
+        } else {
+          // Use ComfyUIAdapter in native fallback mode
+          batchProcessor.setAIProvider(comfy);
+        }
       }
-      provider.getRunwareAdapter().setApiKey(key);
 
       // 5. Execute
       const summary = await batchProcessor.executeBatch(images, choice.op, outputDir);
@@ -190,32 +229,27 @@ export function activate(context: vscode.ExtensionContext) {
 
   // 11. Command: Upscale Image (Context Menu & Studio)
   const upscaleHandler = async (uri?: vscode.Uri) => {
-    // If invokeAI is online, use local ESRGAN; otherwise trigger sidebar upscale
-    const isInvokeOnline = await invokeApi.ping();
-    if (isInvokeOnline && uri) {
+    if (uri) {
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: `Pixel Pilot: Upscaling "${path.basename(uri.fsPath)}" (InvokeAI 2x)...`,
+          title: `Pixel Pilot: Upscaling "${path.basename(uri.fsPath)}" (2x Lanczos3 Super-Resolution)...`,
           cancellable: false
         },
         async () => {
           const fileData = await vscode.workspace.fs.readFile(uri);
-          const result = await invokeApi.upscaleImage(Buffer.from(fileData), 2);
+          const upscaledBuf = await ImageProcessor.getInstance().upscale(Buffer.from(fileData), 2);
           const baseName = path.parse(uri.fsPath).name;
           const savedResult = await FileSystemUtils.saveImageToWorkspace(
-            result.imageBuffer,
+            upscaledBuf,
             `${baseName}_upscaled.png`
           );
           await FileSystemUtils.autoInsertImageSnippet(savedResult.relativePath, 'Upscaled Image');
-          vscode.window.showInformationMessage(`Upscaled saved to ${savedResult.relativePath}`);
+          vscode.window.showInformationMessage(`✨ Upscale 2x thành công: ${savedResult.relativePath}`);
         }
       );
     } else {
       await vscode.commands.executeCommand('workbench.view.extension.pixel-pilot');
-      if (uri) {
-        await provider.loadFileAndExecute(uri.fsPath, 'upscale', 'Upscale 2x HD');
-      }
     }
   };
 
@@ -236,7 +270,50 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // 13. Status Bar Shortcut Item
+  // 13. Command: Start ComfyUI Local GPU Server
+  context.subscriptions.push(
+    vscode.commands.registerCommand('pixelPilot.startComfyUI', async () => {
+      const comfy = new ComfyUIAdapter();
+      const isOnline = await comfy.ping();
+      if (isOnline) {
+        vscode.window.showInformationMessage(`🟢 ComfyUI GPU Server đang hoạt động tốt tại ${comfy.getBaseUrl()}!`);
+        return;
+      }
+
+      const portableBatch = 'D:\\Start_ComfyUI_PixelPilot.bat';
+      const defaultBatch = 'D:\\ComfyUI_windows_portable\\run_nvidia_gpu.bat';
+
+      let runFile = '';
+      if (fs.existsSync(portableBatch)) {
+        runFile = portableBatch;
+      } else if (fs.existsSync(defaultBatch)) {
+        runFile = defaultBatch;
+      }
+
+      if (runFile) {
+        const terminal = vscode.window.createTerminal('ComfyUI GPU Server');
+        terminal.show();
+        terminal.sendText(`"${runFile}"`);
+        vscode.window.showInformationMessage('🚀 Đang khởi động ComfyUI GPU Server (port 8188)... Vui lòng đợi vài giây.');
+      } else {
+        const choice = await vscode.window.showInformationMessage(
+          'Chưa tìm thấy ComfyUI Portable trên ổ D:. Bạn có muốn chạy file tự động cài đặt (setup_comfyui.bat) không?',
+          'Cài đặt tự động',
+          'Mở link tải GitHub'
+        );
+        if (choice === 'Cài đặt tự động') {
+          const setupBat = path.join(context.extensionPath, 'scripts', 'setup_comfyui.bat');
+          const terminal = vscode.window.createTerminal('ComfyUI Installer');
+          terminal.show();
+          terminal.sendText(`"${setupBat}"`);
+        } else if (choice === 'Mở link tải GitHub') {
+          vscode.env.openExternal(vscode.Uri.parse('https://github.com/Comfy-Org/ComfyUI/releases'));
+        }
+      }
+    })
+  );
+
+  // 14. Status Bar Shortcut Item
   const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBarItem.command = 'pixel-pilot.openStudio';
   statusBarItem.text = '$(sparkle) Pixel Pilot Studio';

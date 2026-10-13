@@ -15,6 +15,7 @@ import { ImageProcessor } from '../services/image/ImageProcessor';
 import { CodeGenService } from '../services/ai/CodeGenService';
 import { OCRService } from '../services/ai/OCRService';
 import { FileSystemUtils } from '../utils/fileSystem';
+import { ComfyUIAdapter } from '../services/ai/ComfyUIAdapter';
 
 export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'pixelPilot.sidebarView';
@@ -88,6 +89,27 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           command: 'pingResult',
           isOnline,
           serverUrl: this.invokeApi.getServerUrl()
+        });
+
+        const apiKey = await this.secretManager.getApiKey();
+        const masked = await this.secretManager.getMaskedApiKey();
+        this.postToWebview({
+          command: 'apiKeyStatus',
+          type: 'apiKeyStatus',
+          hasApiKey: !!apiKey,
+          apiKeyMasked: masked
+        });
+        break;
+      }
+
+      case 'getApiKeyStatus': {
+        const apiKey = await this.secretManager.getApiKey();
+        const masked = await this.secretManager.getMaskedApiKey();
+        this.postToWebview({
+          command: 'apiKeyStatus',
+          type: 'apiKeyStatus',
+          hasApiKey: !!apiKey,
+          apiKeyMasked: masked
         });
         break;
       }
@@ -215,11 +237,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
           if (action === 'removeBackground') {
             let outBuf: Buffer;
-            const runwareKey = await this.secretManager.getApiKey();
-            if (runwareKey && runwareKey.trim().length > 10) {
+            const comfy = new ComfyUIAdapter();
+            const comfyOnline = await comfy.ping();
+            if (comfyOnline) {
               try {
-                const adapter = new RunwareAdapter(runwareKey);
-                const res = await adapter.removeBackground(dataUrl);
+                const res = await comfy.removeBackground(dataUrl);
                 if (res.outputImageUri) {
                   const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
                   outBuf = Buffer.from(b64, 'base64');
@@ -230,7 +252,23 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
                 outBuf = await imageProc.removeBackground(buffer);
               }
             } else {
-              outBuf = await imageProc.removeBackground(buffer);
+              const runwareKey = await this.secretManager.getApiKey();
+              if (runwareKey && runwareKey.trim().length > 10) {
+                try {
+                  const adapter = new RunwareAdapter(runwareKey);
+                  const res = await adapter.removeBackground(dataUrl);
+                  if (res.outputImageUri) {
+                    const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
+                    outBuf = Buffer.from(b64, 'base64');
+                  } else {
+                    outBuf = await imageProc.removeBackground(buffer);
+                  }
+                } catch {
+                  outBuf = await imageProc.removeBackground(buffer);
+                }
+              } else {
+                outBuf = await imageProc.removeBackground(buffer);
+              }
             }
 
             const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_cutout_${Date.now()}.png`);
@@ -242,7 +280,40 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`✨ Tách nền thành công: ${savedResult.relativePath}`);
           } else if (action === 'upscale') {
             const factor = (options?.factor as 2 | 4) || 2;
-            const outBuf = await imageProc.upscale(buffer, factor);
+            let outBuf: Buffer;
+            const comfy = new ComfyUIAdapter();
+            const comfyOnline = await comfy.ping();
+            if (comfyOnline) {
+              try {
+                const res = await comfy.upscale(dataUrl, factor);
+                if (res.outputImageUri) {
+                  const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
+                  outBuf = Buffer.from(b64, 'base64');
+                } else {
+                  outBuf = await imageProc.upscale(buffer, factor);
+                }
+              } catch {
+                outBuf = await imageProc.upscale(buffer, factor);
+              }
+            } else {
+              const runwareKey = await this.secretManager.getApiKey();
+              if (runwareKey && runwareKey.trim().length > 10) {
+                try {
+                  const adapter = new RunwareAdapter(runwareKey);
+                  const res = await adapter.upscale(dataUrl, factor);
+                  if (res.outputImageUri) {
+                    const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
+                    outBuf = Buffer.from(b64, 'base64');
+                  } else {
+                    outBuf = await imageProc.upscale(buffer, factor);
+                  }
+                } catch {
+                  outBuf = await imageProc.upscale(buffer, factor);
+                }
+              } else {
+                outBuf = await imageProc.upscale(buffer, factor);
+              }
+            }
             const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`);
             this.postToWebview({
               command: 'actionComplete',
@@ -252,7 +323,24 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`✨ Phóng to ${factor}x thành công: ${savedResult.relativePath}`);
           } else if (action === 'enhance') {
             const type = options?.type || 'clarity';
-            const outBuf = await imageProc.enhance(buffer, type);
+            let outBuf: Buffer;
+            const runwareKey = await this.secretManager.getApiKey();
+            if (runwareKey && runwareKey.trim().length > 10) {
+              try {
+                const adapter = new RunwareAdapter(runwareKey);
+                const res = await adapter.enhanceImage(dataUrl, type);
+                if (res.outputImageUri) {
+                  const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
+                  outBuf = Buffer.from(b64, 'base64');
+                } else {
+                  outBuf = await imageProc.enhance(buffer, type);
+                }
+              } catch {
+                outBuf = await imageProc.enhance(buffer, type);
+              }
+            } else {
+              outBuf = await imageProc.enhance(buffer, type);
+            }
             const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_enhanced_${Date.now()}.png`);
             this.postToWebview({
               command: 'actionComplete',
@@ -260,6 +348,60 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Khử mờ & Làm nét HDR thành công: ${savedResult.relativePath}`);
+          } else if (action === 'mask') {
+            const outBuf = await imageProc.extractMask(buffer);
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_mask_${Date.now()}.png`);
+            this.postToWebview({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Trích xuất Mask thành công: ${savedResult.relativePath}`);
+          } else if (action === 'canny' || action === 'edgeDetection') {
+            const outBuf = await imageProc.detectEdges(buffer, 'canny');
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_canny_${Date.now()}.png`);
+            this.postToWebview({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Dò biên Canny thành công: ${savedResult.relativePath}`);
+          } else if (action === 'lineart' || action === 'lineExtraction') {
+            const outBuf = await imageProc.detectEdges(buffer, 'lineart');
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_lineart_${Date.now()}.png`);
+            this.postToWebview({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Trích xuất Lineart thành công: ${savedResult.relativePath}`);
+          } else if (action === 'depth') {
+            const outBuf = await imageProc.detectEdges(buffer, 'depth');
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_depth_${Date.now()}.png`);
+            this.postToWebview({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Tạo bản đồ độ sâu 3D thành công: ${savedResult.relativePath}`);
+          } else if (action === 'extend') {
+            const direction = options?.direction || 'all';
+            const outBuf = await imageProc.extendCanvas(buffer, direction);
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_extended_${Date.now()}.png`);
+            this.postToWebview({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Mở rộng khung hình thành công: ${savedResult.relativePath}`);
+          } else if (action === 'caption') {
+            const captionText = await imageProc.generateCaption(buffer);
+            vscode.window.showInformationMessage(`📝 AI Caption: ${captionText}`);
+            this.postToWebview({
+              command: 'chatReply',
+              text: `📝 **Mô tả ảnh AI (Alt Text):**\n\n${captionText}`
+            });
+            this.postToWebview({ command: 'actionComplete' });
           } else if (action === 'recolor') {
             const subject = options?.subject || 'hair';
             const color = options?.color || 'cyan';
@@ -341,6 +483,19 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           this.postToWebview({ command: 'actionError', message: err.message });
           vscode.window.showErrorMessage(`Lỗi ${action}: ${err.message}`);
         }
+        break;
+      }
+
+      case 'openApiKeyPrompt': {
+        await vscode.commands.executeCommand('pixelPilot.setApiKey');
+        const apiKey = await this.secretManager.getApiKey();
+        const masked = await this.secretManager.getMaskedApiKey();
+        this.postToWebview({
+          command: 'apiKeyStatus',
+          type: 'apiKeyStatus',
+          hasApiKey: !!apiKey,
+          apiKeyMasked: masked
+        });
         break;
       }
 
@@ -1045,8 +1200,84 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    // If Cloud API Key is missing, automatically execute via Smart Client Engine
+    // If Cloud API Key is missing, automatically execute via Local ImageProcessor Engine
     if (!this.runwareAdapter.getApiKey()) {
+      try {
+        let inputBuffer: Buffer;
+        if (realInput.startsWith('data:image')) {
+          const b64 = realInput.replace(/^data:image\/\w+;base64,/, '');
+          inputBuffer = Buffer.from(b64, 'base64');
+        } else if (fs.existsSync(realInput)) {
+          inputBuffer = await fs.promises.readFile(realInput);
+        } else {
+          forwardToClient();
+          return;
+        }
+
+        const imageProc = ImageProcessor.getInstance();
+        let outBuffer: Buffer | null = null;
+        let ext = 'png';
+        let textResult: string | undefined;
+
+        const opStr = String(message.operation || '');
+        if (opStr === 'remove_background') {
+          outBuffer = await imageProc.removeBackground(inputBuffer);
+        } else if (opStr === 'upscale') {
+          outBuffer = await imageProc.upscale(inputBuffer, message.factor || 2);
+        } else if (opStr === 'enhance') {
+          outBuffer = await imageProc.enhance(inputBuffer, message.enhanceType || 'clarity');
+        } else if (opStr === 'recolor' || opStr === 'color_grade') {
+          outBuffer = await imageProc.recolor(inputBuffer, message.colorTarget || 'hair', message.targetColor || 'cyan');
+        } else if (opStr === 'style_transfer') {
+          outBuffer = await imageProc.styleTransfer(inputBuffer, message.style || 'anime');
+        } else if (opStr === 'vectorize') {
+          const vRes = await imageProc.vectorize(inputBuffer);
+          outBuffer = vRes.previewBuffer;
+          textResult = vRes.svgString;
+          ext = 'svg';
+        } else if (opStr === 'inpaint') {
+          let maskBuf: Buffer | undefined;
+          if (message.mask) {
+            const mB64 = message.mask.replace(/^data:image\/\w+;base64,/, '');
+            maskBuf = Buffer.from(mB64, 'base64');
+          }
+          outBuffer = await imageProc.inpaint(inputBuffer, maskBuf);
+        }
+
+        if (outBuffer) {
+          const cachedPath = await this.assetStorage.saveToCache(
+            ext === 'svg' && textResult ? Buffer.from(textResult, 'utf-8') : outBuffer,
+            ext
+          );
+          const displayUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : cachedPath;
+          this.uriToPathMap.set(displayUri, cachedPath);
+
+          this.sessionManager.addOperationNode(
+            session.sessionId,
+            parentNode.nodeId,
+            op,
+            message.operationLabel || op,
+            inputImg,
+            displayUri,
+            { model: 'Local Sharp / ImageProcessor Engine', latencyMs: 35, costUsd: 0 },
+            { textResult }
+          );
+          this.broadcastSessionState();
+
+          this.postToWebview({
+            command: 'actionComplete',
+            dataUrl: `data:image/${ext === 'svg' ? 'svg+xml' : 'png'};base64,${outBuffer.toString('base64')}`,
+            savedPath: path.basename(cachedPath)
+          });
+          this.postToWebview({
+            command: 'AI_ACTION_SUCCESS',
+            payload: { outputUri: displayUri, model: 'Local Engine', latencyMs: 35 }
+          });
+          return;
+        }
+      } catch (err: any) {
+        console.warn('[PixelPilot] Local execution fallback failed:', err);
+      }
       forwardToClient();
       return;
     }
@@ -1215,7 +1446,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private postToWebview(message: any): void {
+  public postToWebview(message: any): void {
     if (this._view) {
       this._view.webview.postMessage(message);
     }

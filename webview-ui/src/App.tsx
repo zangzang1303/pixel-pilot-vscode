@@ -62,6 +62,10 @@ export const App: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatThinking, setIsChatThinking] = useState<boolean>(false);
 
+  // Cloud AI Key status
+  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
+  const [apiKeyMasked, setApiKeyMasked] = useState<string>('');
+
   // Handle messages from Extension Host
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -74,6 +78,11 @@ export const App: React.FC = () => {
         case 'pingResult':
           setIsOnline(message.isOnline);
           if (message.serverUrl) setServerUrl(message.serverUrl);
+          break;
+
+        case 'apiKeyStatus':
+          setHasApiKey(Boolean(message.hasApiKey));
+          setApiKeyMasked(message.apiKeyMasked || '');
           break;
 
         case 'modelsLoaded':
@@ -182,6 +191,7 @@ export const App: React.FC = () => {
     // Initial ping & fetch
     vscode.postMessage({ command: 'ping' });
     vscode.postMessage({ command: 'getModels' });
+    vscode.postMessage({ command: 'getApiKeyStatus' });
 
     return () => {
       window.removeEventListener('message', handleMessage);
@@ -222,6 +232,10 @@ export const App: React.FC = () => {
 
   // Trigger Unified AI Actions (Tách nền, Inpaint, Recolor, Vectorize, Dev tools)
   const handleApplyAction = (action: string, options?: any) => {
+    if (action === 'openApiKeyPrompt') {
+      vscode.postMessage({ command: 'openApiKeyPrompt' });
+      return;
+    }
     if (!currentImageUrl && action !== 'openImage') return;
 
     setIsProcessingAction(true);
@@ -266,6 +280,7 @@ export const App: React.FC = () => {
   const handlePing = () => {
     vscode.postMessage({ command: 'ping' });
     vscode.postMessage({ command: 'getModels' });
+    vscode.postMessage({ command: 'getApiKeyStatus' });
   };
 
   // Insert code snippet manually
@@ -307,6 +322,8 @@ export const App: React.FC = () => {
         chatMessages={chatMessages}
         onSendMessage={handleSendMessage}
         isChatThinking={isChatThinking}
+        hasApiKey={hasApiKey}
+        apiKeyMasked={apiKeyMasked}
       />
 
       {/* Main Studio Canvas Area */}

@@ -37,8 +37,15 @@ export class SecretManager {
     const envVars: Record<string, string> = {};
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const candidates = [
+      'd:/CODE/DAKH/pixel-pilot-vscode/.env',
+      'd:\\CODE\\DAKH\\pixel-pilot-vscode\\.env',
       workspaceRoot ? path.join(workspaceRoot, '.env') : '',
-      'd:/CODE/DAKH/pixel-pilot-vscode/.env'
+      workspaceRoot ? path.join(workspaceRoot, 'pixel-pilot-vscode', '.env') : '',
+      'd:/CODE/DAKH/.env',
+      path.resolve('.env'),
+      path.resolve(process.cwd(), '.env'),
+      path.resolve(__dirname, '../../../../.env'),
+      path.resolve(__dirname, '../../../.env')
     ].filter(Boolean);
 
     for (const cand of candidates) {
@@ -56,12 +63,11 @@ export class SecretManager {
               if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
                 v = v.slice(1, -1).trim();
               }
-              if (k && v) {
+              if (k && v && !envVars[k]) {
                 envVars[k] = v;
               }
             }
           }
-          break;
         } catch (e) {
           console.warn('[SecretManager] Error reading .env file:', e);
         }
@@ -72,22 +78,26 @@ export class SecretManager {
 
   /**
    * Retrieves the Runware API Key with enterprise precedence:
-   * 1. OS-level Encrypted SecretStorage
-   * 2. Local workspace .env file (RUNWARE_API_KEY)
+   * 1. Local workspace .env file (RUNWARE_API_KEY)
+   * 2. OS-level Encrypted SecretStorage
    * 3. Environment variable (RUNWARE_API_KEY / PIXEL_PILOT_KEY)
    * 4. Legacy settings.json
    */
   public async getApiKey(): Promise<string> {
-    // 1. Check SecretStorage (most secure)
+    // 1. Check local workspace .env file
+    const envFileVars = this.readLocalEnvFile();
+    if (
+      envFileVars.RUNWARE_API_KEY &&
+      envFileVars.RUNWARE_API_KEY.trim() &&
+      envFileVars.RUNWARE_API_KEY.trim() !== 'YOUR_RUNWARE_API_KEY'
+    ) {
+      return envFileVars.RUNWARE_API_KEY.trim();
+    }
+
+    // 2. Check SecretStorage (most secure)
     const secretKey = await this.secrets.get(SecretManager.RUNWARE_KEY_ID);
     if (secretKey && secretKey.trim()) {
       return secretKey.trim();
-    }
-
-    // 2. Check local workspace .env file
-    const envFileVars = this.readLocalEnvFile();
-    if (envFileVars.RUNWARE_API_KEY && envFileVars.RUNWARE_API_KEY.trim()) {
-      return envFileVars.RUNWARE_API_KEY.trim();
     }
 
     // 3. Check corporate environment variables
@@ -148,22 +158,22 @@ export class SecretManager {
    * Retrieves the LLM API Key (Gemini, OpenAI, Groq, etc.)
    */
   public async getLlmApiKey(): Promise<string> {
-    const secretKey = await this.secrets.get(SecretManager.LLM_KEY_ID);
-    if (secretKey && secretKey.trim()) {
-      return secretKey.trim();
-    }
     const envFileVars = this.readLocalEnvFile();
     if (envFileVars.GEMINI_API_KEY && envFileVars.GEMINI_API_KEY.trim()) {
       return envFileVars.GEMINI_API_KEY.trim();
     }
-    if (envFileVars.GROQ_API_KEY && envFileVars.GROQ_API_KEY.trim()) {
-      return envFileVars.GROQ_API_KEY.trim();
-    }
     if (envFileVars.OPENAI_API_KEY && envFileVars.OPENAI_API_KEY.trim()) {
       return envFileVars.OPENAI_API_KEY.trim();
     }
+    if (envFileVars.GROQ_API_KEY && envFileVars.GROQ_API_KEY.trim()) {
+      return envFileVars.GROQ_API_KEY.trim();
+    }
     if (envFileVars.LLM_API_KEY && envFileVars.LLM_API_KEY.trim()) {
       return envFileVars.LLM_API_KEY.trim();
+    }
+    const secretKey = await this.secrets.get(SecretManager.LLM_KEY_ID);
+    if (secretKey && secretKey.trim()) {
+      return secretKey.trim();
     }
     const envKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.GROQ_API_KEY || process.env.LLM_API_KEY;
     if (envKey && envKey.trim()) {

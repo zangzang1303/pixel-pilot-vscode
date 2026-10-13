@@ -34,7 +34,8 @@
     "onCommand:pixelPilot.upscaleImage",
     "onCommand:pixelPilot.removeBackground",
     "onCommand:pixelPilot.vectorizeImage",
-    "onCommand:pixelPilot.batchProcessFolder"
+    "onCommand:pixelPilot.batchProcessFolder",
+    "onCommand:pixelPilot.startComfyUI"
   ],
   "contributes": {
     "viewsContainers": {
@@ -104,6 +105,11 @@
       {
         "command": "pixel-pilot.checkStatus",
         "title": "Pixel Pilot: Check InvokeAI Server Status",
+        "category": "Pixel Pilot"
+      },
+      {
+        "command": "pixelPilot.startComfyUI",
+        "title": "Pixel Pilot: Khởi động ComfyUI Local GPU (Port 8188)",
         "category": "Pixel Pilot"
       }
     ],

@@ -10,6 +10,7 @@ import { ImageProcessor } from '../services/image/ImageProcessor';
 import { SecretManager } from '../services/security/SecretManager';
 import { VisionAgentOrchestrator } from '../services/ai/VisionAgentOrchestrator';
 import { RunwareAdapter } from '../services/ai/RunwareAdapter';
+import { ComfyUIAdapter } from '../services/ai/ComfyUIAdapter';
 
 /**
  * Manages the AI Image Studio Webview panel.
@@ -111,6 +112,16 @@ export class StudioPanel {
           models
         });
       }
+
+      // Broadcast API Key Status
+      const apiKey = await SecretManager.getInstance().getApiKey();
+      const masked = await SecretManager.getInstance().getMaskedApiKey();
+      this.sendMessage({
+        command: 'apiKeyStatus',
+        type: 'apiKeyStatus',
+        hasApiKey: !!apiKey,
+        apiKeyMasked: masked
+      });
     } catch (err: any) {
       this.sendMessage({
         command: 'pingResult',
@@ -151,16 +162,35 @@ export class StudioPanel {
     switch (message.command) {
       case 'ping': {
         const isOnline = await this._invokeApi.ping();
+        const comfyOnline = await new ComfyUIAdapter().ping();
         this.sendMessage({
           command: 'pingResult',
-          isOnline,
-          serverUrl: this._invokeApi.getBaseUrl()
+          isOnline: isOnline || comfyOnline,
+          isInvokeOnline: isOnline,
+          isComfyOnline: comfyOnline,
+          serverUrl: isOnline ? this._invokeApi.getBaseUrl() : (comfyOnline ? 'http://127.0.0.1:8188' : this._invokeApi.getBaseUrl())
         });
-        if (!isOnline) {
-          vscode.window.showWarningMessage(
-            `InvokeAI is unreachable at ${this._invokeApi.getBaseUrl()}. Please ensure InvokeAI is running.`
-          );
-        }
+
+        const apiKey = await SecretManager.getInstance().getApiKey();
+        const masked = await SecretManager.getInstance().getMaskedApiKey();
+        this.sendMessage({
+          command: 'apiKeyStatus',
+          type: 'apiKeyStatus',
+          hasApiKey: !!apiKey,
+          apiKeyMasked: masked
+        });
+        break;
+      }
+
+      case 'getApiKeyStatus': {
+        const apiKey = await SecretManager.getInstance().getApiKey();
+        const masked = await SecretManager.getInstance().getMaskedApiKey();
+        this.sendMessage({
+          command: 'apiKeyStatus',
+          type: 'apiKeyStatus',
+          hasApiKey: !!apiKey,
+          apiKeyMasked: masked
+        });
         break;
       }
 
@@ -294,6 +324,19 @@ export class StudioPanel {
         break;
       }
 
+      case 'openApiKeyPrompt': {
+        await vscode.commands.executeCommand('pixelPilot.setApiKey');
+        const apiKey = await SecretManager.getInstance().getApiKey();
+        const masked = await SecretManager.getInstance().getMaskedApiKey();
+        this.sendMessage({
+          command: 'apiKeyStatus',
+          type: 'apiKeyStatus',
+          hasApiKey: !!apiKey,
+          apiKeyMasked: masked
+        });
+        break;
+      }
+
       case 'browseImage': {
         const fileUris = await vscode.window.showOpenDialog({
           canSelectMany: false,
@@ -338,11 +381,11 @@ export class StudioPanel {
 
           if (action === 'removeBackground') {
             let outBuf: Buffer;
-            const runwareKey = await SecretManager.getInstance().getApiKey();
-            if (runwareKey && runwareKey.trim().length > 10) {
+            const comfy = new ComfyUIAdapter();
+            const comfyOnline = await comfy.ping();
+            if (comfyOnline) {
               try {
-                const adapter = new RunwareAdapter(runwareKey);
-                const res = await adapter.removeBackground(dataUrl);
+                const res = await comfy.removeBackground(dataUrl);
                 if (res.outputImageUri) {
                   const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
                   outBuf = Buffer.from(b64, 'base64');
@@ -353,7 +396,23 @@ export class StudioPanel {
                 outBuf = await imageProc.removeBackground(buffer);
               }
             } else {
-              outBuf = await imageProc.removeBackground(buffer);
+              const runwareKey = await SecretManager.getInstance().getApiKey();
+              if (runwareKey && runwareKey.trim().length > 10) {
+                try {
+                  const adapter = new RunwareAdapter(runwareKey);
+                  const res = await adapter.removeBackground(dataUrl);
+                  if (res.outputImageUri) {
+                    const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
+                    outBuf = Buffer.from(b64, 'base64');
+                  } else {
+                    outBuf = await imageProc.removeBackground(buffer);
+                  }
+                } catch {
+                  outBuf = await imageProc.removeBackground(buffer);
+                }
+              } else {
+                outBuf = await imageProc.removeBackground(buffer);
+              }
             }
 
             const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_cutout_${Date.now()}.png`);
@@ -365,7 +424,40 @@ export class StudioPanel {
             vscode.window.showInformationMessage(`✨ Tách nền thành công: ${savedResult.relativePath}`);
           } else if (action === 'upscale') {
             const factor = (options?.factor as 2 | 4) || 2;
-            const outBuf = await imageProc.upscale(buffer, factor);
+            let outBuf: Buffer;
+            const comfy = new ComfyUIAdapter();
+            const comfyOnline = await comfy.ping();
+            if (comfyOnline) {
+              try {
+                const res = await comfy.upscale(dataUrl, factor);
+                if (res.outputImageUri) {
+                  const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
+                  outBuf = Buffer.from(b64, 'base64');
+                } else {
+                  outBuf = await imageProc.upscale(buffer, factor);
+                }
+              } catch {
+                outBuf = await imageProc.upscale(buffer, factor);
+              }
+            } else {
+              const runwareKey = await SecretManager.getInstance().getApiKey();
+              if (runwareKey && runwareKey.trim().length > 10) {
+                try {
+                  const adapter = new RunwareAdapter(runwareKey);
+                  const res = await adapter.upscale(dataUrl, factor);
+                  if (res.outputImageUri) {
+                    const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
+                    outBuf = Buffer.from(b64, 'base64');
+                  } else {
+                    outBuf = await imageProc.upscale(buffer, factor);
+                  }
+                } catch {
+                  outBuf = await imageProc.upscale(buffer, factor);
+                }
+              } else {
+                outBuf = await imageProc.upscale(buffer, factor);
+              }
+            }
             const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`);
             this.sendMessage({
               command: 'actionComplete',
@@ -375,7 +467,24 @@ export class StudioPanel {
             vscode.window.showInformationMessage(`✨ Phóng to ${factor}x thành công: ${savedResult.relativePath}`);
           } else if (action === 'enhance') {
             const type = options?.type || 'clarity';
-            const outBuf = await imageProc.enhance(buffer, type);
+            let outBuf: Buffer;
+            const runwareKey = await SecretManager.getInstance().getApiKey();
+            if (runwareKey && runwareKey.trim().length > 10) {
+              try {
+                const adapter = new RunwareAdapter(runwareKey);
+                const res = await adapter.enhanceImage(dataUrl, type);
+                if (res.outputImageUri) {
+                  const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
+                  outBuf = Buffer.from(b64, 'base64');
+                } else {
+                  outBuf = await imageProc.enhance(buffer, type);
+                }
+              } catch {
+                outBuf = await imageProc.enhance(buffer, type);
+              }
+            } else {
+              outBuf = await imageProc.enhance(buffer, type);
+            }
             const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_enhanced_${Date.now()}.png`);
             this.sendMessage({
               command: 'actionComplete',
@@ -383,6 +492,60 @@ export class StudioPanel {
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Khử mờ & Làm nét HDR thành công: ${savedResult.relativePath}`);
+          } else if (action === 'mask') {
+            const outBuf = await imageProc.extractMask(buffer);
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_mask_${Date.now()}.png`);
+            this.sendMessage({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Trích xuất Mask thành công: ${savedResult.relativePath}`);
+          } else if (action === 'canny' || action === 'edgeDetection') {
+            const outBuf = await imageProc.detectEdges(buffer, 'canny');
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_canny_${Date.now()}.png`);
+            this.sendMessage({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Dò biên Canny thành công: ${savedResult.relativePath}`);
+          } else if (action === 'lineart' || action === 'lineExtraction') {
+            const outBuf = await imageProc.detectEdges(buffer, 'lineart');
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_lineart_${Date.now()}.png`);
+            this.sendMessage({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Trích xuất Lineart thành công: ${savedResult.relativePath}`);
+          } else if (action === 'depth') {
+            const outBuf = await imageProc.detectEdges(buffer, 'depth');
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_depth_${Date.now()}.png`);
+            this.sendMessage({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Tạo bản đồ độ sâu 3D thành công: ${savedResult.relativePath}`);
+          } else if (action === 'extend') {
+            const direction = options?.direction || 'all';
+            const outBuf = await imageProc.extendCanvas(buffer, direction);
+            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_extended_${Date.now()}.png`);
+            this.sendMessage({
+              command: 'actionComplete',
+              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              savedPath: savedResult.relativePath
+            });
+            vscode.window.showInformationMessage(`✨ Mở rộng khung hình thành công: ${savedResult.relativePath}`);
+          } else if (action === 'caption') {
+            const captionText = await imageProc.generateCaption(buffer);
+            vscode.window.showInformationMessage(`📝 AI Caption: ${captionText}`);
+            this.sendMessage({
+              command: 'chatReply',
+              text: `📝 **Mô tả ảnh AI (Alt Text):**\n\n${captionText}`
+            });
+            this.sendMessage({ command: 'actionComplete' });
           } else if (action === 'recolor') {
             const subject = options?.subject || 'hair';
             const color = options?.color || 'cyan';

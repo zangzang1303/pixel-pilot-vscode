@@ -19,7 +19,12 @@ import {
   Download,
   FolderOpen,
   FolderArchive,
-  Bot
+  Bot,
+  Settings,
+  Maximize2,
+  Scan,
+  Eye,
+  PenTool
 } from 'lucide-react';
 
 export interface ModelItem {
@@ -67,6 +72,9 @@ interface SettingsSidebarProps {
   chatMessages: Array<{ role: 'user' | 'assistant'; text: string; thought?: string }>;
   onSendMessage: (msg: string) => void;
   isChatThinking: boolean;
+  // API Key Status
+  hasApiKey?: boolean;
+  apiKeyMasked?: string;
 }
 
 const RESOLUTION_PRESETS = [
@@ -100,7 +108,9 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
   onOpenImage,
   chatMessages,
   onSendMessage,
-  isChatThinking
+  isChatThinking,
+  hasApiKey,
+  apiKeyMasked
 }) => {
   const [chatInput, setChatInput] = useState('');
   const [recolorSubject, setRecolorSubject] = useState('hair');
@@ -124,8 +134,8 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
   return (
     <aside className="w-84 h-full flex flex-col bg-slate-900 border-r border-slate-800 text-slate-200 select-none">
       {/* Studio Brand Header */}
-      <div className="p-3.5 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-        <div className="flex items-center gap-2.5">
+      <div className="p-3 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
+        <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-indigo-500 via-purple-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
             <Sparkles className="w-4 h-4 text-white" />
           </div>
@@ -133,26 +143,51 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
             <h1 className="text-sm font-bold tracking-tight text-white flex items-center gap-1.5">
               Pixel Pilot
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                PRO STUDIO
+                PRO
               </span>
             </h1>
             <p className="text-[10px] text-slate-400">All-in-One Visual AI Assistant</p>
           </div>
         </div>
 
-        {/* Server status pill */}
-        <button
-          onClick={onPing}
-          title={`InvokeAI Server: ${serverUrl}`}
-          className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors border ${
-            isOnline
-              ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800/80 hover:bg-emerald-900/60'
-              : 'bg-rose-950/60 text-rose-400 border-rose-800/80 hover:bg-rose-900/60'
-          }`}
-        >
-          <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
-          {isOnline ? 'GPU Online' : 'Offline'}
-        </button>
+        <div className="flex items-center gap-1">
+          {/* Cloud AI Key Status Pill */}
+          <button
+            onClick={() => onApplyAction('openApiKeyPrompt')}
+            title={hasApiKey ? `Đã kết nối Runware AI Key: ${apiKeyMasked}` : 'Chưa cấu hình API Key (Bấm để nhập)'}
+            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors border ${
+              hasApiKey
+                ? 'bg-purple-950/60 text-purple-300 border-purple-800/80 hover:bg-purple-900/60'
+                : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800'
+            }`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${hasApiKey ? 'bg-purple-400 animate-pulse' : 'bg-slate-500'}`} />
+            {hasApiKey ? (apiKeyMasked || 'Cloud Key') : 'No Key'}
+          </button>
+
+          {/* Settings / API Key Button */}
+          <button
+            onClick={() => onApplyAction('openApiKeyPrompt')}
+            title="Cấu hình API Key (Runware / AI)"
+            className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition-colors border border-slate-800"
+          >
+            <Settings className="w-3 h-3" />
+          </button>
+
+          {/* Local GPU InvokeAI status pill */}
+          <button
+            onClick={onPing}
+            title={`InvokeAI Server: ${serverUrl}`}
+            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors border ${
+              isOnline
+                ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800/80 hover:bg-emerald-900/60'
+                : 'bg-rose-950/60 text-rose-400 border-rose-800/80 hover:bg-rose-900/60'
+            }`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
+            {isOnline ? 'GPU' : 'Offline'}
+          </button>
+        </div>
       </div>
 
       {/* Main Studio Navigation Tabs */}
@@ -408,28 +443,30 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
             <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
                 <Palette className="w-3.5 h-3.5 text-pink-400" />
-                <span>Đổi màu chọn lọc (Bảo vệ da mặt)</span>
+                <span>Đổi màu chọn lọc (Bảo vệ da & cách ly nền)</span>
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <select
                   value={recolorSubject}
                   onChange={(e) => setRecolorSubject(e.target.value)}
-                  className="bg-slate-900 border border-slate-700 rounded-lg p-1 text-[11px]"
+                  className="bg-slate-900 border border-slate-700 rounded-lg p-1.5 text-[11px] text-slate-200"
                 >
-                  <option value="hair">Mái tóc</option>
                   <option value="clothes">Trang phục</option>
+                  <option value="hair">Mái tóc</option>
+                  <option value="background">Phông nền</option>
                   <option value="object">Chi tiết vật thể</option>
                 </select>
                 <select
                   value={recolorColor}
                   onChange={(e) => setRecolorColor(e.target.value)}
-                  className="bg-slate-900 border border-slate-700 rounded-lg p-1 text-[11px]"
+                  className="bg-slate-900 border border-slate-700 rounded-lg p-1.5 text-[11px] text-slate-200"
                 >
+                  <option value="purple">Tím Khói</option>
                   <option value="cyan">Xanh Da Trời (Cyan)</option>
                   <option value="blonde">Vàng Bạch Kim</option>
                   <option value="red">Đỏ Ruby</option>
-                  <option value="purple">Tím Khói</option>
-                  <option value="black">Đen Tuyển</option>
+                  <option value="green">Xanh Ngọc</option>
+                  <option value="black">Đen Tuyền</option>
                 </select>
               </div>
               <button
@@ -441,13 +478,104 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
               </button>
             </div>
 
+            {/* Tiền xử lý ControlNet & Trích xuất (Preprocess / Edge / Lineart / Depth / Mask) */}
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2">
+              <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <Scan className="w-3.5 h-3.5 text-cyan-400" />
+                Tiền xử lý ControlNet & Phân đoạn (Preprocess)
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => onApplyAction('canny')}
+                  disabled={isProcessingAction || !hasActiveImage}
+                  className="p-2 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-700/80 hover:border-cyan-500/50 text-left transition-all disabled:opacity-50"
+                >
+                  <span className="text-[11px] font-semibold text-cyan-300 block">Dò biên Canny</span>
+                  <span className="text-[9px] text-slate-400">Edge Detection</span>
+                </button>
+
+                <button
+                  onClick={() => onApplyAction('lineart')}
+                  disabled={isProcessingAction || !hasActiveImage}
+                  className="p-2 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-700/80 hover:border-indigo-500/50 text-left transition-all disabled:opacity-50"
+                >
+                  <span className="text-[11px] font-semibold text-indigo-300 block">Nét vẽ Lineart</span>
+                  <span className="text-[9px] text-slate-400">Line Extraction</span>
+                </button>
+
+                <button
+                  onClick={() => onApplyAction('depth')}
+                  disabled={isProcessingAction || !hasActiveImage}
+                  className="p-2 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-700/80 hover:border-emerald-500/50 text-left transition-all disabled:opacity-50"
+                >
+                  <span className="text-[11px] font-semibold text-emerald-300 block">Độ sâu 3D (Depth)</span>
+                  <span className="text-[9px] text-slate-400">Spatial Depth Map</span>
+                </button>
+
+                <button
+                  onClick={() => onApplyAction('mask')}
+                  disabled={isProcessingAction || !hasActiveImage}
+                  className="p-2 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-700/80 hover:border-amber-500/50 text-left transition-all disabled:opacity-50"
+                >
+                  <span className="text-[11px] font-semibold text-amber-300 block">Mặt nạ AI (Mask)</span>
+                  <span className="text-[9px] text-slate-400">Binary Segmentation</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Mở rộng khung hình (Extend / Outpaint) */}
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2">
+              <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
+                Mở rộng khung hình (Extend / Outpaint)
+              </span>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  onClick={() => onApplyAction('extend', { direction: 'all' })}
+                  disabled={isProcessingAction || !hasActiveImage}
+                  className="py-1.5 px-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-lg text-[10px] font-medium text-slate-200 transition-colors disabled:opacity-50 text-center"
+                >
+                  4 Hướng đều
+                </button>
+                <button
+                  onClick={() => onApplyAction('extend', { direction: 'horizontal' })}
+                  disabled={isProcessingAction || !hasActiveImage}
+                  className="py-1.5 px-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-lg text-[10px] font-medium text-slate-200 transition-colors disabled:opacity-50 text-center"
+                >
+                  Mở rộng ngang
+                </button>
+                <button
+                  onClick={() => onApplyAction('extend', { direction: 'vertical' })}
+                  disabled={isProcessingAction || !hasActiveImage}
+                  className="py-1.5 px-2 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-lg text-[10px] font-medium text-slate-200 transition-colors disabled:opacity-50 text-center"
+                >
+                  Mở rộng dọc
+                </button>
+              </div>
+            </div>
+
+            {/* AI Caption & Alt Text */}
+            <button
+              onClick={() => onApplyAction('caption')}
+              disabled={isProcessingAction || !hasActiveImage}
+              className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-teal-500/50 hover:bg-teal-950/20 flex items-center gap-3 transition-all text-left disabled:opacity-50 group"
+            >
+              <div className="w-8 h-8 rounded-lg bg-teal-500/10 text-teal-400 flex items-center justify-center group-hover:scale-105 transition-transform">
+                <Eye className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-200 group-hover:text-teal-300">Tạo mô tả ảnh AI (Caption)</p>
+                <p className="text-[10px] text-slate-400">Phân tích thị giác, sinh Alt-text & mô tả nội dung</p>
+              </div>
+            </button>
+
             {/* Chuyển phong cách (Style Transfer) */}
             <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2">
               <span className="text-xs font-semibold text-slate-300">Chuyển phong cách nghệ thuật</span>
               <select
                 value={selectedStyle}
                 onChange={(e) => setSelectedStyle(e.target.value)}
-                className="bg-slate-900 border border-slate-700 rounded-lg p-1 text-[11px]"
+                className="bg-slate-900 border border-slate-700 rounded-lg p-1.5 text-[11px] text-slate-200"
               >
                 <option value="anime">Anime Makoto Shinkai</option>
                 <option value="pixar">3D Animation Pixar</option>

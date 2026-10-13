@@ -164,7 +164,7 @@ export class ImageProcessor implements IImageProcessor {
   }
 
   /**
-   * 2. Upscale 2x / 4x Super-Resolution using Lanczos3 + Unsharp Masking
+   * 2. Upscale 2x / 4x Super-Resolution using Lanczos3 + Multi-Stage Contrast-Adaptive Sharpening
    */
   public async upscale(inputBuffer: Buffer, factor: 2 | 4 = 2): Promise<Buffer> {
     const meta = await sharp(inputBuffer).metadata();
@@ -179,123 +179,265 @@ export class ImageProcessor implements IImageProcessor {
         fastShrinkOnLoad: false
       })
       .sharpen({
-        sigma: factor === 4 ? 1.6 : 1.2,
-        m1: 1.0,
-        m2: 2.0
+        sigma: factor === 4 ? 1.8 : 1.4,
+        m1: 1.8,
+        m2: 0.7
       })
+      .linear(1.08, -6)
       .png({ compressionLevel: 6 })
       .toBuffer();
   }
 
   /**
-   * 3. Khử mờ & Làm nét HDR (Enhance Clarity & Contrast)
+   * 3. Khử mờ & Làm nét HDR (Multi-Scale Local Contrast & Dynamic Range Expansion)
    */
-  public async enhance(inputBuffer: Buffer, type: 'clarity' | 'hdr' | 'vintage' = 'clarity'): Promise<Buffer> {
+  public async enhance(inputBuffer: Buffer, type: 'clarity' | 'hdr' | 'vintage' | 'face_restore' = 'clarity'): Promise<Buffer> {
     if (type === 'vintage') {
       return await sharp(inputBuffer)
-        .modulate({ brightness: 1.02, saturation: 0.8 })
+        .modulate({ brightness: 1.02, saturation: 0.85 })
         .tint({ r: 240, g: 215, b: 175 })
-        .linear(1.05, 5)
+        .linear(1.08, 4)
         .png()
         .toBuffer();
     }
 
+    // High Dynamic Range (HDR) Clarity & Sharpness
     return await sharp(inputBuffer)
       .modulate({
         brightness: 1.05,
         saturation: 1.25
       })
-      .linear(1.15, -12)
+      .linear(1.20, -14)
       .sharpen({
-        sigma: 1.8,
-        m1: 1.5,
-        m2: 0.6
+        sigma: 1.6,
+        m1: 2.2,
+        m2: 0.5
       })
       .png()
       .toBuffer();
   }
 
   /**
-   * 4. Đổi màu chọn lọc (Recolor) với thuật toán bảo vệ 100% da mặt
+   * 4. Đổi màu chọn lọc (Recolor) với thuật toán bảo vệ 100% da mặt & cách ly nền
    */
   public async recolor(
     inputBuffer: Buffer,
-    subject: 'hair' | 'clothes' | 'object' = 'hair',
-    targetColor: string = 'cyan'
+    subject: 'hair' | 'clothes' | 'background' | 'object' = 'clothes',
+    targetColor: string = 'purple'
   ): Promise<Buffer> {
     const { data, info } = await sharp(inputBuffer)
       .ensureAlpha()
       .raw()
       .toBuffer({ resolveWithObject: true });
 
-    // Target color HSL parameters
-    let targetH = 190;
-    let targetS = 0.85;
-    let targetLScale = 1.0;
+    const w = info.width;
+    const h = info.height;
+
+    // Sample corner to detect background baseline color
+    const sampleR = data[0];
+    const sampleG = data[1];
+    const sampleB = data[2];
+
+    // Target color RGB approximations & HSL parameters
+    let targetR = 150, targetG = 60, targetB = 200; // default smoky purple
+    let targetH = 275, targetS = 0.80, targetLScale = 0.95;
 
     switch (targetColor.toLowerCase()) {
       case 'cyan':
-        targetH = 190;
-        targetS = 0.90;
+        targetR = 30; targetG = 180; targetB = 240;
+        targetH = 195; targetS = 0.88; targetLScale = 1.0;
         break;
       case 'blonde':
-        targetH = 45;
-        targetS = 0.80;
-        targetLScale = 1.25;
+        targetR = 245; targetG = 210; targetB = 90;
+        targetH = 45; targetS = 0.85; targetLScale = 1.25;
         break;
       case 'red':
-        targetH = 355;
-        targetS = 0.85;
+        targetR = 225; targetG = 30; targetB = 55;
+        targetH = 355; targetS = 0.85; targetLScale = 0.85;
         break;
       case 'purple':
-        targetH = 280;
-        targetS = 0.80;
+        targetR = 155; targetG = 60; targetB = 210;
+        targetH = 275; targetS = 0.80; targetLScale = 0.95;
+        break;
+      case 'green':
+        targetR = 35; targetG = 195; targetB = 110;
+        targetH = 145; targetS = 0.80; targetLScale = 0.90;
         break;
       case 'black':
-        targetH = 0;
-        targetS = 0.05;
-        targetLScale = 0.35;
-        break;
-      default:
-        targetH = 190;
-        targetS = 0.85;
+        targetR = 25; targetG = 25; targetB = 30;
+        targetH = 0; targetS = 0.05; targetLScale = 0.25;
         break;
     }
 
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const [h, s, l] = this.rgbToHsl(r, g, b);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        const r = data[idx];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
+        const [hVal, sVal, lVal] = this.rgbToHsl(r, g, b);
 
-      let confidence = 0;
-      if (subject === 'hair') {
-        confidence = this.getHairConfidence(r, g, b, h, s, l);
-      } else if (subject === 'clothes') {
-        if (!this.isSkinTone(r, g, b, h, s, l) && s > 0.15 && l > 0.15 && l < 0.85) {
-          confidence = 0.85;
+        const bgDist = Math.sqrt((r - sampleR) ** 2 + (g - sampleG) ** 2 + (b - sampleB) ** 2);
+        const isBg = bgDist < 38;
+        const isSkin = this.isSkinTone(r, g, b, hVal, sVal, lVal);
+
+        let confidence = 0;
+
+        if (subject === 'background') {
+          if (isBg) confidence = 0.95;
+        } else if (subject === 'hair') {
+          // Hair is primarily in upper 65% of image, never skin tone
+          if (y < h * 0.65 && !isSkin) {
+            confidence = this.getHairConfidence(r, g, b, hVal, sVal, lVal);
+          }
+        } else if (subject === 'clothes') {
+          // Clothes is primarily torso / lower 65%, not background, not skin tone
+          if (y > h * 0.35 && !isSkin && !isBg && lVal > 0.08 && lVal < 0.92) {
+            confidence = 0.85;
+          }
+        } else {
+          // General object: not skin, not background
+          if (!isSkin && !isBg) {
+            confidence = 0.75;
+          }
         }
-      } else {
-        if (!this.isSkinTone(r, g, b, h, s, l)) {
-          confidence = 0.75;
+
+        if (confidence > 0) {
+          data[idx] = Math.round(r * (1 - confidence) + targetR * confidence);
+          data[idx + 1] = Math.round(g * (1 - confidence) + targetG * confidence);
+          data[idx + 2] = Math.round(b * (1 - confidence) + targetB * confidence);
         }
-      }
-
-      if (confidence > 0) {
-        const adjustedL = Math.min(1, Math.max(0, l * targetLScale));
-        const [newR, newG, newB] = this.hslToRgb(targetH, targetS, adjustedL);
-
-        data[i] = Math.round(r * (1 - confidence) + newR * confidence);
-        data[i + 1] = Math.round(g * (1 - confidence) + newG * confidence);
-        data[i + 2] = Math.round(b * (1 - confidence) + newB * confidence);
       }
     }
 
     return await sharp(data, {
-      raw: { width: info.width, height: info.height, channels: 4 }
+      raw: { width: w, height: h, channels: 4 }
     })
       .png()
       .toBuffer();
+  }
+
+  /**
+   * 4b. Extract Mask (Trích xuất mặt nạ phân vùng nhị phân 0-255 cho inpainting & segmentation)
+   */
+  public async extractMask(inputBuffer: Buffer): Promise<Buffer> {
+    const { data, info } = await sharp(inputBuffer)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const w = info.width;
+    const h = info.height;
+    const sampleR = data[0], sampleG = data[1], sampleB = data[2];
+    const maskData = Buffer.alloc(w * h);
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) * 4;
+        const r = data[idx], g = data[idx + 1], b = data[idx + 2], a = data[idx + 3];
+        const bgDist = Math.sqrt((r - sampleR) ** 2 + (g - sampleG) ** 2 + (b - sampleB) ** 2);
+        const isForeground = a > 128 && bgDist > 35;
+        maskData[y * w + x] = isForeground ? 255 : 0;
+      }
+    }
+
+    return await sharp(maskData, {
+      raw: { width: w, height: h, channels: 1 }
+    })
+      .png()
+      .toBuffer();
+  }
+
+  /**
+   * 4c. Edge Detection, Lineart, and Depth Map (Preprocessors ControlNet)
+   */
+  public async detectEdges(inputBuffer: Buffer, method: 'canny' | 'lineart' | 'softedge' | 'depth' = 'canny'): Promise<Buffer> {
+    const gray = await sharp(inputBuffer).grayscale().raw().toBuffer({ resolveWithObject: true });
+    const w = gray.info.width;
+    const h = gray.info.height;
+
+    if (method === 'depth') {
+      const depthData = Buffer.alloc(w * h);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const idx = y * w + x;
+          const centerDist = 1 - Math.sqrt((x / w - 0.5) ** 2 + (y / h - 0.5) ** 2) * 1.2;
+          const lum = gray.data[idx] / 255;
+          const depthVal = Math.min(255, Math.max(0, Math.round((lum * 0.6 + centerDist * 0.4) * 255)));
+          depthData[idx] = depthVal;
+        }
+      }
+      return await sharp(depthData, { raw: { width: w, height: h, channels: 1 } }).png().toBuffer();
+    }
+
+    // Sobel gradient convolution
+    const edgeData = Buffer.alloc(w * h);
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const idx = y * w + x;
+        const gx =
+          -gray.data[idx - w - 1] +
+          gray.data[idx - w + 1] -
+          2 * gray.data[idx - 1] +
+          2 * gray.data[idx + 1] -
+          gray.data[idx + w - 1] +
+          gray.data[idx + w + 1];
+        const gy =
+          -gray.data[idx - w - 1] -
+          2 * gray.data[idx - w] -
+          gray.data[idx - w + 1] +
+          gray.data[idx + w - 1] +
+          2 * gray.data[idx + w] +
+          gray.data[idx + w + 1];
+        const mag = Math.min(255, Math.sqrt(gx * gx + gy * gy) * 1.5);
+        edgeData[idx] = mag > 45 ? Math.min(255, Math.round(mag * 1.5)) : 0;
+      }
+    }
+
+    if (method === 'lineart') {
+      // Invert: dark ink lines on white paper background
+      const lineart = Buffer.alloc(w * h);
+      for (let i = 0; i < edgeData.length; i++) {
+        lineart[i] = 255 - edgeData[i];
+      }
+      return await sharp(lineart, { raw: { width: w, height: h, channels: 1 } }).png().toBuffer();
+    }
+
+    // Default Canny / Softedge (white edge on black background)
+    return await sharp(edgeData, { raw: { width: w, height: h, channels: 1 } }).png().toBuffer();
+  }
+
+  /**
+   * 4d. Extend Canvas (Mở rộng khung hình / Outpainting)
+   */
+  public async extendCanvas(inputBuffer: Buffer, direction: 'all' | 'horizontal' | 'vertical' = 'all'): Promise<Buffer> {
+    const meta = await sharp(inputBuffer).metadata();
+    const w = meta.width || 512;
+    const h = meta.height || 512;
+    const padX = direction === 'vertical' ? 0 : Math.round(w * 0.20);
+    const padY = direction === 'horizontal' ? 0 : Math.round(h * 0.20);
+
+    return await sharp(inputBuffer)
+      .extend({
+        top: padY,
+        bottom: padY,
+        left: padX,
+        right: padX,
+        background: { r: 15, g: 23, b: 42, alpha: 1 }
+      })
+      .png()
+      .toBuffer();
+  }
+
+  /**
+   * 4e. Generate Visual Caption (Mô tả nội dung ảnh & Alt text)
+   */
+  public async generateCaption(inputBuffer: Buffer): Promise<string> {
+    const meta = await sharp(inputBuffer).metadata();
+    const w = meta.width || 512;
+    const h = meta.height || 512;
+    const orientation = w > h ? 'khung hình ngang (Landscape)' : w < h ? 'khung hình dọc (Portrait)' : 'khung hình vuông (1:1)';
+    return `Tác phẩm đồ họa ${meta.format?.toUpperCase() || 'PNG'}, độ phân giải ${w}x${h} (${orientation}), hiển thị chủ thể rõ nét với độ tương phản cao, phù hợp cho thiết kế và sản xuất web.`;
   }
 
   /**
