@@ -136,7 +136,10 @@ export class ComfyUIAdapter implements IAIProvider {
       });
       if (res.ok) {
         const data = (await res.json()) as any;
-        const models = data?.UpscaleModelLoader?.input?.required?.model_name?.[0];
+        const modelInput = data?.UpscaleModelLoader?.input?.required?.model_name;
+        const models = Array.isArray(modelInput?.[0])
+          ? modelInput[0]
+          : modelInput?.[1]?.options;
         if (Array.isArray(models) && models.length > 0) {
           const preferred = models.find((m: string) => /ultrasharp|realesrgan|esrgan|bsrgan|remacri/i.test(m));
           return preferred || models[0];
@@ -156,6 +159,10 @@ export class ComfyUIAdapter implements IAIProvider {
       });
       if (res.ok) {
         const data = (await res.json()) as any;
+        const nativeModels = data?.LoadBackgroundRemovalModel?.input?.required?.bg_removal_name?.[1]?.options;
+        if (data?.RemoveBackground && Array.isArray(nativeModels) && nativeModels.length > 0) {
+          return 'RemoveBackground';
+        }
         if (data?.ImageRemBg) return 'ImageRemBg';
         if (data?.BRNet) return 'BRNet';
         if (data?.BiRefNet) return 'BiRefNet';
@@ -176,7 +183,7 @@ export class ComfyUIAdapter implements IAIProvider {
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-        metrics: { model: 'BiRefNet (Native Zero-Dependency Mode)', latencyMs: 40, costUsd: 0 }
+        metrics: { model: 'Native background removal (corner-color)', latencyMs: 40, costUsd: 0 }
       };
     }
 
@@ -185,16 +192,40 @@ export class ComfyUIAdapter implements IAIProvider {
       const buf = this.getBufferFromInput(imageInput);
 
       if (!rmbgClass) {
-        // Fall back to ImageProcessor native RMBG/BiRefNet
+        // Fall back to local color-based segmentation when no RMBG node is installed.
         const outBuf = await ImageProcessor.getInstance().removeBackground(buf);
         return {
           success: true,
           outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-          metrics: { model: 'BiRefNet (Native High-Precision)', latencyMs: 45, costUsd: 0 }
+          metrics: { model: 'Native background removal (corner-color)', latencyMs: 45, costUsd: 0 }
         };
       }
 
       const upload = await this.uploadImage(buf);
+      if (rmbgClass === 'RemoveBackground') {
+        const modelInfo = await fetch(`${this.baseUrl}/object_info/LoadBackgroundRemovalModel`);
+        if (!modelInfo.ok) throw new Error('Cannot query background removal models');
+        const modelData = (await modelInfo.json()) as any;
+        const models = modelData?.LoadBackgroundRemovalModel?.input?.required?.bg_removal_name?.[1]?.options;
+        const modelName = models?.find((name: string) => /birefnet/i.test(name)) || models?.[0];
+        if (!modelName) throw new Error('No background removal model installed');
+
+        const workflow = {
+          "1": { "inputs": { "image": upload.name, "upload": "image" }, "class_type": "LoadImage" },
+          "2": { "inputs": { "bg_removal_name": modelName }, "class_type": "LoadBackgroundRemovalModel" },
+          "3": { "inputs": { "bg_removal_model": ["2", 0], "image": ["1", 0] }, "class_type": "RemoveBackground" },
+          "4": { "inputs": { "mask": ["3", 0] }, "class_type": "InvertMask" },
+          "5": { "inputs": { "image": ["1", 0], "alpha": ["4", 0] }, "class_type": "JoinImageWithAlpha" },
+          "6": { "inputs": { "filename_prefix": "PixelPilot_Cutout", "images": ["5", 0] }, "class_type": "SaveImage" }
+        };
+        const { outputImages } = await this.executeWorkflow(workflow, 120000);
+        return {
+          success: true,
+          outputImageUri: `data:image/png;base64,${outputImages[0].toString('base64')}`,
+          metrics: { model: `ComfyUI ${modelName} GPU`, latencyMs: 0, costUsd: 0 }
+        };
+      }
+
       const workflow = {
         "1": {
           "inputs": { "image": upload.name, "upload": "image" },
@@ -222,7 +253,7 @@ export class ComfyUIAdapter implements IAIProvider {
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-        metrics: { model: 'BiRefNet Precision Fallback', latencyMs: 45, costUsd: 0 }
+        metrics: { model: 'Native background removal (corner-color)', latencyMs: 45, costUsd: 0 }
       };
     }
   }
@@ -247,7 +278,7 @@ export class ComfyUIAdapter implements IAIProvider {
       const upload = await this.uploadImage(buf);
       const availableModel = (await this.getAvailableUpscaleModel()) || '4x-UltraSharp.pth';
 
-      const workflow = {
+      const workflow: Record<string, any> = {
         "1": {
           "inputs": { "image": upload.name, "upload": "image" },
           "class_type": "LoadImage"
@@ -261,10 +292,16 @@ export class ComfyUIAdapter implements IAIProvider {
           "class_type": "ImageUpscaleWithModel"
         },
         "4": {
-          "inputs": { "filename_prefix": `PixelPilot_Upscale_${factor}x`, "images": ["3", 0] },
+          "inputs": { "filename_prefix": `PixelPilot_Upscale_${factor}x`, "images": [factor === 2 ? "5" : "3", 0] },
           "class_type": "SaveImage"
         }
       };
+      if (factor === 2) {
+        workflow["5"] = {
+          "inputs": { "image": ["3", 0], "upscale_method": "lanczos", "scale_by": 0.5 },
+          "class_type": "ImageScaleBy"
+        };
+      }
 
       const { outputImages } = await this.executeWorkflow(workflow);
       return {

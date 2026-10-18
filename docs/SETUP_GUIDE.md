@@ -77,7 +77,7 @@ Pixel Pilot hỗ trợ kết nối trực tiếp với 2 hệ thống AI mã ngu
 
 ---
 
-### 🟢 LỰA CHỌN A: COMFYUI LOCAL GPU (PORT 8188)
+### 🟢 COMFYUI LOCAL GPU (PORT 8188)
 *Khuyên dùng: Phục vụ toàn bộ 10 công cụ chỉnh sửa AI (Tách nền BiRefNet, Phóng to 4x, Dò biên Canny, Lineart, Inpaint...).*
 
 #### Cách 1: Cài đặt tự động bằng 1 cú nhấp chuột (Khuyên dùng)
@@ -104,7 +104,7 @@ Script sẽ tự động:
 
 ---
 
-### 🔵 LỰA CHỌN B: INVOKEAI LOCAL (PORT 9090)
+### 🔵  INVOKEAI LOCAL (PORT 9090)
 *Phục vụ tính năng: Sinh ảnh nghệ thuật từ văn bản (Text-to-Image).*
 
 1. Cài đặt InvokeAI theo hướng dẫn chính thức tại: [invoke-ai.github.io](https://invoke-ai.github.io/InvokeAI/).
