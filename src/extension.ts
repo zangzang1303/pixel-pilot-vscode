@@ -24,7 +24,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // 2. Open Canvas Studio Panel (React + Tailwind + InvokeAI)
   const openStudioHandler = (uri?: vscode.Uri) => {
-    StudioPanel.createOrShow(context.extensionUri, uri);
+    StudioPanel.createOrShow(context.extensionUri, provider, uri);
   };
   context.subscriptions.push(
     vscode.commands.registerCommand('pixel-pilot.openStudio', openStudioHandler),

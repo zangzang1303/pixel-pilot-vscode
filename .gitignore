@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.pixelpilot_runtime/
 
 # Compilation Output
 out/

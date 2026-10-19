@@ -7,12 +7,23 @@ import {
 } from './components/SettingsSidebar';
 import { PromptInput } from './components/PromptInput';
 import { Canvas } from './components/Canvas';
+import { CopilotChat } from './components/CopilotChat';
 import { vscode } from './utils/vscode';
 
 interface ChatMessage {
+  id?: string;
   role: 'user' | 'assistant';
   text: string;
   thought?: string;
+  operation?: string;
+  suggestions?: Array<{ label: string; reason: string }>;
+}
+
+interface ChatSessionSummary {
+  sessionId: string;
+  title: string;
+  updatedAt: number;
+  messageCount: number;
 }
 
 export const App: React.FC = () => {
@@ -21,6 +32,7 @@ export const App: React.FC = () => {
 
   // Connection state
   const [isOnline, setIsOnline] = useState<boolean>(false);
+  const [comfyOnline, setComfyOnline] = useState<boolean>(false);
   const [serverUrl, setServerUrl] = useState<string>('http://127.0.0.1:9090');
 
   // Models state
@@ -61,6 +73,8 @@ export const App: React.FC = () => {
   // Copilot Chat State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatThinking, setIsChatThinking] = useState<boolean>(false);
+  const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string>('');
 
   // Cloud AI Key status
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
@@ -77,6 +91,7 @@ export const App: React.FC = () => {
       switch (cmd) {
         case 'pingResult':
           setIsOnline(message.isOnline);
+          setComfyOnline(Boolean(message.comfyOnline));
           if (message.serverUrl) setServerUrl(message.serverUrl);
           break;
 
@@ -88,9 +103,7 @@ export const App: React.FC = () => {
         case 'modelsLoaded':
           if (Array.isArray(message.models)) {
             setModels(message.models);
-            if (message.models.length > 0 && !selectedModel) {
-              setSelectedModel(message.models[0].key);
-            }
+            if (message.models.length > 0) setSelectedModel((previous) => previous || message.models[0].key);
           }
           break;
 
@@ -183,6 +196,23 @@ export const App: React.FC = () => {
             setCurrentImageUrl(message.updatedImage);
           }
           break;
+
+        case 'sessionUpdated': {
+          setSessions(Array.isArray(message.sessionsList) ? message.sessionsList : []);
+          setActiveSessionId(message.session?.sessionId || '');
+          const history = Array.isArray(message.session?.messages) ? message.session.messages : [];
+          setChatMessages(history.filter((item: any) => item.sender === 'user' || item.sender === 'assistant').map((item: any) => ({
+            id: item.id,
+            role: item.sender,
+            text: item.text,
+            operation: item.operation,
+            suggestions: item.suggestions
+          })));
+          setIsChatThinking(history.length > 0 && history[history.length - 1]?.sender === 'user');
+          setCurrentImageUrl(message.currentImage || null);
+          setSavedPath(message.currentImage ? message.session?.title : undefined);
+          break;
+        }
       }
     };
 
@@ -192,11 +222,12 @@ export const App: React.FC = () => {
     vscode.postMessage({ command: 'ping' });
     vscode.postMessage({ command: 'getModels' });
     vscode.postMessage({ command: 'getApiKeyStatus' });
+    vscode.postMessage({ command: 'webviewReady' });
 
     return () => {
       window.removeEventListener('message', handleMessage);
     };
-  }, [selectedModel]);
+  }, []);
 
   // Trigger Text-to-Image Generation
   const handleGenerate = () => {
@@ -266,7 +297,6 @@ export const App: React.FC = () => {
 
   // Send Copilot Chat Message
   const handleSendMessage = (text: string) => {
-    setChatMessages((prev) => [...prev, { role: 'user', text }]);
     setIsChatThinking(true);
 
     vscode.postMessage({
@@ -295,11 +325,27 @@ export const App: React.FC = () => {
     }
   };
 
+  const canvasView = (
+    <Canvas
+      imageUrl={currentImageUrl}
+      isGenerating={isGenerating || isProcessingAction}
+      progressStatus={isProcessingAction ? processingLabel : progressStatus}
+      progressPercentage={progressPercentage}
+      savedPath={savedPath}
+      onInsertSnippet={handleInsertSnippet}
+      snippetInserted={snippetInserted}
+      onOpenImage={handleOpenImage}
+      onSaveImage={handleSaveImage}
+      onApplyAction={handleApplyAction}
+    />
+  );
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100">
       {/* Settings & Tools Sidebar with Tabs */}
       <SettingsSidebar
         isOnline={isOnline}
+        comfyOnline={comfyOnline}
         serverUrl={serverUrl}
         models={models}
         selectedModel={selectedModel}
@@ -319,28 +365,24 @@ export const App: React.FC = () => {
         isProcessingAction={isProcessingAction}
         processingLabel={processingLabel}
         onOpenImage={handleOpenImage}
-        chatMessages={chatMessages}
-        onSendMessage={handleSendMessage}
-        isChatThinking={isChatThinking}
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onNewSession={() => vscode.postMessage({ command: 'newSession' })}
+        onSwitchSession={(sessionId) => vscode.postMessage({ command: 'switchSession', sessionId })}
+        onRenameSession={(sessionId, title) => vscode.postMessage({ command: 'renameSession', sessionId, title })}
+        onDeleteSession={(sessionId) => vscode.postMessage({ command: 'deleteSession', sessionId })}
         hasApiKey={hasApiKey}
         apiKeyMasked={apiKeyMasked}
       />
 
       {/* Main Studio Canvas Area */}
       <main className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Canvas Display Viewport */}
-        <Canvas
-          imageUrl={currentImageUrl}
-          isGenerating={isGenerating || isProcessingAction}
-          progressStatus={isProcessingAction ? processingLabel : progressStatus}
-          progressPercentage={progressPercentage}
-          savedPath={savedPath}
-          onInsertSnippet={handleInsertSnippet}
-          snippetInserted={snippetInserted}
-          onOpenImage={handleOpenImage}
-          onSaveImage={handleSaveImage}
-          onApplyAction={handleApplyAction}
-        />
+        {activeTab === 'chat' ? (
+          <div className="flex h-full min-w-0">
+            <CopilotChat messages={chatMessages} isThinking={isChatThinking} hasImage={Boolean(currentImageUrl)} onSend={handleSendMessage} onOpenImage={handleOpenImage} />
+            {currentImageUrl && <div className="hidden w-[45%] min-w-0 border-l border-slate-800 lg:flex">{canvasView}</div>}
+          </div>
+        ) : canvasView}
 
         {/* Bottom Prompt Bar (available in Generation and Edit mode) */}
         {activeTab !== 'chat' && (

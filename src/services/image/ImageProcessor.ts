@@ -1,5 +1,8 @@
 // ImageProcessor.ts - High-performance local image processing & editing using Sharp
 import sharp from 'sharp';
+import fs from 'fs';
+import path from 'path';
+import { spawn } from 'child_process';
 import { IImageProcessor, ImageProcessingOptions, ImageMetadata } from './IImageProcessor';
 
 export class ImageProcessor implements IImageProcessor {
@@ -192,6 +195,12 @@ export class ImageProcessor implements IImageProcessor {
    * 3. Khử mờ & Làm nét HDR (Multi-Scale Local Contrast & Dynamic Range Expansion)
    */
   public async enhance(inputBuffer: Buffer, type: 'clarity' | 'hdr' | 'vintage' | 'face_restore' = 'clarity'): Promise<Buffer> {
+    if (type === 'hdr') {
+      return await sharp(inputBuffer)
+        .linear(1.08, 10)
+        .png()
+        .toBuffer();
+    }
     if (type === 'vintage') {
       return await sharp(inputBuffer)
         .modulate({ brightness: 1.02, saturation: 0.85 })
@@ -217,9 +226,7 @@ export class ImageProcessor implements IImageProcessor {
       .toBuffer();
   }
 
-  /**
-   * 4. Đổi màu chọn lọc (Recolor) với thuật toán bảo vệ 100% da mặt & cách ly nền
-   */
+  /** Recolor only pixels selected by the local semantic segmentation model. */
   public async recolor(
     inputBuffer: Buffer,
     subject: 'hair' | 'clothes' | 'background' | 'object' = 'clothes',
@@ -233,38 +240,37 @@ export class ImageProcessor implements IImageProcessor {
     const w = info.width;
     const h = info.height;
 
-    // Sample corner to detect background baseline color
-    const sampleR = data[0];
-    const sampleG = data[1];
-    const sampleB = data[2];
+    const maskBuffer = await this.getRecolorMask(inputBuffer, subject);
+    const mask = await sharp(maskBuffer).raw().toBuffer({ resolveWithObject: true });
+    if (mask.info.width !== w || mask.info.height !== h) throw new Error('Mặt nạ đổi màu không khớp kích thước ảnh.');
+    const { ComfyUIAdapter } = await import('../ai/ComfyUIAdapter');
+    const cutout = await new ComfyUIAdapter().removeBackground(`data:image/png;base64,${inputBuffer.toString('base64')}`);
+    if (!cutout.success || !cutout.outputImageUri || !cutout.metrics.model.startsWith('ComfyUI')) {
+      throw new Error('Cần ComfyUI và BiRefNet để giữ da và cách ly nền khi đổi màu.');
+    }
+    const foreground = await sharp(Buffer.from(cutout.outputImageUri.split(',')[1], 'base64'))
+      .resize(w, h, { fit: 'fill' }).extractChannel('alpha').raw().toBuffer({ resolveWithObject: true });
 
     // Target color RGB approximations & HSL parameters
-    let targetR = 150, targetG = 60, targetB = 200; // default smoky purple
     let targetH = 275, targetS = 0.80, targetLScale = 0.95;
 
     switch (targetColor.toLowerCase()) {
       case 'cyan':
-        targetR = 30; targetG = 180; targetB = 240;
         targetH = 195; targetS = 0.88; targetLScale = 1.0;
         break;
       case 'blonde':
-        targetR = 245; targetG = 210; targetB = 90;
         targetH = 45; targetS = 0.85; targetLScale = 1.25;
         break;
       case 'red':
-        targetR = 225; targetG = 30; targetB = 55;
         targetH = 355; targetS = 0.85; targetLScale = 0.85;
         break;
       case 'purple':
-        targetR = 155; targetG = 60; targetB = 210;
         targetH = 275; targetS = 0.80; targetLScale = 0.95;
         break;
       case 'green':
-        targetR = 35; targetG = 195; targetB = 110;
         targetH = 145; targetS = 0.80; targetLScale = 0.90;
         break;
       case 'black':
-        targetR = 25; targetG = 25; targetB = 30;
         targetH = 0; targetS = 0.05; targetLScale = 0.25;
         break;
     }
@@ -275,37 +281,19 @@ export class ImageProcessor implements IImageProcessor {
         const r = data[idx];
         const g = data[idx + 1];
         const b = data[idx + 2];
-        const [hVal, sVal, lVal] = this.rgbToHsl(r, g, b);
-
-        const bgDist = Math.sqrt((r - sampleR) ** 2 + (g - sampleG) ** 2 + (b - sampleB) ** 2);
-        const isBg = bgDist < 38;
-        const isSkin = this.isSkinTone(r, g, b, hVal, sVal, lVal);
-
-        let confidence = 0;
-
-        if (subject === 'background') {
-          if (isBg) confidence = 0.95;
-        } else if (subject === 'hair') {
-          // Hair is primarily in upper 65% of image, never skin tone
-          if (y < h * 0.65 && !isSkin) {
-            confidence = this.getHairConfidence(r, g, b, hVal, sVal, lVal);
-          }
-        } else if (subject === 'clothes') {
-          // Clothes is primarily torso / lower 65%, not background, not skin tone
-          if (y > h * 0.35 && !isSkin && !isBg && lVal > 0.08 && lVal < 0.92) {
-            confidence = 0.85;
-          }
-        } else {
-          // General object: not skin, not background
-          if (!isSkin && !isBg) {
-            confidence = 0.75;
-          }
-        }
-
-        if (confidence > 0) {
-          data[idx] = Math.round(r * (1 - confidence) + targetR * confidence);
-          data[idx + 1] = Math.round(g * (1 - confidence) + targetG * confidence);
-          data[idx + 2] = Math.round(b * (1 - confidence) + targetB * confidence);
+        const foregroundAlpha = foreground.data[y * w + x] / 255;
+        const maskIndex = (y * w + x) * mask.info.channels;
+        const probability = subject === 'background' ? 1 - foregroundAlpha : mask.data[maskIndex] / 255;
+        const region = subject === 'background' ? 1 : foregroundAlpha;
+        const skinProtection = subject === 'hair' ? mask.data[maskIndex + 1] / 255 : 0;
+        const strength = Math.max(0, Math.min(0.94, (probability - 0.38) / 0.50)) * region * (1 - skinProtection);
+        if (strength > 0) {
+          const [, , lightness] = this.rgbToHsl(r, g, b);
+          const targetLightness = Math.max(0.04, Math.min(0.94, lightness * targetLScale));
+          const [newR, newG, newB] = this.hslToRgb(targetH, targetS, targetLightness);
+          data[idx] = Math.round(r * (1 - strength) + newR * strength);
+          data[idx + 1] = Math.round(g * (1 - strength) + newG * strength);
+          data[idx + 2] = Math.round(b * (1 - strength) + newB * strength);
         }
       }
     }
@@ -315,6 +303,31 @@ export class ImageProcessor implements IImageProcessor {
     })
       .png()
       .toBuffer();
+  }
+
+  private async getRecolorMask(inputBuffer: Buffer, subject: 'hair' | 'clothes' | 'background' | 'object'): Promise<Buffer> {
+    const root = path.resolve(__dirname, '../../..');
+    const runtimeDir = path.join(root, '.pixelpilot_runtime');
+    const script = path.join(root, 'scripts', 'recolor_mask.py');
+    const python = process.env.PIXEL_PILOT_PYTHON || 'D:\\ComfyUI_windows_portable\\python_embeded\\python.exe';
+    if (!fs.existsSync(python) || !fs.existsSync(script) || !fs.existsSync(path.join(runtimeDir, 'selfie_multiclass.onnx'))) {
+      throw new Error('Thiếu mô hình đổi màu chọn lọc. Chạy scripts/setup_recolor.ps1 trong thư mục dự án.');
+    }
+    return await new Promise<Buffer>((resolve, reject) => {
+      const child = spawn(python, [script, subject], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      const output: Buffer[] = [];
+      const errors: Buffer[] = [];
+      const timeout = setTimeout(() => child.kill(), 120000);
+      child.stdout.on('data', chunk => output.push(Buffer.from(chunk)));
+      child.stderr.on('data', chunk => errors.push(Buffer.from(chunk)));
+      child.on('error', error => { clearTimeout(timeout); reject(error); });
+      child.on('close', code => {
+        clearTimeout(timeout);
+        if (code !== 0) reject(new Error(`Không tạo được mặt nạ đổi màu: ${Buffer.concat(errors).toString('utf8').slice(-500)}`));
+        else resolve(Buffer.concat(output));
+      });
+      child.stdin.end(inputBuffer);
+    });
   }
 
   /**

@@ -8,9 +8,9 @@ import { CodeGenService } from '../services/ai/CodeGenService';
 import { OCRService } from '../services/ai/OCRService';
 import { ImageProcessor } from '../services/image/ImageProcessor';
 import { SecretManager } from '../services/security/SecretManager';
-import { VisionAgentOrchestrator } from '../services/ai/VisionAgentOrchestrator';
 import { RunwareAdapter } from '../services/ai/RunwareAdapter';
 import { ComfyUIAdapter } from '../services/ai/ComfyUIAdapter';
+import { PixelPilotViewProvider } from '../providers/PixelPilotViewProvider';
 
 /**
  * Manages the AI Image Studio Webview panel.
@@ -22,9 +22,10 @@ export class StudioPanel {
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: vscode.Uri;
   private readonly _invokeApi: InvokeApiService;
+  private readonly _copilot: PixelPilotViewProvider;
   private _disposables: vscode.Disposable[] = [];
 
-  public static createOrShow(extensionUri: vscode.Uri, initialImageUri?: vscode.Uri) {
+  public static createOrShow(extensionUri: vscode.Uri, copilot: PixelPilotViewProvider, initialImageUri?: vscode.Uri) {
     const column = vscode.window.activeTextEditor
       ? vscode.window.activeTextEditor.viewColumn
       : undefined;
@@ -55,21 +56,23 @@ export class StudioPanel {
       }
     );
 
-    StudioPanel.currentPanel = new StudioPanel(panel, extensionUri);
+    StudioPanel.currentPanel = new StudioPanel(panel, extensionUri, copilot);
 
     if (initialImageUri) {
       StudioPanel.currentPanel.sendInitialImage(initialImageUri);
     }
   }
 
-  public static revive(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
-    StudioPanel.currentPanel = new StudioPanel(panel, extensionUri);
+  public static revive(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, copilot: PixelPilotViewProvider) {
+    StudioPanel.currentPanel = new StudioPanel(panel, extensionUri, copilot);
   }
 
-  private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
+  private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, copilot: PixelPilotViewProvider) {
     this._panel = panel;
     this._extensionUri = extensionUri;
     this._invokeApi = new InvokeApiService();
+    this._copilot = copilot;
+    this._disposables.push(copilot.onDidUpdateSession(update => this.sendMessage(update)));
 
     // Set panel icon
     this._panel.iconPath = {
@@ -143,6 +146,9 @@ export class StudioPanel {
       const ext = path.extname(imageUri.fsPath).replace('.', '').toLowerCase();
       const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
       const dataUrl = `data:${mime};base64,${base64}`;
+
+      const cachedPath = await this._copilot.getAssetStorage().saveToCache(dataUrl);
+      await this._copilot.handleStudioMessage({ command: 'imageLoaded', imageUri: cachedPath, fileName: path.basename(imageUri.fsPath) });
 
       this.sendMessage({
         command: 'setImage',
@@ -631,29 +637,17 @@ export class StudioPanel {
         break;
       }
 
-      case 'chatMessage': {
-        const { text, currentImage } = message;
-        try {
-          const llmApiKey = await SecretManager.getInstance().getLlmApiKey();
-          const llmProvider = await SecretManager.getInstance().getLlmProvider();
+      case 'chatMessage':
+      case 'newSession':
+      case 'switchSession':
+      case 'renameSession':
+      case 'deleteSession': {
+        await this._copilot.handleStudioMessage(message);
+        break;
+      }
 
-          const decision = await VisionAgentOrchestrator.decideTool(
-            text,
-            { currentImageUri: currentImage },
-            { apiKey: llmApiKey, provider: llmProvider }
-          );
-
-          this.sendMessage({
-            command: 'chatReply',
-            text: decision.replyText || decision.thought || 'Tôi đã tiếp nhận yêu cầu của bạn.',
-            thought: decision.thought
-          });
-        } catch (err: any) {
-          this.sendMessage({
-            command: 'chatReply',
-            text: `Tôi có thể hỗ trợ bạn tách nền, phóng to, đổi màu hoặc phân tích ảnh. (Gợi ý: Thử "Tách nền ảnh này" hoặc "Phóng to 2x")`
-          });
-        }
+      case 'webviewReady': {
+        this._copilot.publishSessionState();
         break;
       }
 

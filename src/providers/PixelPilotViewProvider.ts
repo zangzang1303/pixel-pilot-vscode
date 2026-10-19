@@ -16,6 +16,8 @@ import { CodeGenService } from '../services/ai/CodeGenService';
 import { OCRService } from '../services/ai/OCRService';
 import { FileSystemUtils } from '../utils/fileSystem';
 import { ComfyUIAdapter } from '../services/ai/ComfyUIAdapter';
+import { LocalChatService } from '../services/ai/LocalChatService';
+import { ImageAnalysisService } from '../services/ai/ImageAnalysisService';
 
 export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'pixelPilot.sidebarView';
@@ -28,11 +30,13 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   private invokeApi: InvokeApiService;
   private context: vscode.ExtensionContext;
   private uriToPathMap: Map<string, string> = new Map();
+  private readonly sessionStateEmitter = new vscode.EventEmitter<any>();
+  public readonly onDidUpdateSession = this.sessionStateEmitter.event;
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    this.sessionManager = new SessionManager(workspaceRoot || context.globalStorageUri.fsPath);
+    this.sessionManager = new SessionManager(context.globalStorageUri.fsPath);
     this.secretManager = new SecretManager(context);
     this.assetStorage = new AssetStorageService(context);
     this.configManager = new EnterpriseConfigManager(workspaceRoot);
@@ -49,6 +53,15 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   public getSecretManager(): SecretManager { return this.secretManager; }
   public getAssetStorage(): AssetStorageService { return this.assetStorage; }
   public getConfigManager(): EnterpriseConfigManager { return this.configManager; }
+
+  /** The Studio panel and sidebar share one conversation, image history, and tool dispatcher. */
+  public async handleStudioMessage(message: any): Promise<void> {
+    await this.handleMessage(message);
+  }
+
+  public publishSessionState(): void {
+    this.broadcastSessionState();
+  }
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -84,10 +97,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     const cmd = message.command || message.type;
     switch (cmd) {
       case 'ping': {
-        const isOnline = await this.invokeApi.ping();
+        const [isOnline, comfyOnline] = await Promise.all([this.invokeApi.ping(), new ComfyUIAdapter().ping()]);
         this.postToWebview({
           command: 'pingResult',
           isOnline,
+          comfyOnline,
           serverUrl: this.invokeApi.getServerUrl()
         });
 
@@ -140,30 +154,39 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
         try {
           this.postToWebview({ command: 'generationStarted' });
-          const result = await this.invokeApi.generateTextToImage(
-            prompt,
-            model || 'Dreamshaper 8',
-            options || {},
-            (statusText, percentage) => {
-              this.postToWebview({
-                command: 'generationProgress',
-                status: statusText,
-                percentage
-              });
-            }
-          );
+          let imageBuffer: Buffer;
+          let dataUrl: string;
+          let imageName: string;
+          if (await this.invokeApi.ping()) {
+            const result = await this.invokeApi.generateTextToImage(
+              prompt, model || 'Dreamshaper 8', options || {},
+              (statusText, percentage) => this.postToWebview({ command: 'generationProgress', status: statusText, percentage })
+            );
+            imageBuffer = result.imageBuffer;
+            dataUrl = result.dataUrl;
+            imageName = result.imageName;
+          } else {
+            this.postToWebview({ command: 'generationProgress', status: 'Đang tạo ảnh bằng ComfyUI GPU...', percentage: 35 });
+            const result = await new ComfyUIAdapter().generateImage(prompt, options?.negativePrompt, options?.width, options?.height);
+            dataUrl = result.outputImageUri!;
+            imageBuffer = Buffer.from(dataUrl.split(',')[1], 'base64');
+            imageName = 'PixelPilot_ComfyUI.png';
+          }
 
           const savedResult = await FileSystemUtils.saveImageToWorkspace(
-            result.imageBuffer,
+            imageBuffer,
             `pixel_pilot_${Date.now()}.png`
           );
+          const cachedPath = await this.assetStorage.saveToCache(imageBuffer, 'png');
+          this.sessionManager.createSession(cachedPath, prompt.slice(0, 48));
+          this.broadcastSessionState();
 
           await FileSystemUtils.autoInsertImageSnippet(savedResult.relativePath, prompt.substring(0, 30));
 
           this.postToWebview({
             command: 'generationComplete',
-            dataUrl: result.dataUrl,
-            imageName: result.imageName,
+            dataUrl,
+            imageName,
             savedPath: savedResult.relativePath,
             snippetInserted: true
           });
@@ -349,7 +372,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             });
             vscode.window.showInformationMessage(`✨ Khử mờ & Làm nét HDR thành công: ${savedResult.relativePath}`);
           } else if (action === 'mask') {
-            const outBuf = await imageProc.extractMask(buffer);
+            const maskResult = await new ComfyUIAdapter().extractMask(dataUrl);
+            const outBuf = maskResult.outputImageUri
+              ? Buffer.from(maskResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+              : await imageProc.extractMask(buffer);
             const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_mask_${Date.now()}.png`);
             this.postToWebview({
               command: 'actionComplete',
@@ -358,7 +384,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             });
             vscode.window.showInformationMessage(`✨ Trích xuất Mask thành công: ${savedResult.relativePath}`);
           } else if (action === 'canny' || action === 'edgeDetection') {
-            const outBuf = await imageProc.detectEdges(buffer, 'canny');
+            const cannyResult = await new ComfyUIAdapter().detectEdges(dataUrl, 'canny');
+            const outBuf = cannyResult.outputImageUri
+              ? Buffer.from(cannyResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+              : await imageProc.detectEdges(buffer, 'canny');
             const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_canny_${Date.now()}.png`);
             this.postToWebview({
               command: 'actionComplete',
@@ -376,7 +405,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             });
             vscode.window.showInformationMessage(`✨ Trích xuất Lineart thành công: ${savedResult.relativePath}`);
           } else if (action === 'depth') {
-            const outBuf = await imageProc.detectEdges(buffer, 'depth');
+            const depthResult = await new ComfyUIAdapter().detectEdges(dataUrl, 'depth');
+            const outBuf = depthResult.outputImageUri
+              ? Buffer.from(depthResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+              : await imageProc.detectEdges(buffer, 'depth');
             const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_depth_${Date.now()}.png`);
             this.postToWebview({
               command: 'actionComplete',
@@ -386,7 +418,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`✨ Tạo bản đồ độ sâu 3D thành công: ${savedResult.relativePath}`);
           } else if (action === 'extend') {
             const direction = options?.direction || 'all';
-            const outBuf = await imageProc.extendCanvas(buffer, direction);
+            const extendResult = await new ComfyUIAdapter().extendCanvas(dataUrl, direction);
+            const outBuf = extendResult.outputImageUri
+              ? Buffer.from(extendResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+              : await imageProc.extendCanvas(buffer, direction);
             const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_extended_${Date.now()}.png`);
             this.postToWebview({
               command: 'actionComplete',
@@ -395,12 +430,15 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             });
             vscode.window.showInformationMessage(`✨ Mở rộng khung hình thành công: ${savedResult.relativePath}`);
           } else if (action === 'caption') {
-            const captionText = await imageProc.generateCaption(buffer);
+            const captionResult = await new ComfyUIAdapter().generateCaption(dataUrl);
+            const captionText = captionResult.textResult || await imageProc.generateCaption(buffer);
             vscode.window.showInformationMessage(`📝 AI Caption: ${captionText}`);
-            this.postToWebview({
-              command: 'chatReply',
-              text: `📝 **Mô tả ảnh AI (Alt Text):**\n\n${captionText}`
-            });
+            const activeSession = this.sessionManager.getActiveSession();
+            if (activeSession) {
+              this.sessionManager.attachImage(activeSession.sessionId, await this.assetStorage.saveToCache(dataUrl));
+              this.sessionManager.addMessage(activeSession.sessionId, { sender: 'assistant', text: captionText, nodeId: activeSession.currentNodeId, operation: 'caption' });
+              this.broadcastSessionState();
+            }
             this.postToWebview({ command: 'actionComplete' });
           } else if (action === 'recolor') {
             const subject = options?.subject || 'hair';
@@ -412,10 +450,13 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
               savedPath: savedResult.relativePath
             });
-            vscode.window.showInformationMessage(`✨ Đổi màu ${subject} (${color}) thành công (bảo vệ 100% da mặt): ${savedResult.relativePath}`);
+            vscode.window.showInformationMessage(`✨ Đổi màu ${subject} (${color}) thành công: ${savedResult.relativePath}`);
           } else if (action === 'styleTransfer') {
             const style = options?.style || 'anime';
-            const outBuf = await imageProc.styleTransfer(buffer, style);
+            const styleResult = await new ComfyUIAdapter().styleTransfer(dataUrl, style);
+            const outBuf = styleResult.outputImageUri
+              ? Buffer.from(styleResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+              : await imageProc.styleTransfer(buffer, style);
             const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_style_${style}_${Date.now()}.png`);
             this.postToWebview({
               command: 'actionComplete',
@@ -438,7 +479,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               const maskB64 = options.maskDataUrl.replace(/^data:image\/\w+;base64,/, '');
               maskBuffer = Buffer.from(maskB64, 'base64');
             }
-            const outBuf = await imageProc.inpaint(buffer, maskBuffer);
+            const inpaintResult = maskBuffer
+              ? await new ComfyUIAdapter().inpaint(dataUrl, options.maskDataUrl, options?.prompt || 'natural detailed restoration matching the surrounding image')
+              : undefined;
+            const outBuf = inpaintResult?.outputImageUri
+              ? Buffer.from(inpaintResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
+              : await imageProc.inpaint(buffer, maskBuffer);
             const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_inpaint_${Date.now()}.png`);
             this.postToWebview({
               command: 'actionComplete',
@@ -511,6 +557,9 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           const ext = path.extname(filePath).slice(1) || 'png';
           const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext}`;
           const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+          const cachedPath = await this.assetStorage.saveToCache(buf, ext);
+          this.sessionManager.createSession(cachedPath, path.basename(filePath));
+          this.broadcastSessionState();
           this.postToWebview({
             command: 'setImage',
             dataUrl,
@@ -545,58 +594,14 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       }
 
       case 'chatMessage': {
-        const { text, currentImage } = message;
-        try {
-          const llmApiKey = await this.secretManager.getLlmApiKey();
-          const llmProvider = await this.secretManager.getLlmProvider();
-
-          const decision = await VisionAgentOrchestrator.decideTool(
-            text,
-            { currentImageUri: currentImage },
-            { apiKey: llmApiKey, provider: llmProvider }
-          );
-
-          this.postToWebview({
-            command: 'chatReply',
-            text: decision.replyText || 'Tôi đã xử lý yêu cầu của bạn.',
-            thought: decision.thought
-          });
-        } catch (err: any) {
-          this.postToWebview({
-            command: 'chatReply',
-            text: `Tôi đã nhận lệnh "${text}". Bạn có thể sử dụng các công cụ tương ứng ở các Tab bên trái để xử lý trực tiếp!`,
-            thought: err.message
-          });
-        }
+        await this.handleCopilotChat(message);
         break;
       }
 
       case 'webviewReady': {
         let activeSession = this.sessionManager.getActiveSession();
         if (!activeSession) {
-          const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-          const candidates = [
-            path.join(workspaceRoot || '', 'test_images', '01_original', 'TC1.jpg'),
-            path.join(workspaceRoot || '', 'pixel-pilot-vscode', 'test_images', '01_original', 'TC1.jpg'),
-            path.join(this.context.extensionPath, 'test_images', '01_original', 'TC1.jpg'),
-            'd:/CODE/DAKH/pixel-pilot-vscode/test_images/01_original/TC1.jpg'
-          ];
-          let defaultTestImg = '';
-          for (const cand of candidates) {
-            if (fs.existsSync(cand)) {
-              defaultTestImg = cand;
-              break;
-            }
-          }
-
-          if (defaultTestImg) {
-            const cachedPath = await this.assetStorage.saveToCache(defaultTestImg);
-            const webviewUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : defaultTestImg;
-            this.uriToPathMap.set(webviewUri, cachedPath);
-            activeSession = this.sessionManager.createSession(webviewUri, 'TC1 - Tóc bay ngược sáng');
-          } else {
-            activeSession = this.sessionManager.createSession('', 'Phiên làm việc mới');
-          }
+          activeSession = this.sessionManager.createSession('', 'Cuộc trò chuyện mới');
         }
 
         const apiKey = await this.secretManager.getApiKey();
@@ -1059,6 +1064,186 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   /**
    * Natural Language & Slash Command Handler (Codex-style)
    */
+  private async handleCopilotChat(message: any): Promise<void> {
+    const text = String(message.text || '').trim();
+    if (!text) return;
+    let session = this.sessionManager.getActiveSession();
+    if (!session) session = this.sessionManager.createSession('', 'Cuộc trò chuyện mới');
+    const sessionId = session.sessionId;
+    const suppliedImage = typeof message.currentImage === 'string' && message.currentImage.startsWith('data:image/') ? message.currentImage : '';
+    if (suppliedImage) {
+      const cachedImage = await this.assetStorage.saveToCache(suppliedImage);
+      this.sessionManager.attachImage(sessionId, cachedImage);
+    }
+    const nodeId = session.currentNodeId;
+    this.sessionManager.addMessage(sessionId, { sender: 'user', text, nodeId });
+    if (session.title === 'Cuộc trò chuyện mới' || session.title === 'Phiên làm việc mới') {
+      this.sessionManager.renameSession(sessionId, text.slice(0, 48));
+    }
+    this.broadcastSessionState();
+
+    const reply = (answer: string) => {
+      this.sessionManager.addMessage(sessionId, { sender: 'assistant', text: answer, nodeId: this.sessionManager.getSession(sessionId)?.currentNodeId || nodeId, replyType: 'chat' });
+      this.broadcastSessionState();
+    };
+
+    try {
+      const current = this.sessionManager.getSession(sessionId)!;
+      const storedImage = current.nodes[current.currentNodeId]?.outputImageUri || '';
+      const image = suppliedImage || (storedImage ? this.assetStorage.getWebviewUri(storedImage) : '');
+      const normalized = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+      const suggestionMatch = normalized.match(/^(?:\/apply\s+|ap dung (?:goi y )?|lam (?:goi y )?|chon (?:goi y )?)([1-3])\s*$/);
+      const lastAdvice = [...current.messages].reverse().find(item => item.suggestions?.length && item.nodeId === current.currentNodeId);
+      const chosen = suggestionMatch ? lastAdvice?.suggestions?.[Number(suggestionMatch[1]) - 1] : undefined;
+      if (suggestionMatch && !chosen) {
+        reply('Gợi ý này không còn áp dụng cho ảnh hiện tại. Hãy phân tích lại ảnh rồi chọn gợi ý.');
+        return;
+      }
+      if (chosen) {
+        await this.runCopilotOperation(sessionId, image, chosen.intent.operation, chosen.intent, text);
+        return;
+      }
+      if (/^(?:\/analyze|\/analyse)\b|phan tich|danh gia|nhan xet|nen (?:chinh|sua|lam) gi|can (?:chinh|sua) gi|goi y (?:chinh|sua)|tu van (?:chinh|sua)|anh nay (?:the nao|dep khong)|analy[sz]e (?:this |the )?image|what should i (?:edit|fix)/.test(normalized)) {
+        if (!image) {
+          reply('Hãy mở một ảnh bằng nút “Mở ảnh”, rồi mình sẽ phân tích và đề xuất cách chỉnh sửa.');
+          return;
+        }
+        const analysis = await ImageAnalysisService.analyze(image);
+        this.sessionManager.addMessage(sessionId, {
+          sender: 'assistant', text: ImageAnalysisService.format(analysis),
+          nodeId: current.currentNodeId, replyType: 'chat', suggestions: analysis.suggestions
+        });
+        this.broadcastSessionState();
+        return;
+      }
+      const intent = this.getCopilotIntent(text, normalized);
+      if (!intent) {
+        if (/ban (la ai|lam duoc gi)|co the (lam|giup) gi|huong dan|cach dung|^help\??$/.test(normalized)) {
+          reply('Mình là Pixel Pilot Copilot. Bạn có thể hỏi về ảnh đang mở hoặc ra lệnh: “tạo ảnh a cat in a garden”, “tách nền”, “phóng to 2x”, “đổi áo sang xanh”, “tạo Depth”, “mở rộng ảnh”, “chuyển sang anime”, “xuất SVG”. Mỗi kết quả ảnh được lưu trong phiên chat để mở lại hoặc tiếp tục chỉnh sửa.');
+          return;
+        }
+        const aboutImage = Boolean(image) && /anh (nay|do|hien tai)|trong anh|nhin thay|what.*(image|picture)|mau sac|bo cuc|do sang/.test(normalized);
+        if (aboutImage) {
+          const visualContext = ImageAnalysisService.context(await ImageAnalysisService.analyze(image));
+          let answer: string | null = null;
+          try { answer = await LocalChatService.reply(text, current.messages.slice(0, -1), visualContext); } catch (error) {
+            console.warn('[PixelPilot] Local image chat unavailable:', error);
+          }
+          reply(answer || visualContext);
+          return;
+        }
+        const llmKey = await this.secretManager.getLlmApiKey();
+        if (llmKey) {
+          const decision = await VisionAgentOrchestrator.decideTool(text, {
+            currentImageUri: image,
+            imageTitle: current.title,
+            conversationHistory: current.messages.slice(0, -1)
+          }, { apiKey: llmKey, provider: await this.secretManager.getLlmProvider() });
+          if (decision.type === 'chat' || !decision.intent) {
+            reply(decision.replyText || 'Bạn có thể mô tả cụ thể điều muốn chỉnh trên ảnh.');
+            return;
+          }
+          if (!image && decision.intent.operation !== 'generate') {
+            reply('Hãy mở một ảnh bằng nút “Mở ảnh”, rồi gửi lại yêu cầu chỉnh sửa.');
+            return;
+          }
+          await this.runCopilotOperation(sessionId, image, decision.intent.operation, decision.intent, text);
+          return;
+        }
+        let localAnswer: string | null = null;
+        try { localAnswer = await LocalChatService.reply(text, current.messages.slice(0, -1)); } catch (error) {
+          console.warn('[PixelPilot] Local chat unavailable:', error);
+        }
+        reply(localAnswer || 'Mình có thể phân tích ảnh và đề xuất chỉnh sửa, hoặc thực hiện tách nền, phóng to, đổi màu, tạo Canny, Lineart, Depth, Mask, mở rộng ảnh và xuất SVG.');
+        return;
+      }
+
+      if (!image && intent.operation !== 'generate') {
+        reply('Hãy mở một ảnh bằng nút “Mở ảnh”, rồi gửi lại yêu cầu chỉnh sửa.');
+        return;
+      }
+      await this.runCopilotOperation(sessionId, image, intent.operation, intent, text);
+    } catch (error: any) {
+      reply(`Không thực hiện được yêu cầu: ${error?.message || String(error)}`);
+    }
+  }
+
+  private getCopilotIntent(text: string, normalized: string): any | null {
+    if (/\?$/.test(normalized) && /la gi|nhu the nao|tai sao|cach |lam sao|co nen|how|why|should/.test(normalized)) return null;
+    if (/^\/generate\b|^\/imagine\b|tao (mot )?anh|ve (mot )?buc anh|sinh anh|generate (an? )?image/.test(normalized)) return { operation: 'generate', label: 'Sinh ảnh mới', promptText: text.replace(/^\/(generate|imagine)\s*/i, '').trim() };
+    if (/^\/(remove-bg|nobg|tach-nen|replace-bg|bg|doi-nen|upscale|upscale-4x|canny|lineart|mask|caption|alt|extend|outpaint|anime|pixar|pixel|cyberpunk|sketch|style|vectorize|svg|hdr|enhance|vintage|inpaint)/.test(normalized)) {
+      return IntentRouter.parsePrompt(text);
+    }
+    if (/doi nen|thay nen|ghep nen|doi phong nen|thay phong nen|replace (the )?background/.test(normalized)) {
+      return { operation: 'replace_bg', label: 'Đổi nền', promptText: text.replace(/^.*?(?:nen|background)\s*(?:thanh|sang|bang|to)?\s*/i, '').trim() || text };
+    }
+    if (/tach nen|xoa nen|remove (the )?(background|bg)/.test(normalized)) return { operation: 'remove_background', label: 'Tách nền' };
+    if (/phong to|upscale|tang do phan giai/.test(normalized)) return { operation: 'upscale', factor: /4x|4k/.test(normalized) ? 4 : 2, label: 'Phóng to ảnh' };
+    if (/doi mau|nhuom|chuyen mau/.test(normalized) && /toc|ao|quan|vay|trang phuc|hair|shirt|clothes/.test(normalized)) {
+      const color = /cyan|xanh da troi/.test(normalized) ? 'cyan' : /xanh la|green/.test(normalized) ? 'green' : /xanh|blue/.test(normalized) ? 'blue' : /do|red/.test(normalized) ? 'red' : /vang|yellow/.test(normalized) ? 'yellow' : /tim|purple/.test(normalized) ? 'purple' : /hong|pink/.test(normalized) ? 'pink' : /trang|white/.test(normalized) ? 'white' : /den|black/.test(normalized) ? 'black' : 'cyan';
+      return { operation: 'recolor', label: 'Đổi màu chọn lọc', colorTarget: /toc|hair/.test(normalized) ? 'hair' : 'clothes', targetColor: color };
+    }
+    if (/canny|do bien|duong vien|edge detection/.test(normalized)) return { operation: 'canny', label: 'Dò biên Canny' };
+    if (/lineart|line art|net ve/.test(normalized)) return { operation: 'lineart', label: 'Nét vẽ Lineart' };
+    if (/do sau|depth|^\/depth/.test(normalized)) return { operation: 'preprocess', preprocessor: 'depth', label: 'Độ sâu 3D' };
+    if (/tao mask|tach mask|mat na|segmentation/.test(normalized)) return { operation: 'mask', label: 'Mặt nạ AI' };
+    if (/caption|alt.text|mo ta anh|anh nay co gi/.test(normalized)) return { operation: 'caption', label: 'Mô tả ảnh' };
+    if (/mo rong|noi rong|outpaint|extend/.test(normalized)) return { operation: 'extend', label: 'Mở rộng khung', direction: /ngang|hai ben|horizontal/.test(normalized) ? 'horizontal' : /doc|tren duoi|vertical/.test(normalized) ? 'vertical' : 'all', promptText: text };
+    if (/phong cach|anime|cyberpunk|pixel art|sketch|hoat hinh/.test(normalized)) return { operation: 'style_transfer', label: 'Chuyển phong cách', style: /cyberpunk/.test(normalized) ? 'cyberpunk' : /pixel/.test(normalized) ? 'pixel' : /sketch|but chi/.test(normalized) ? 'sketch' : /3d|pixar/.test(normalized) ? 'pixar' : 'anime' };
+    if (/vector|svg/.test(normalized)) return { operation: 'vectorize', label: 'Xuất SVG' };
+    if (/lam net|khu mo|tang sang|hdr|vintage/.test(normalized)) return { operation: 'enhance', label: 'Cải thiện ảnh', enhanceType: /hdr|tang sang/.test(normalized) ? 'hdr' : /vintage/.test(normalized) ? 'vintage' : 'clarity' };
+    if (/inpaint|xoa vat|xoa doi tuong|to lai vung/.test(normalized)) return { operation: 'inpaint', label: 'Inpaint' };
+    return null;
+  }
+
+  private async runCopilotOperation(sessionId: string, image: string, operation: OperationType, intent: any, prompt: string): Promise<void> {
+    const session = this.sessionManager.getSession(sessionId);
+    if (!session) return;
+    const parentId = session.currentNodeId;
+    const adapter = new ComfyUIAdapter();
+    const input = Buffer.from(image.replace(/^data:image\/[\w+.-]+;base64,/, ''), 'base64');
+    let result: AIResult;
+    const localResult = (buffer: Buffer, model: string): AIResult => ({ success: true, outputImageUri: `data:image/png;base64,${buffer.toString('base64')}`, metrics: { model, latencyMs: 0, costUsd: 0 } });
+    switch (operation) {
+      case 'generate': result = await adapter.generateImage(intent.promptText || prompt); break;
+      case 'remove_background': result = await adapter.removeBackground(image); break;
+      case 'replace_bg': result = await adapter.replaceBackground(image, intent.promptText || prompt); break;
+      case 'upscale': result = await adapter.upscale(image, intent.factor === 4 ? 4 : 2); break;
+      case 'mask': result = await adapter.extractMask(image); break;
+      case 'canny': result = await adapter.detectEdges(image, 'canny'); break;
+      case 'lineart': result = await adapter.detectEdges(image, 'lineart'); break;
+      case 'preprocess': result = await adapter.detectEdges(image, 'depth'); break;
+      case 'caption': result = await adapter.generateCaption(image); break;
+      case 'extend': result = await adapter.extendCanvas(image, intent.direction || 'all', intent.promptText); break;
+      case 'style_transfer': result = await adapter.styleTransfer(image, intent.style || 'anime'); break;
+      case 'recolor': result = localResult(await ImageProcessor.getInstance().recolor(input, intent.colorTarget || 'hair', intent.targetColor || 'cyan'), 'Local recolor'); break;
+      case 'enhance': result = localResult(await ImageProcessor.getInstance().enhance(input, intent.enhanceType || 'clarity'), 'Local enhance'); break;
+      case 'vectorize': result = await adapter.vectorize(image); break;
+      case 'inpaint':
+        this.sessionManager.addMessage(sessionId, { sender: 'assistant', text: 'Để Inpaint, chọn Brush trên canvas, tô vùng cần sửa rồi nhấn Inpaint. Vùng tô là phần sẽ được tạo lại.', nodeId: parentId });
+        this.broadcastSessionState();
+        return;
+      default:
+        this.sessionManager.addMessage(sessionId, { sender: 'assistant', text: `Thao tác “${intent.label || operation}” hiện chưa được nối vào Copilot.`, nodeId: parentId });
+        this.broadcastSessionState();
+        return;
+    }
+    if (!result.success) throw new Error(result.error || 'Công cụ xử lý ảnh thất bại');
+    if (operation === 'caption') {
+      this.sessionManager.addMessage(sessionId, { sender: 'assistant', text: result.textResult || 'Chưa tạo được mô tả ảnh.', nodeId: parentId });
+      this.broadcastSessionState();
+      return;
+    }
+    if (!result.outputImageUri) throw new Error('Công cụ không trả về ảnh');
+    const savedPath = await this.assetStorage.saveToCache(result.outputImageUri);
+    this.sessionManager.addOperationNode(sessionId, parentId, operation, intent.label || operation, session.nodes[parentId].outputImageUri, savedPath, result.metrics, { prompt, textResult: result.textResult });
+    if (operation === 'vectorize' && result.textResult) {
+      const svgPath = await this.assetStorage.saveToCache(Buffer.from(result.textResult), 'svg');
+      this.sessionManager.addMessage(sessionId, { sender: 'assistant', text: `Đã lưu SVG: ${svgPath}`, nodeId: session.currentNodeId });
+    }
+    this.broadcastSessionState();
+  }
+
   private async handleCodexPrompt(message: any): Promise<void> {
     const session = this.sessionManager.getActiveSession();
     if (!session) return;
@@ -1379,11 +1564,14 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       messageCount: s.messages.length
     }));
 
-    this.postToWebview({
+    const update = {
       type: 'sessionUpdated',
       session: activeSession,
-      sessionsList: allSessions
-    });
+      sessionsList: allSessions,
+      currentImage: activeSession ? this.assetStorage.getWebviewUri(activeSession.nodes[activeSession.currentNodeId]?.outputImageUri || '') : ''
+    };
+    this.postToWebview(update);
+    this.sessionStateEmitter.fire(update);
   }
 
   private async saveCurrentImage(targetNodeId?: string): Promise<void> {

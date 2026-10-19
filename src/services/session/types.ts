@@ -2,6 +2,7 @@
 
 export type OperationType =
   | 'original'
+  | 'generate'
   | 'remove_background'
   | 'change_bg_color'
   | 'upscale'
@@ -61,6 +62,8 @@ export interface ChatMessage {
   thought?: string;                  // Agent reasoning / Chain of Thought
   replyType?: 'chat' | 'tool_call';  // Whether this was a conversation or tool execution
   toolName?: string;                 // Executed tool name if any
+
+  suggestions?: Array<{ label: string; reason: string; intent: ParsedIntent }>;
 }
 
 export interface ImageSession {

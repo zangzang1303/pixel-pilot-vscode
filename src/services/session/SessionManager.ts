@@ -22,7 +22,7 @@ export class SessionManager {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      const data = Array.from(this.sessions.values());
+      const data = { activeSessionId: this.activeSessionId, sessions: Array.from(this.sessions.values()) };
       fs.writeFileSync(this.storageFilePath, JSON.stringify(data, null, 2), 'utf-8');
     } catch (e) {
       console.error('Failed to save sessions to disk:', e);
@@ -33,13 +33,13 @@ export class SessionManager {
     if (!this.storageFilePath || !fs.existsSync(this.storageFilePath)) return;
     try {
       const raw = fs.readFileSync(this.storageFilePath, 'utf-8');
-      const list = JSON.parse(raw) as ImageSession[];
+      const stored = JSON.parse(raw) as ImageSession[] | { activeSessionId: string | null; sessions: ImageSession[] };
+      const list = Array.isArray(stored) ? stored : stored.sessions;
       for (const s of list) {
         this.sessions.set(s.sessionId, s);
       }
-      if (list.length > 0) {
-        this.activeSessionId = list[0].sessionId;
-      }
+      if (list.length > 0) this.activeSessionId = !Array.isArray(stored) && stored.activeSessionId && this.sessions.has(stored.activeSessionId)
+        ? stored.activeSessionId : list[0].sessionId;
     } catch (e) {
       console.error('Failed to load sessions from disk:', e);
     }
@@ -189,6 +189,29 @@ export class SessionManager {
     return fullMessage;
   }
 
+  public attachImage(sessionId: string, imageUri: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session || !imageUri) return;
+    const current = session.nodes[session.currentNodeId];
+    if (current.outputImageUri === imageUri) return;
+    if (!current.outputImageUri && current.nodeId === session.rootNodeId) {
+      current.inputImageUri = imageUri;
+      current.outputImageUri = imageUri;
+    } else {
+      const nodeId = `node_${Object.keys(session.nodes).length}_attached`;
+      current.childrenIds.push(nodeId);
+      session.nodes[nodeId] = {
+        nodeId, parentId: current.nodeId, childrenIds: [], timestamp: Date.now(),
+        operation: 'original', operationLabel: 'Ảnh đang mở',
+        inputImageUri: current.outputImageUri, outputImageUri: imageUri,
+        metrics: { model: 'Canvas', latencyMs: 0, costUsd: 0 }
+      };
+      session.currentNodeId = nodeId;
+    }
+    session.updatedAt = Date.now();
+    this.saveToDisk();
+  }
+
   /**
    * Rollbacks or jumps to any node in the DAG (Non-destructive branching)
    */
@@ -238,6 +261,7 @@ export class SessionManager {
   public setActiveSession(sessionId: string): ImageSession | null {
     if (this.sessions.has(sessionId)) {
       this.activeSessionId = sessionId;
+      this.saveToDisk();
       return this.sessions.get(sessionId) || null;
     }
     return null;

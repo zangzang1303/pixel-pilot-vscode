@@ -15,16 +15,17 @@ import {
   FileCode,
   FileText,
   Sliders,
-  Send,
   Download,
   FolderOpen,
   FolderArchive,
-  Bot,
   Settings,
   Maximize2,
   Scan,
   Eye,
-  PenTool
+  PenTool,
+  Plus,
+  Pencil,
+  Trash2
 } from 'lucide-react';
 
 export interface ModelItem {
@@ -48,6 +49,7 @@ export type StudioTab = 'generate' | 'edit' | 'dev' | 'chat';
 
 interface SettingsSidebarProps {
   isOnline: boolean;
+  comfyOnline: boolean;
   serverUrl: string;
   models: ModelItem[];
   selectedModel: string;
@@ -69,9 +71,12 @@ interface SettingsSidebarProps {
   processingLabel: string;
   onOpenImage: () => void;
   // Chat Props
-  chatMessages: Array<{ role: 'user' | 'assistant'; text: string; thought?: string }>;
-  onSendMessage: (msg: string) => void;
-  isChatThinking: boolean;
+  sessions: Array<{ sessionId: string; title: string; updatedAt: number; messageCount: number }>;
+  activeSessionId: string;
+  onNewSession: () => void;
+  onSwitchSession: (sessionId: string) => void;
+  onRenameSession: (sessionId: string, title: string) => void;
+  onDeleteSession: (sessionId: string) => void;
   // API Key Status
   hasApiKey?: boolean;
   apiKeyMasked?: string;
@@ -87,6 +92,7 @@ const RESOLUTION_PRESETS = [
 
 export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
   isOnline,
+  comfyOnline,
   serverUrl,
   models,
   selectedModel,
@@ -106,13 +112,15 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
   isProcessingAction,
   processingLabel,
   onOpenImage,
-  chatMessages,
-  onSendMessage,
-  isChatThinking,
+  sessions,
+  activeSessionId,
+  onNewSession,
+  onSwitchSession,
+  onRenameSession,
+  onDeleteSession,
   hasApiKey,
   apiKeyMasked
 }) => {
-  const [chatInput, setChatInput] = useState('');
   const [recolorSubject, setRecolorSubject] = useState('hair');
   const [recolorColor, setRecolorColor] = useState('cyan');
   const [selectedStyle, setSelectedStyle] = useState('anime');
@@ -122,13 +130,6 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
       ...prev,
       seed: Math.floor(Math.random() * 2147483647),
     }));
-  };
-
-  const handleChatSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim() || isChatThinking) return;
-    onSendMessage(chatInput.trim());
-    setChatInput('');
   };
 
   return (
@@ -177,15 +178,15 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
           {/* Local GPU InvokeAI status pill */}
           <button
             onClick={onPing}
-            title={`InvokeAI Server: ${serverUrl}`}
+            title={`InvokeAI: ${isOnline ? 'đang chạy' : 'chưa chạy'} (${serverUrl}) · ComfyUI: ${comfyOnline ? 'đang chạy' : 'chưa chạy'} (127.0.0.1:8188)`}
             className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors border ${
-              isOnline
+              isOnline || comfyOnline
                 ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800/80 hover:bg-emerald-900/60'
                 : 'bg-rose-950/60 text-rose-400 border-rose-800/80 hover:bg-rose-900/60'
             }`}
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
-            {isOnline ? 'GPU' : 'Offline'}
+            <span className={`w-1.5 h-1.5 rounded-full ${isOnline || comfyOnline ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`} />
+            {isOnline ? 'InvokeAI' : comfyOnline ? 'ComfyUI' : 'Offline'}
           </button>
         </div>
       </div>
@@ -270,7 +271,7 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
               <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
                 <span className="flex items-center gap-1.5">
                   <Layers className="w-3.5 h-3.5 text-indigo-400" />
-                  Diffusion Model (InvokeAI)
+                  Diffusion Model
                 </span>
                 <button
                   onClick={onRefreshModels}
@@ -293,7 +294,7 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
                     </option>
                   ))
                 ) : (
-                  <option value="">Không tìm thấy model (Vui lòng bật InvokeAI)</option>
+                  <option value="">{comfyOnline ? 'Stable Diffusion 1.5 (ComfyUI, tối đa 512px)' : 'Không tìm thấy model (Bật ComfyUI hoặc InvokeAI)'}</option>
                 )}
               </select>
             </div>
@@ -368,7 +369,7 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
             {/* Action Buttons */}
             <button
               onClick={onGenerate}
-              disabled={isGenerating || !isOnline}
+              disabled={isGenerating || !(isOnline || comfyOnline)}
               className="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 via-indigo-600 to-cyan-500 hover:from-indigo-600 hover:to-cyan-600 font-semibold text-xs text-white shadow-lg shadow-indigo-500/25 disabled:opacity-50 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
             >
               <Sparkles className="w-4 h-4" />
@@ -685,60 +686,29 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
         {/* ========================================================================= */}
         {activeTab === 'chat' && (
           <div className="flex flex-col h-full gap-2 animate-in fade-in duration-200">
-            <div className="flex-1 overflow-y-auto flex flex-col gap-2.5 p-1 text-xs">
-              {chatMessages.length === 0 ? (
-                <div className="p-4 rounded-xl bg-slate-950/50 border border-slate-800 text-center flex flex-col items-center gap-2 text-slate-400">
-                  <Bot className="w-6 h-6 text-indigo-400" />
-                  <p className="font-medium text-slate-200">Trợ lý AI Vision Copilot</p>
-                  <p className="text-[11px]">
-                    Ra lệnh bằng ngôn ngữ tự nhiên: <br/>
-                    <span className="text-indigo-400 font-mono">"Tách nền ảnh này"</span> hoặc <br/>
-                    <span className="text-indigo-400 font-mono">"Đổi màu áo sang xanh"</span>
-                  </p>
-                </div>
-              ) : (
-                chatMessages.map((msg, i) => (
-                  <div
-                    key={i}
-                    className={`p-2.5 rounded-xl text-xs flex flex-col gap-1 ${
-                      msg.role === 'user'
-                        ? 'bg-indigo-600/20 border border-indigo-500/30 text-indigo-100 self-end max-w-[85%]'
-                        : 'bg-slate-950 border border-slate-800 text-slate-200 self-start max-w-[90%]'
-                    }`}
-                  >
-                    {msg.thought && (
-                      <span className="text-[10px] text-slate-400 italic bg-slate-900/50 p-1 rounded">
-                        🧠 {msg.thought}
-                      </span>
-                    )}
-                    <p>{msg.text}</p>
-                  </div>
-                ))
-              )}
-              {isChatThinking && (
-                <div className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-xs text-indigo-300 italic flex items-center gap-2">
-                  <Sparkles className="w-3.5 h-3.5 animate-spin" />
-                  <span>AI đang suy nghĩ và thực hiện tác vụ...</span>
-                </div>
-              )}
+            <div className="flex items-center gap-1.5 border-b border-slate-800 pb-2">
+              <select value={activeSessionId} onChange={(e) => onSwitchSession(e.target.value)} aria-label="Phiên trò chuyện" className="min-w-0 flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-100">
+                {sessions.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.title}</option>)}
+              </select>
+              <button type="button" title="Cuộc trò chuyện mới" onClick={onNewSession} className="p-1.5 rounded-lg border border-slate-700 hover:bg-slate-800"><Plus className="w-4 h-4" /></button>
+              <button type="button" title="Đổi tên phiên" disabled={!activeSessionId} onClick={() => {
+                const title = window.prompt('Tên phiên', sessions.find((session) => session.sessionId === activeSessionId)?.title || '');
+                if (title?.trim()) onRenameSession(activeSessionId, title.trim());
+              }} className="p-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 disabled:opacity-40"><Pencil className="w-4 h-4" /></button>
+              <button type="button" title="Xóa phiên" disabled={!activeSessionId} onClick={() => {
+                if (window.confirm('Xóa cuộc trò chuyện này?')) onDeleteSession(activeSessionId);
+              }} className="p-1.5 rounded-lg border border-slate-700 hover:bg-red-950 disabled:opacity-40"><Trash2 className="w-4 h-4" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-1 p-1">
+              <p className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Lịch sử phiên</p>
+              {sessions.map((session) => (
+                <button key={session.sessionId} type="button" onClick={() => onSwitchSession(session.sessionId)} className={`w-full rounded-lg border px-3 py-2 text-left text-xs ${session.sessionId === activeSessionId ? 'border-indigo-500/50 bg-indigo-500/15 text-white' : 'border-transparent text-slate-400 hover:bg-slate-800'}`}>
+                  <span className="block truncate font-medium">{session.title}</span>
+                  <span className="text-[10px] opacity-60">{session.messageCount} tin nhắn</span>
+                </button>
+              ))}
             </div>
 
-            <form onSubmit={handleChatSubmit} className="flex gap-1.5 pt-2 border-t border-slate-800">
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Nhập yêu cầu cho AI..."
-                className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-indigo-500"
-              />
-              <button
-                type="submit"
-                disabled={!chatInput.trim() || isChatThinking}
-                className="px-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium disabled:opacity-50 transition-colors flex items-center justify-center"
-              >
-                <Send className="w-3.5 h-3.5" />
-              </button>
-            </form>
           </div>
         )}
 

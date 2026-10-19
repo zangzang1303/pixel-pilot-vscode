@@ -1,6 +1,7 @@
 // ComfyUIAdapter.ts - Local GPU Offline Bridge for ComfyUI (RTX 3050 Ti)
 import fs from 'fs';
 import path from 'path';
+import sharp from 'sharp';
 import { IAIProvider } from './IAIProvider';
 import { AIResult } from '../session/types';
 import { ImageProcessor } from '../image/ImageProcessor';
@@ -124,6 +125,30 @@ export class ComfyUIAdapter implements IAIProvider {
     }
 
     throw new Error('ComfyUI execution timed out.');
+  }
+
+  private async executeTextWorkflow(workflow: Record<string, any>, outputNodeId: string, timeoutMs: number = 120000): Promise<string> {
+    const clientId = crypto.randomUUID();
+    const response = await fetch(`${this.baseUrl}/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: workflow, client_id: clientId })
+    });
+    if (!response.ok) throw new Error(`ComfyUI text prompt failed: ${await response.text()}`);
+    const { prompt_id: promptId } = (await response.json()) as any;
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      await new Promise(resolve => setTimeout(resolve, 600));
+      const history = await fetch(`${this.baseUrl}/history/${promptId}`);
+      if (!history.ok) continue;
+      const record = ((await history.json()) as any)[promptId];
+      if (record?.status?.status_str === 'error') {
+        throw new Error('ComfyUI text workflow failed');
+      }
+      const text = record?.outputs?.[outputNodeId]?.text?.[0];
+      if (typeof text === 'string' && text.trim()) return text.trim();
+    }
+    throw new Error('ComfyUI text workflow timed out.');
   }
 
   /**
@@ -343,6 +368,25 @@ export class ComfyUIAdapter implements IAIProvider {
     if (maskInput) {
       maskBuf = this.getBufferFromInput(maskInput);
     }
+    if (maskBuf && await this.hasDiffusionCheckpoint()) {
+      try {
+        const original = await sharp(buf).metadata();
+        const source = await sharp(buf).resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true }).removeAlpha().png().toBuffer();
+        const dimensions = await sharp(source).metadata();
+        const mask = await sharp(maskBuf).resize(dimensions.width!, dimensions.height!, { fit: 'fill' }).extractChannel('alpha').threshold(20).png().toBuffer();
+        const imageUpload = await this.uploadImage(source);
+        const maskUpload = await this.uploadImage(mask);
+        const workflow = this.diffusionWorkflow(imageUpload.name, prompt?.trim() || 'natural detailed restoration, matching the surrounding scene', true, maskUpload.name);
+        const { outputImages } = await this.executeWorkflow(workflow, 180000);
+        const generated = await sharp(outputImages[0]).resize(original.width!, original.height!).removeAlpha().png().toBuffer();
+        const fullMask = await sharp(maskBuf).resize(original.width!, original.height!, { fit: 'fill' }).extractChannel('alpha').threshold(20).png().toBuffer();
+        const overlay = await sharp(generated).joinChannel(fullMask).png().toBuffer();
+        const result = await sharp(buf).composite([{ input: overlay, left: 0, top: 0 }]).png().toBuffer();
+        return { success: true, outputImageUri: `data:image/png;base64,${result.toString('base64')}`, metrics: { model: 'Stable Diffusion 1.5 GPU inpaint', latencyMs: 0, costUsd: 0 } };
+      } catch {
+        // Use local fill when the diffusion workflow cannot finish.
+      }
+    }
     const outBuf = await ImageProcessor.getInstance().inpaint(buf, maskBuf);
     return {
       success: true,
@@ -356,6 +400,33 @@ export class ComfyUIAdapter implements IAIProvider {
    */
   public async extractMask(imageInput: string): Promise<AIResult> {
     const buf = this.getBufferFromInput(imageInput);
+    if (await this.ping()) {
+      try {
+        if (await this.getAvailableRmbgNode() === 'RemoveBackground') {
+          const modelInfo = await fetch(`${this.baseUrl}/object_info/LoadBackgroundRemovalModel`);
+          const models = (await modelInfo.json() as any)?.LoadBackgroundRemovalModel?.input?.required?.bg_removal_name?.[1]?.options;
+          const modelName = models?.find((name: string) => /birefnet/i.test(name)) || models?.[0];
+          if (modelName) {
+            const upload = await this.uploadImage(buf);
+            const workflow = {
+              "1": { "inputs": { "image": upload.name, "upload": "image" }, "class_type": "LoadImage" },
+              "2": { "inputs": { "bg_removal_name": modelName }, "class_type": "LoadBackgroundRemovalModel" },
+              "3": { "inputs": { "bg_removal_model": ["2", 0], "image": ["1", 0] }, "class_type": "RemoveBackground" },
+              "4": { "inputs": { "mask": ["3", 0] }, "class_type": "MaskToImage" },
+              "5": { "inputs": { "filename_prefix": "PixelPilot_Mask", "images": ["4", 0] }, "class_type": "SaveImage" }
+            };
+            const { outputImages } = await this.executeWorkflow(workflow, 120000);
+            return {
+              success: true,
+              outputImageUri: `data:image/png;base64,${outputImages[0].toString('base64')}`,
+              metrics: { model: `ComfyUI ${modelName} mask GPU`, latencyMs: 0, costUsd: 0 }
+            };
+          }
+        }
+      } catch {
+        // The local mask extractor remains available if GPU inference fails.
+      }
+    }
     const maskBuf = await ImageProcessor.getInstance().extractMask(buf);
     return {
       success: true,
@@ -369,6 +440,46 @@ export class ComfyUIAdapter implements IAIProvider {
    */
   public async detectEdges(imageInput: string, method: 'canny' | 'lineart' | 'softedge' | 'depth'): Promise<AIResult> {
     const buf = this.getBufferFromInput(imageInput);
+    if (method === 'canny' && await this.ping()) {
+      try {
+        const upload = await this.uploadImage(buf);
+        const workflow = {
+          "1": { "inputs": { "image": upload.name, "upload": "image" }, "class_type": "LoadImage" },
+          "2": { "inputs": { "image": ["1", 0], "low_threshold": 0.4, "high_threshold": 0.8 }, "class_type": "Canny" },
+          "3": { "inputs": { "filename_prefix": "PixelPilot_Canny", "images": ["2", 0] }, "class_type": "SaveImage" }
+        };
+        const { outputImages } = await this.executeWorkflow(workflow);
+        return {
+          success: true,
+          outputImageUri: `data:image/png;base64,${outputImages[0].toString('base64')}`,
+          metrics: { model: 'ComfyUI Canny', latencyMs: 0, costUsd: 0 }
+        };
+      } catch {
+        // Use the local edge detector when ComfyUI is unavailable.
+      }
+    }
+    if (method === 'depth' && await this.ping()) {
+      try {
+        const nodeInfo = await fetch(`${this.baseUrl}/object_info/DepthAnything_V2`, { signal: AbortSignal.timeout(2000) });
+        if (nodeInfo.ok && (await nodeInfo.json() as any).DepthAnything_V2) {
+          const upload = await this.uploadImage(buf);
+          const workflow = {
+            "1": { "inputs": { "image": upload.name, "upload": "image" }, "class_type": "LoadImage" },
+            "2": { "inputs": { "model": "depth_anything_v2_vits_fp32.safetensors", "precision": "fp32" }, "class_type": "DownloadAndLoadDepthAnythingV2Model" },
+            "3": { "inputs": { "da_model": ["2", 0], "images": ["1", 0] }, "class_type": "DepthAnything_V2" },
+            "4": { "inputs": { "filename_prefix": "PixelPilot_Depth", "images": ["3", 0] }, "class_type": "SaveImage" }
+          };
+          const { outputImages } = await this.executeWorkflow(workflow, 120000);
+          return {
+            success: true,
+            outputImageUri: `data:image/png;base64,${outputImages[0].toString('base64')}`,
+            metrics: { model: 'Depth Anything V2 Small GPU', latencyMs: 0, costUsd: 0 }
+          };
+        }
+      } catch {
+        // The local image processor remains available when the model cannot run.
+      }
+    }
     const outBuf = await ImageProcessor.getInstance().detectEdges(buf, method);
     return {
       success: true,
@@ -382,6 +493,25 @@ export class ComfyUIAdapter implements IAIProvider {
    */
   public async generateCaption(imageInput: string): Promise<AIResult> {
     const buf = this.getBufferFromInput(imageInput);
+    if (await this.ping()) {
+      try {
+        const nodeInfo = await fetch(`${this.baseUrl}/object_info/Florence2ModelLoader`, { signal: AbortSignal.timeout(2000) });
+        const modelOptions = (await nodeInfo.json() as any)?.Florence2ModelLoader?.input?.required?.model?.[0];
+        if (Array.isArray(modelOptions) && modelOptions.includes('Florence-2-base-ft')) {
+          const upload = await this.uploadImage(buf);
+          const workflow = {
+            "1": { "inputs": { "image": upload.name, "upload": "image" }, "class_type": "LoadImage" },
+            "2": { "inputs": { "model": "Florence-2-base-ft", "precision": "fp16" }, "class_type": "Florence2ModelLoader" },
+            "3": { "inputs": { "image": ["1", 0], "florence2_model": ["2", 0], "text_input": "", "task": "more_detailed_caption", "fill_mask": true, "max_new_tokens": 256, "num_beams": 3, "do_sample": false }, "class_type": "Florence2Run" },
+            "4": { "inputs": { "text": ["3", 2] }, "class_type": "PixelPilotTextOutput" }
+          };
+          const caption = await this.executeTextWorkflow(workflow, "4");
+          return { success: true, textResult: caption, metrics: { model: 'Florence-2 Base FT GPU', latencyMs: 0, costUsd: 0 } };
+        }
+      } catch {
+        // Use the local metadata caption if Florence-2 cannot run.
+      }
+    }
     const cap = await ImageProcessor.getInstance().generateCaption(buf);
     return {
       success: true,
@@ -395,11 +525,39 @@ export class ComfyUIAdapter implements IAIProvider {
    */
   public async extendCanvas(imageInput: string, direction: 'all' | 'horizontal' | 'vertical', prompt?: string): Promise<AIResult> {
     const buf = this.getBufferFromInput(imageInput);
+    if (await this.hasDiffusionCheckpoint()) {
+      try {
+        const original = await sharp(buf).metadata();
+        const source = await sharp(buf).resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true }).removeAlpha().png().toBuffer();
+        const meta = await sharp(source).metadata();
+        const width = meta.width!, height = meta.height!;
+        const xPad = direction === 'vertical' ? 0 : Math.max(32, Math.round(width * 0.2 / 8) * 8);
+        const yPad = direction === 'horizontal' ? 0 : Math.max(32, Math.round(height * 0.2 / 8) * 8);
+        const outWidth = Math.ceil((width + xPad * 2) / 8) * 8;
+        const outHeight = Math.ceil((height + yPad * 2) / 8) * 8;
+        const base = await sharp(source).extend({ left: xPad, right: outWidth - width - xPad, top: yPad, bottom: outHeight - height - yPad, background: { r: 127, g: 127, b: 127 } }).png().toBuffer();
+        const mask = await sharp({ create: { width: outWidth, height: outHeight, channels: 3, background: { r: 255, g: 255, b: 255 } } })
+          .composite([{ input: { create: { width, height, channels: 3, background: { r: 0, g: 0, b: 0 } } }, left: xPad, top: yPad }]).png().toBuffer();
+        const imageUpload = await this.uploadImage(base);
+        const maskUpload = await this.uploadImage(mask);
+        const workflow = this.diffusionWorkflow(imageUpload.name, prompt?.trim() || 'seamless continuation of the photograph, matching lighting, colors and perspective, detailed background', true, maskUpload.name);
+        const { outputImages } = await this.executeWorkflow(workflow, 180000);
+        const xScale = original.width! / width;
+        const yScale = original.height! / height;
+        const left = Math.round(xPad * xScale), top = Math.round(yPad * yScale);
+        const targetWidth = original.width! + left + Math.round((outWidth - width - xPad) * xScale);
+        const targetHeight = original.height! + top + Math.round((outHeight - height - yPad) * yScale);
+        const generated = await sharp(outputImages[0]).resize(targetWidth, targetHeight).composite([{ input: buf, left, top }]).png().toBuffer();
+        return { success: true, outputImageUri: `data:image/png;base64,${generated.toString('base64')}`, metrics: { model: 'Stable Diffusion 1.5 GPU outpaint', latencyMs: 0, costUsd: 0 } };
+      } catch {
+        // Keep the canvas operation available when the GPU has insufficient memory.
+      }
+    }
     const outBuf = await ImageProcessor.getInstance().extendCanvas(buf, direction);
     return {
       success: true,
       outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-      metrics: { model: 'Canvas Outpainting Expansion', latencyMs: 35, costUsd: 0 }
+      metrics: { model: 'Local canvas expansion (solid border)', latencyMs: 35, costUsd: 0 }
     };
   }
 
@@ -408,11 +566,25 @@ export class ComfyUIAdapter implements IAIProvider {
    */
   public async replaceBackground(imageInput: string, prompt: string): Promise<AIResult> {
     const buf = this.getBufferFromInput(imageInput);
-    const outBuf = await ImageProcessor.getInstance().recolor(buf, 'background', 'purple');
+    const original = await sharp(buf).metadata();
+    if (!original.width || !original.height) throw new Error('Không đọc được ảnh gốc.');
+    const foreground = await this.removeBackground(imageInput);
+    if (!foreground.success || !foreground.outputImageUri) throw new Error(foreground.error || 'Không tách được chủ thể.');
+    const normalized = prompt.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const scene = /bien|beach|ocean|hoang hon|sunset/.test(normalized) ? 'sunset beach, ocean, golden hour' :
+      /rung|forest/.test(normalized) ? 'lush forest, soft natural light' :
+      /studio/.test(normalized) ? 'clean photography studio, soft lighting' : prompt;
+    const background = await this.generateImage(`${scene}, scenic empty background, no people, no subject`, 'person, portrait, human, text, watermark', original.width, original.height);
+    if (!background.outputImageUri) throw new Error('Không tạo được nền mới.');
+    const bgBuffer = this.getBufferFromInput(background.outputImageUri);
+    const fgBuffer = this.getBufferFromInput(foreground.outputImageUri);
+    const preparedBg = await sharp(bgBuffer).resize(original.width, original.height, { fit: 'cover' }).png().toBuffer();
+    const preparedFg = await sharp(fgBuffer).resize(original.width, original.height, { fit: 'fill' }).png().toBuffer();
+    const outBuf = await sharp(preparedBg).composite([{ input: preparedFg, left: 0, top: 0 }]).png().toBuffer();
     return {
       success: true,
       outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-      metrics: { model: 'Local Background Compositor', latencyMs: 45, costUsd: 0 }
+      metrics: { model: `${foreground.metrics.model} + Stable Diffusion 1.5 GPU`, latencyMs: 0, costUsd: 0 }
     };
   }
 
@@ -421,12 +593,80 @@ export class ComfyUIAdapter implements IAIProvider {
    */
   public async styleTransfer(imageInput: string, style: string, customPrompt?: string): Promise<AIResult> {
     const buf = this.getBufferFromInput(imageInput);
+    if (await this.hasDiffusionCheckpoint()) {
+      try {
+        const original = await sharp(buf).metadata();
+        const source = await sharp(buf).resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true }).removeAlpha().png().toBuffer();
+        const input = await this.uploadImage(source);
+        const prompts: Record<string, string> = {
+          anime: 'anime illustration, cinematic lighting, detailed painted background, vivid colors',
+          pixar: 'stylized 3D animated film, soft lighting, expressive character, detailed render',
+          cyberpunk: 'cyberpunk illustration, neon lighting, futuristic city, vibrant colors',
+          sketch: 'fine pencil sketch, hand drawn linework, detailed shading',
+          pixel: 'pixel art, crisp pixel edges, retro game art'
+        };
+        const caption = await this.generateCaption(`data:image/png;base64,${source.toString('base64')}`);
+        const scene = caption.metrics?.model?.startsWith('Florence') ? caption.textResult : undefined;
+        const stylePrompt = customPrompt?.trim() || prompts[style] || `artwork in ${style} style`;
+        const workflow = this.diffusionWorkflow(input.name, `${scene ? `${scene}, ` : ''}${stylePrompt}`, false);
+        const { outputImages } = await this.executeWorkflow(workflow, 180000);
+        const styled = await sharp(outputImages[0]).resize(original.width!, original.height!).png().toBuffer();
+        return { success: true, outputImageUri: `data:image/png;base64,${styled.toString('base64')}`, metrics: { model: `Stable Diffusion 1.5 GPU img2img (${style})`, latencyMs: 0, costUsd: 0 } };
+      } catch {
+        // Local style filters are available if diffusion cannot run.
+      }
+    }
     const outBuf = await ImageProcessor.getInstance().styleTransfer(buf, style);
     return {
       success: true,
       outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-      metrics: { model: `Style Transfer (${style.toUpperCase()} - Local Precision)`, latencyMs: 40, costUsd: 0 }
+      metrics: { model: `Local style filter (${style})`, latencyMs: 40, costUsd: 0 }
     };
+  }
+
+  private async hasDiffusionCheckpoint(): Promise<boolean> {
+    if (!await this.ping()) return false;
+    try {
+      const response = await fetch(`${this.baseUrl}/object_info/CheckpointLoaderSimple`, { signal: AbortSignal.timeout(2000) });
+      const options = ((await response.json()) as any)?.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0];
+      return Array.isArray(options) && options.includes('v1-5-pruned-emaonly.safetensors');
+    } catch { return false; }
+  }
+
+  public async generateImage(prompt: string, negativePrompt = '', width = 512, height = 512): Promise<AIResult> {
+    if (!await this.hasDiffusionCheckpoint()) throw new Error('ComfyUI hoặc model Stable Diffusion 1.5 chưa sẵn sàng');
+    const safeWidth = Math.max(256, Math.min(512, Math.round(width / 8) * 8));
+    const safeHeight = Math.max(256, Math.min(512, Math.round(height / 8) * 8));
+    const workflow = {
+      '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'v1-5-pruned-emaonly.safetensors' } },
+      '2': { class_type: 'CLIPTextEncode', inputs: { text: prompt, clip: ['1', 1] } },
+      '3': { class_type: 'CLIPTextEncode', inputs: { text: negativePrompt || 'blurry, low quality, distorted, watermark', clip: ['1', 1] } },
+      '4': { class_type: 'EmptyLatentImage', inputs: { width: safeWidth, height: safeHeight, batch_size: 1 } },
+      '5': { class_type: 'KSampler', inputs: { model: ['1', 0], positive: ['2', 0], negative: ['3', 0], latent_image: ['4', 0], seed: Math.floor(Math.random() * 2147483647), steps: 18, cfg: 7, sampler_name: 'euler', scheduler: 'normal', denoise: 1 } },
+      '6': { class_type: 'VAEDecode', inputs: { samples: ['5', 0], vae: ['1', 2] } },
+      '7': { class_type: 'SaveImage', inputs: { filename_prefix: 'PixelPilot_Generate', images: ['6', 0] } }
+    };
+    const { outputImages } = await this.executeWorkflow(workflow, 180000);
+    return { success: true, outputImageUri: `data:image/png;base64,${outputImages[0].toString('base64')}`, metrics: { model: 'Stable Diffusion 1.5 GPU', latencyMs: 0, costUsd: 0, width: safeWidth, height: safeHeight } };
+  }
+
+  private diffusionWorkflow(imageName: string, prompt: string, inpaint: boolean, maskName?: string): Record<string, any> {
+    const workflow: Record<string, any> = {
+      '1': { class_type: 'LoadImage', inputs: { image: imageName, upload: 'image' } },
+      '2': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: 'v1-5-pruned-emaonly.safetensors' } },
+      '3': { class_type: 'CLIPTextEncode', inputs: { text: prompt, clip: ['2', 1] } },
+      '4': { class_type: 'CLIPTextEncode', inputs: { text: 'blurry, distorted, artifacts, text, watermark, low quality', clip: ['2', 1] } },
+      '6': { class_type: 'KSampler', inputs: { model: ['2', 0], positive: ['3', 0], negative: ['4', 0], latent_image: ['5', 0], seed: Math.floor(Math.random() * 2147483647), steps: 16, cfg: 6, sampler_name: 'euler', scheduler: 'normal', denoise: inpaint ? 1 : 0.38 } },
+      '7': { class_type: 'VAEDecode', inputs: { samples: ['6', 0], vae: ['2', 2] } },
+      '8': { class_type: 'SaveImage', inputs: { filename_prefix: inpaint ? 'PixelPilot_Outpaint' : 'PixelPilot_Style', images: ['7', 0] } }
+    };
+    if (inpaint) {
+      workflow['9'] = { class_type: 'LoadImageMask', inputs: { image: maskName, channel: 'red' } };
+      workflow['5'] = { class_type: 'VAEEncodeForInpaint', inputs: { pixels: ['1', 0], vae: ['2', 2], mask: ['9', 0], grow_mask_by: 4 } };
+    } else {
+      workflow['5'] = { class_type: 'VAEEncode', inputs: { pixels: ['1', 0], vae: ['2', 2] } };
+    }
+    return workflow;
   }
 
   /**
