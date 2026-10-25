@@ -18,6 +18,8 @@ import { FileSystemUtils } from '../utils/fileSystem';
 import { ComfyUIAdapter } from '../services/ai/ComfyUIAdapter';
 import { LocalChatService } from '../services/ai/LocalChatService';
 import { ImageAnalysisService } from '../services/ai/ImageAnalysisService';
+import sharp from 'sharp';
+import { decodeImageInput, imageMimeType } from '../utils/imageData';
 
 export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'pixelPilot.sidebarView';
@@ -43,16 +45,31 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     this.runwareAdapter = new RunwareAdapter('');
     this.invokeApi = new InvokeApiService();
 
-    // Preload API Key from SecretStorage asynchronously
-    this.secretManager.getApiKey().then((key) => {
-      if (key) this.runwareAdapter.setApiKey(key);
-    });
+    // Warm the adapter, but never rely on this asynchronous preload alone.
+    // A command can arrive before SecretStorage/.env has finished resolving.
+    void this.refreshRunwareApiKey();
   }
 
   public getRunwareAdapter(): RunwareAdapter { return this.runwareAdapter; }
   public getSecretManager(): SecretManager { return this.secretManager; }
   public getAssetStorage(): AssetStorageService { return this.assetStorage; }
   public getConfigManager(): EnterpriseConfigManager { return this.configManager; }
+
+  private async refreshRunwareApiKey(): Promise<boolean> {
+    try {
+      const key = await this.secretManager.getApiKey();
+      if (key) {
+        this.runwareAdapter.setApiKey(key);
+      } else {
+        // Re-read process/.env sources in case configuration changed after activation.
+        this.runwareAdapter.updateApiKey();
+      }
+    } catch (error) {
+      console.warn('[PixelPilot] Unable to refresh the Runware API key:', error);
+      this.runwareAdapter.updateApiKey();
+    }
+    return Boolean(this.runwareAdapter.getApiKey());
+  }
 
   /** The Studio panel and sidebar share one conversation, image history, and tool dispatcher. */
   public async handleStudioMessage(message: any): Promise<void> {
@@ -157,16 +174,24 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           let imageBuffer: Buffer;
           let dataUrl: string;
           let imageName: string;
-          if (await this.invokeApi.ping()) {
+          const invokeOnline = await this.invokeApi.ping();
+          const invokeModels = invokeOnline ? await this.invokeApi.getModels() : [];
+          if (invokeOnline && invokeModels.length > 0) {
             const result = await this.invokeApi.generateTextToImage(
-              prompt, model || 'Dreamshaper 8', options || {},
+              prompt, model || invokeModels[0], options || {},
               (statusText, percentage) => this.postToWebview({ command: 'generationProgress', status: statusText, percentage })
             );
             imageBuffer = result.imageBuffer;
             dataUrl = result.dataUrl;
             imageName = result.imageName;
           } else {
-            this.postToWebview({ command: 'generationProgress', status: 'Đang tạo ảnh bằng ComfyUI GPU...', percentage: 35 });
+            this.postToWebview({
+              command: 'generationProgress',
+              status: invokeOnline
+                ? 'InvokeAI không có model khả dụng, đang chuyển sang ComfyUI GPU...'
+                : 'Đang tạo ảnh bằng ComfyUI GPU...',
+              percentage: 35
+            });
             const result = await new ComfyUIAdapter().generateImage(prompt, options?.negativePrompt, options?.width, options?.height);
             dataUrl = result.outputImageUri!;
             imageBuffer = Buffer.from(dataUrl.split(',')[1], 'base64');
@@ -515,6 +540,17 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const savedResult = await FileSystemUtils.saveImageToWorkspace(comp, `pixel_pilot_compressed_${Date.now()}.${options?.format || 'webp'}`);
             this.postToWebview({ command: 'actionComplete', savedPath: savedResult.relativePath });
             vscode.window.showInformationMessage(`💾 Đã nén thành công (${(comp.byteLength / 1024).toFixed(1)} KB): ${savedResult.relativePath}`);
+          } else if (action === 'exportIcons') {
+            const icons = await imageProc.exportIcons(buffer);
+            const bundle = await FileSystemUtils.saveIconBundle(icons, `pixel_pilot_icons_${Date.now()}`);
+            this.postToWebview({ command: 'actionComplete', savedPath: bundle.relativeDirectory });
+            const choice = await vscode.window.showInformationMessage(
+              `✅ Đã xuất ${bundle.files.length} icon PNG vào ${bundle.relativeDirectory}`,
+              'Mở thư mục'
+            );
+            if (choice === 'Mở thư mục') {
+              await vscode.commands.executeCommand('revealFileInOS', bundle.directory);
+            }
           } else {
             const outBuf = await imageProc.enhance(buffer, 'clarity');
             const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_enhanced_${Date.now()}.png`);
@@ -555,7 +591,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           const filePath = fileUris[0].fsPath;
           const buf = await fs.promises.readFile(filePath);
           const ext = path.extname(filePath).slice(1) || 'png';
-          const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext}`;
+          const mime = imageMimeType(ext);
           const dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
           const cachedPath = await this.assetStorage.saveToCache(buf, ext);
           this.sessionManager.createSession(cachedPath, path.basename(filePath));
@@ -572,15 +608,38 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       case 'exportImage': {
         const { dataUrl } = message;
         if (!dataUrl) break;
+        let decoded;
+        try {
+          decoded = decodeImageInput(dataUrl);
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.postToWebview({ command: 'actionError', message: errorMessage });
+          vscode.window.showErrorMessage(errorMessage);
+          break;
+        }
         const saveUri = await vscode.window.showSaveDialog({
-          defaultUri: vscode.Uri.file(`pixel_pilot_export_${Date.now()}.png`),
-          filters: { 'Images': ['png', 'jpg', 'webp'] }
+          defaultUri: vscode.Uri.file(`pixel_pilot_export_${Date.now()}.${decoded.extension}`),
+          filters: { 'Images': ['png', 'jpg', 'jpeg', 'webp', 'avif', 'svg'] }
         });
         if (saveUri) {
-          const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-          const buffer = Buffer.from(base64Data, 'base64');
-          await vscode.workspace.fs.writeFile(saveUri, buffer);
+          const requestedExt = path.extname(saveUri.fsPath).slice(1).toLowerCase();
+          let output = decoded.buffer;
+          if (requestedExt === 'svg' && decoded.extension !== 'svg') {
+            const errorMessage = 'Không thể đổi ảnh raster thành SVG chỉ bằng cách đổi đuôi tệp. Hãy dùng công cụ Vectorize trước.';
+            this.postToWebview({ command: 'actionError', message: errorMessage });
+            vscode.window.showErrorMessage(errorMessage);
+            break;
+          }
+          if (requestedExt && requestedExt !== decoded.extension && requestedExt !== 'svg') {
+            const pipeline = sharp(decoded.buffer);
+            if (requestedExt === 'jpg' || requestedExt === 'jpeg') output = await pipeline.jpeg({ quality: 92 }).toBuffer();
+            else if (requestedExt === 'webp') output = await pipeline.webp({ quality: 90 }).toBuffer();
+            else if (requestedExt === 'avif') output = await pipeline.avif({ quality: 70 }).toBuffer();
+            else if (requestedExt === 'png') output = await pipeline.png().toBuffer();
+          }
+          await vscode.workspace.fs.writeFile(saveUri, output);
           vscode.window.showInformationMessage(`💾 Đã lưu ảnh: ${path.basename(saveUri.fsPath)}`);
+          this.postToWebview({ command: 'AI_ACTION_SUCCESS', message: `Đã lưu ${path.basename(saveUri.fsPath)}` });
         }
         break;
       }
@@ -1201,7 +1260,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     if (!session) return;
     const parentId = session.currentNodeId;
     const adapter = new ComfyUIAdapter();
-    const input = Buffer.from(image.replace(/^data:image\/[\w+.-]+;base64,/, ''), 'base64');
+    const input = operation === 'generate' ? Buffer.alloc(0) : decodeImageInput(this.uriToPathMap.get(image) || image).buffer;
     let result: AIResult;
     const localResult = (buffer: Buffer, model: string): AIResult => ({ success: true, outputImageUri: `data:image/png;base64,${buffer.toString('base64')}`, metrics: { model, latencyMs: 0, costUsd: 0 } });
     switch (operation) {
@@ -1343,6 +1402,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     const op = message.operation as OperationType;
     const realInput = this.uriToPathMap.get(inputImg) || inputImg;
 
+    // Resolve credentials at dispatch time. This prevents an early chat command
+    // from being permanently routed to the limited offline processor.
+    await this.refreshRunwareApiKey();
+
     const forwardToClient = (cutoutUri?: string, isCutout?: boolean) => {
       this.postToWebview({
         type: 'requestClientOperation',
@@ -1462,7 +1525,20 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         }
       } catch (err: any) {
         console.warn('[PixelPilot] Local execution fallback failed:', err);
+        this.sessionManager.addMessage(session.sessionId, {
+          sender: 'assistant',
+          text: `⚠️ Không thể hoàn tất "${message.operationLabel || op}" bằng engine offline. ${err.message || String(err)}`,
+          nodeId: parentNode.nodeId,
+          operation: op,
+          replyType: 'tool_call',
+          toolName: op
+        });
+        this.broadcastSessionState();
+        this.postToWebview({ command: 'actionError', message: err.message || String(err) });
+        return;
       }
+      // The operation is not implemented by the local engine; let the legacy
+      // canvas dispatcher handle only those explicitly supported client tools.
       forwardToClient();
       return;
     }
@@ -1515,6 +1591,18 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           };
       }
 
+      // If cloud removal is unavailable, only accept ComfyUI when a real RMBG
+      // node handled the request. The adapter's color fallback is intentionally
+      // not treated as an AI cutout for complex images.
+      if (!res.success && op === 'remove_background') {
+        try {
+          const comfyResult = await new ComfyUIAdapter().removeBackground(realInput);
+          if (comfyResult.success && comfyResult.outputImageUri && /^ComfyUI\b/.test(comfyResult.metrics.model)) {
+            res = comfyResult;
+          }
+        } catch {}
+      }
+
       if (res.success) {
         let displayUri = res.outputImageUri || inputImg;
         if (res.outputImageUri && this._view) {
@@ -1544,9 +1632,18 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         this.broadcastSessionState();
         this.postToWebview({ type: 'operationCompleted', operation: op });
       } else {
-        // Automatic fallback to Smart Client Engine so user request never fails
-        console.warn(`[PixelPilot] Cloud AI unavailable (${res.error}), falling back to Smart Client Engine.`);
-        forwardToClient();
+        const errorText = res.error || 'Không có engine AI phù hợp đang hoạt động.';
+        console.warn(`[PixelPilot] AI operation unavailable: ${errorText}`);
+        this.sessionManager.addMessage(session.sessionId, {
+          sender: 'assistant',
+          text: `⚠️ Chưa thể hoàn tất "${message.operationLabel || op}". ${errorText}\n\nHãy kiểm tra API key/credit hoặc khởi động ComfyUI với node BiRefNet/RMBG rồi thử lại.`,
+          nodeId: parentNode.nodeId,
+          operation: op,
+          replyType: 'tool_call',
+          toolName: op
+        });
+        this.broadcastSessionState();
+        this.postToWebview({ command: 'actionError', message: errorText });
       }
     } catch (err: any) {
       console.warn(`[PixelPilot] Cloud AI execution error (${err.message}), falling back to Smart Client Engine.`);
@@ -1564,9 +1661,22 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       messageCount: s.messages.length
     }));
 
+    // Session files live outside the webview sandbox. Convert operation outputs
+    // to data URIs before broadcasting so every chat result can be rendered in
+    // both the sidebar and the full Studio panel.
+    const webviewSession = activeSession ? {
+      ...activeSession,
+      messages: activeSession.messages.map((message) => ({
+        ...message,
+        outputImageUri: message.outputImageUri
+          ? this.assetStorage.getWebviewUri(message.outputImageUri)
+          : undefined
+      }))
+    } : null;
+
     const update = {
       type: 'sessionUpdated',
-      session: activeSession,
+      session: webviewSession,
       sessionsList: allSessions,
       currentImage: activeSession ? this.assetStorage.getWebviewUri(activeSession.nodes[activeSession.currentNodeId]?.outputImageUri || '') : ''
     };

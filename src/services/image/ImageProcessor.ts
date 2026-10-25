@@ -149,6 +149,18 @@ export class ImageProcessor implements IImageProcessor {
       }
     }
 
+    let backgroundPixels = 0;
+    let existingTransparentPixels = 0;
+    for (let i = 0; i < w * h; i++) {
+      if (isBg[i] === 1) backgroundPixels++;
+      if (data[i * 4 + 3] < 245) existingTransparentPixels++;
+    }
+    const removedRatio = backgroundPixels / (w * h);
+    const existingAlphaRatio = existingTransparentPixels / (w * h);
+    if (existingAlphaRatio < 0.01 && (removedRatio < 0.01 || removedRatio > 0.98)) {
+      throw new Error('Nền ảnh quá phức tạp cho bộ tách nền offline. Cần Runware BiRefNet hoặc ComfyUI RMBG để tạo cutout chính xác.');
+    }
+
     // Set alpha = 0 for background and feather boundary
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {

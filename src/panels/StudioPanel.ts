@@ -202,11 +202,17 @@ export class StudioPanel {
 
       case 'getModels': {
         try {
+          const isOnline = await this._invokeApi.ping();
+          if (!isOnline) {
+            this.sendMessage({ command: 'modelsLoaded', models: [] });
+            break;
+          }
           const models = await this._invokeApi.getModels();
           this.sendMessage({ command: 'modelsLoaded', models });
-        } catch (error: any) {
-          this.sendMessage({ command: 'error', message: error.message });
-          vscode.window.showErrorMessage(error.message);
+        } catch {
+          // InvokeAI is optional. Keep the Runware Copilot usable without a
+          // disruptive toast when the local InvokeAI service is not running.
+          this.sendMessage({ command: 'modelsLoaded', models: [] });
         }
         break;
       }
@@ -619,6 +625,17 @@ export class StudioPanel {
             const savedResult = await FileSystemUtils.saveImageToWorkspace(comp, `pixel_pilot_compressed_${Date.now()}.${options?.format || 'webp'}`);
             this.sendMessage({ command: 'actionComplete', savedPath: savedResult.relativePath });
             vscode.window.showInformationMessage(`💾 Đã nén thành công (${(comp.byteLength / 1024).toFixed(1)} KB): ${savedResult.relativePath}`);
+          } else if (action === 'exportIcons') {
+            const icons = await imageProc.exportIcons(buffer);
+            const bundle = await FileSystemUtils.saveIconBundle(icons, `pixel_pilot_icons_${Date.now()}`);
+            this.sendMessage({ command: 'actionComplete', savedPath: bundle.relativeDirectory });
+            const choice = await vscode.window.showInformationMessage(
+              `✅ Đã xuất ${bundle.files.length} icon PNG vào ${bundle.relativeDirectory}`,
+              'Mở thư mục'
+            );
+            if (choice === 'Mở thư mục') {
+              await vscode.commands.executeCommand('revealFileInOS', bundle.directory);
+            }
           } else {
             // Default enhance clarity
             const outBuf = await imageProc.enhance(buffer, 'clarity');

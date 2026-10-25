@@ -320,6 +320,14 @@ export function activate(context: vscode.ExtensionContext) {
   statusBarItem.tooltip = 'Mở Pixel Pilot AI Studio';
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
+
+  // F5 should open the product immediately. Keep production installs quiet,
+  // but remove the extra command-palette step in the Extension Development Host.
+  if (context.extensionMode === vscode.ExtensionMode.Development) {
+    setTimeout(() => {
+      void vscode.commands.executeCommand('pixel-pilot.openStudio');
+    }, 300);
+  }
 }
 
 export function deactivate() {

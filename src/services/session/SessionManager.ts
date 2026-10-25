@@ -23,7 +23,9 @@ export class SessionManager {
         fs.mkdirSync(dir, { recursive: true });
       }
       const data = { activeSessionId: this.activeSessionId, sessions: Array.from(this.sessions.values()) };
-      fs.writeFileSync(this.storageFilePath, JSON.stringify(data, null, 2), 'utf-8');
+      const temporaryPath = `${this.storageFilePath}.tmp`;
+      fs.writeFileSync(temporaryPath, JSON.stringify(data, null, 2), 'utf-8');
+      fs.renameSync(temporaryPath, this.storageFilePath);
     } catch (e) {
       console.error('Failed to save sessions to disk:', e);
     }
@@ -35,11 +37,17 @@ export class SessionManager {
       const raw = fs.readFileSync(this.storageFilePath, 'utf-8');
       const stored = JSON.parse(raw) as ImageSession[] | { activeSessionId: string | null; sessions: ImageSession[] };
       const list = Array.isArray(stored) ? stored : stored.sessions;
+      if (!Array.isArray(list)) throw new Error('Invalid session store');
       for (const s of list) {
-        this.sessions.set(s.sessionId, s);
+        if (s && typeof s.sessionId === 'string' && s.nodes && typeof s.rootNodeId === 'string') {
+          s.messages = Array.isArray(s.messages) ? s.messages : [];
+          s.updatedAt = Number.isFinite(s.updatedAt) ? s.updatedAt : Date.now();
+          this.sessions.set(s.sessionId, s);
+        }
       }
-      if (list.length > 0) this.activeSessionId = !Array.isArray(stored) && stored.activeSessionId && this.sessions.has(stored.activeSessionId)
-        ? stored.activeSessionId : list[0].sessionId;
+      const validSessions = Array.from(this.sessions.values());
+      if (validSessions.length > 0) this.activeSessionId = !Array.isArray(stored) && stored.activeSessionId && this.sessions.has(stored.activeSessionId)
+        ? stored.activeSessionId : validSessions[0].sessionId;
     } catch (e) {
       console.error('Failed to load sessions from disk:', e);
     }
@@ -283,8 +291,11 @@ export class SessionManager {
 
   public importDAG(jsonStr: string): ImageSession {
     const session = JSON.parse(jsonStr) as ImageSession;
-    if (!session.sessionId || !session.nodes || !session.rootNodeId) {
+    if (!session.sessionId || !session.nodes || !session.rootNodeId || !session.nodes[session.rootNodeId]) {
       throw new Error('Invalid Session DAG format');
+    }
+    if (!session.currentNodeId || !session.nodes[session.currentNodeId]) {
+      session.currentNodeId = session.rootNodeId;
     }
     if (!session.messages) {
       session.messages = [];

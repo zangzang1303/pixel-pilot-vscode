@@ -1,5 +1,48 @@
-import axios, { AxiosInstance } from 'axios';
 import * as vscode from 'vscode';
+
+interface HttpResponse<T = any> { status: number; data: T; }
+
+/** Small fetch client that avoids Axios' Node navigator migration failure in
+ * newer VS Code Extension Hosts. */
+class InvokeHttpClient {
+  public defaults: { baseURL: string };
+
+  constructor(baseURL: string, private readonly defaultTimeout = 120000) {
+    this.defaults = { baseURL };
+  }
+
+  public get(pathname: string, options?: { timeout?: number; responseType?: 'arraybuffer' }): Promise<HttpResponse> {
+    return this.request('GET', pathname, undefined, options);
+  }
+
+  public post(pathname: string, body?: unknown, options?: { timeout?: number; headers?: Record<string, string>; responseType?: 'arraybuffer' }): Promise<HttpResponse> {
+    return this.request('POST', pathname, body, options);
+  }
+
+  private async request(method: string, pathname: string, body?: unknown, options?: { timeout?: number; headers?: Record<string, string>; responseType?: 'arraybuffer' }): Promise<HttpResponse> {
+    const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (!isForm) headers['Content-Type'] = 'application/json';
+    for (const [key, value] of Object.entries(options?.headers || {})) {
+      if (!(isForm && key.toLowerCase() === 'content-type')) headers[key] = value;
+    }
+
+    const response = await fetch(`${this.defaults.baseURL}${pathname}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : isForm ? body as FormData : JSON.stringify(body),
+      signal: AbortSignal.timeout(options?.timeout || this.defaultTimeout)
+    });
+    const data = options?.responseType === 'arraybuffer'
+      ? await response.arrayBuffer()
+      : await response.json().catch(async () => ({ message: await response.text().catch(() => '') }));
+    if (!response.ok) {
+      const message = (data as any)?.message || (data as any)?.detail || response.statusText;
+      throw new Error(`HTTP ${response.status}: ${message}`);
+    }
+    return { status: response.status, data };
+  }
+}
 
 export interface InvokeModel {
   key: string;
@@ -33,20 +76,13 @@ export interface GenerationResult {
  * Service to communicate with local InvokeAI backend via REST & OpenAPI endpoints.
  */
 export class InvokeApiService {
-  private client: AxiosInstance;
+  private client: InvokeHttpClient;
   private baseUrl: string;
   private cachedModels: InvokeModel[] = [];
 
   constructor(serverUrl?: string) {
     this.baseUrl = serverUrl || this.getConfiguredServerUrl();
-    this.client = axios.create({
-      baseURL: this.baseUrl,
-      timeout: 120000, // 2 minutes timeout for large tasks
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      }
-    });
+    this.client = new InvokeHttpClient(this.baseUrl);
   }
 
   public getBaseUrl(): string {
@@ -106,6 +142,24 @@ export class InvokeApiService {
         modelsData = res.data;
       }
 
+      // InvokeAI keeps database records when model files are deleted outside
+      // Model Manager. Exclude these unusable records from Pixel Pilot's model
+      // picker so generation cannot be queued with a known-broken model.
+      const missingKeys = new Set<string>();
+      try {
+        const missingResponse = await this.client.get('/api/v2/models/missing');
+        const missingList = Array.isArray(missingResponse.data)
+          ? missingResponse.data
+          : missingResponse.data?.models;
+        if (Array.isArray(missingList)) {
+          for (const item of missingList) {
+            if (typeof item?.key === 'string') missingKeys.add(item.key);
+          }
+        }
+      } catch {
+        // Older InvokeAI versions do not expose the missing-model endpoint.
+      }
+
       const models: InvokeModel[] = [];
 
       if (Array.isArray(modelsData)) {
@@ -137,8 +191,11 @@ export class InvokeApiService {
         }
       }
 
-      this.cachedModels = models;
-      return models;
+      const usableModels = models.filter((model) =>
+        !missingKeys.has(model.key) && (model.type === 'main' || !model.type)
+      );
+      this.cachedModels = usableModels;
+      return usableModels;
     } catch (error: any) {
       console.error('Failed to get models from InvokeAI:', error?.message || error);
       throw new Error(
@@ -172,6 +229,10 @@ export class InvokeApiService {
       } catch {
         // Continue even if models fetch failed
       }
+    }
+
+    if (this.cachedModels.length === 0) {
+      throw new Error('InvokeAI is online but has no usable main model. Reinstall a model in InvokeAI Model Manager or use ComfyUI.');
     }
 
     let resolvedModel: InvokeModel | undefined;

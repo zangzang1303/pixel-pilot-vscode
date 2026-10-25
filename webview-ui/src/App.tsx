@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AlertCircle, CheckCircle2, X } from 'lucide-react';
 import {
   SettingsSidebar,
   ModelItem,
@@ -16,7 +17,13 @@ interface ChatMessage {
   text: string;
   thought?: string;
   operation?: string;
+  outputImageUri?: string;
   suggestions?: Array<{ label: string; reason: string }>;
+}
+
+interface ToastState {
+  kind: 'success' | 'error' | 'info';
+  message: string;
 }
 
 interface ChatSessionSummary {
@@ -79,6 +86,13 @@ export const App: React.FC = () => {
   // Cloud AI Key status
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
   const [apiKeyMasked, setApiKeyMasked] = useState<string>('');
+  const [toast, setToast] = useState<ToastState | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), toast.kind === 'error' ? 7000 : 4000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   // Handle messages from Extension Host
   useEffect(() => {
@@ -103,7 +117,9 @@ export const App: React.FC = () => {
         case 'modelsLoaded':
           if (Array.isArray(message.models)) {
             setModels(message.models);
-            if (message.models.length > 0) setSelectedModel((previous) => previous || message.models[0].key);
+            setSelectedModel((previous) => message.models.some((model: ModelItem) => model.key === previous)
+              ? previous
+              : message.models[0]?.key || '');
           }
           break;
 
@@ -135,12 +151,14 @@ export const App: React.FC = () => {
           setSavedPath(message.savedPath);
           setSnippetInserted(Boolean(message.snippetInserted));
           setProgressPercentage(100);
+          setToast({ kind: 'success', message: 'Đã tạo và lưu ảnh thành công.' });
           break;
 
         case 'generationError':
           setIsGenerating(false);
           setProgressStatus('');
           setProgressPercentage(undefined);
+          setToast({ kind: 'error', message: message.message || 'Không thể tạo ảnh. Hãy kiểm tra model và máy chủ AI.' });
           break;
 
         case 'upscaleStarted':
@@ -158,10 +176,12 @@ export const App: React.FC = () => {
           setIsUpscaling(false);
           setCurrentImageUrl(message.dataUrl);
           setSavedPath(message.savedPath);
+          setToast({ kind: 'success', message: 'Đã phóng to và lưu ảnh thành công.' });
           break;
 
         case 'upscaleError':
           setIsUpscaling(false);
+          setToast({ kind: 'error', message: message.message || 'Không thể phóng to ảnh.' });
           break;
 
         case 'actionStarted':
@@ -179,11 +199,24 @@ export const App: React.FC = () => {
           if (message.savedPath) {
             setSavedPath(message.savedPath);
           }
+          setToast({ kind: 'success', message: message.message || 'Đã hoàn tất thao tác ảnh.' });
           break;
 
         case 'actionError':
         case 'AI_ACTION_ERROR':
           setIsProcessingAction(false);
+          setToast({ kind: 'error', message: message.message || message.payload?.error || 'Không thể hoàn tất thao tác ảnh.' });
+          break;
+
+        case 'operationFailed':
+          setIsProcessingAction(false);
+          setIsChatThinking(false);
+          setToast({ kind: 'error', message: message.error || 'Agent không thể hoàn tất yêu cầu.' });
+          break;
+
+        case 'operationCompleted':
+          setIsProcessingAction(false);
+          setIsChatThinking(false);
           break;
 
         case 'chatReply':
@@ -206,6 +239,7 @@ export const App: React.FC = () => {
             role: item.sender,
             text: item.text,
             operation: item.operation,
+            outputImageUri: item.outputImageUri,
             suggestions: item.suggestions
           })));
           setIsChatThinking(history.length > 0 && history[history.length - 1]?.sender === 'user');
@@ -342,8 +376,9 @@ export const App: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100">
-      {/* Settings & Tools Sidebar with Tabs */}
-      <SettingsSidebar
+      {/* The tool sidebar is intentionally hidden in agent mode: the conversation
+          needs a usable reading/writing width and exposes its own navigation. */}
+      {activeTab !== 'chat' && <SettingsSidebar
         isOnline={isOnline}
         comfyOnline={comfyOnline}
         serverUrl={serverUrl}
@@ -373,14 +408,28 @@ export const App: React.FC = () => {
         onDeleteSession={(sessionId) => vscode.postMessage({ command: 'deleteSession', sessionId })}
         hasApiKey={hasApiKey}
         apiKeyMasked={apiKeyMasked}
-      />
+      />}
 
       {/* Main Studio Canvas Area */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {activeTab === 'chat' ? (
-          <div className="flex h-full min-w-0">
-            <CopilotChat messages={chatMessages} isThinking={isChatThinking} hasImage={Boolean(currentImageUrl)} onSend={handleSendMessage} onOpenImage={handleOpenImage} />
-            {currentImageUrl && <div className="hidden w-[45%] min-w-0 border-l border-slate-800 lg:flex">{canvasView}</div>}
+          <div className={`grid h-full min-h-0 min-w-0 grid-cols-1 overflow-hidden ${currentImageUrl ? 'xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.85fr)]' : ''}`}>
+            <CopilotChat
+              messages={chatMessages}
+              isThinking={isChatThinking}
+              hasImage={Boolean(currentImageUrl)}
+              currentImageUrl={currentImageUrl}
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              onSend={handleSendMessage}
+              onOpenImage={handleOpenImage}
+              onNewSession={() => vscode.postMessage({ command: 'newSession' })}
+              onSwitchSession={(sessionId) => vscode.postMessage({ command: 'switchSession', sessionId })}
+              onNavigate={setActiveTab}
+              hasApiKey={hasApiKey}
+              onConfigureApiKey={() => vscode.postMessage({ command: 'openApiKeyPrompt' })}
+            />
+            {currentImageUrl && <div className="hidden min-w-0 border-l border-slate-800 xl:flex">{canvasView}</div>}
           </div>
         ) : canvasView}
 
@@ -396,6 +445,14 @@ export const App: React.FC = () => {
           />
         )}
       </main>
+
+      {toast && (
+        <div role="status" aria-live="polite" className={`fixed bottom-5 right-5 z-50 flex max-w-sm items-start gap-3 rounded-xl border px-4 py-3 text-sm shadow-2xl backdrop-blur ${toast.kind === 'error' ? 'border-rose-400/30 bg-rose-950/95 text-rose-100' : toast.kind === 'success' ? 'border-emerald-400/30 bg-emerald-950/95 text-emerald-100' : 'border-sky-400/30 bg-sky-950/95 text-sky-100'}`}>
+          {toast.kind === 'error' ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
+          <span className="leading-5">{toast.message}</span>
+          <button type="button" onClick={() => setToast(null)} className="ml-1 rounded p-0.5 opacity-70 hover:bg-white/10 hover:opacity-100" aria-label="Đóng thông báo"><X className="h-3.5 w-3.5" /></button>
+        </div>
+      )}
     </div>
   );
 };

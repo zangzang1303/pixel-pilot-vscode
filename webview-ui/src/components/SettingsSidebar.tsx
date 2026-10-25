@@ -685,30 +685,10 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
         {/* TAB 4: TRỢ LÝ AI COPILOT (CHAT AGENT)                                     */}
         {/* ========================================================================= */}
         {activeTab === 'chat' && (
-          <div className="flex flex-col h-full gap-2 animate-in fade-in duration-200">
-            <div className="flex items-center gap-1.5 border-b border-slate-800 pb-2">
-              <select value={activeSessionId} onChange={(e) => onSwitchSession(e.target.value)} aria-label="Phiên trò chuyện" className="min-w-0 flex-1 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-slate-100">
-                {sessions.map((session) => <option key={session.sessionId} value={session.sessionId}>{session.title}</option>)}
-              </select>
-              <button type="button" title="Cuộc trò chuyện mới" onClick={onNewSession} className="p-1.5 rounded-lg border border-slate-700 hover:bg-slate-800"><Plus className="w-4 h-4" /></button>
-              <button type="button" title="Đổi tên phiên" disabled={!activeSessionId} onClick={() => {
-                const title = window.prompt('Tên phiên', sessions.find((session) => session.sessionId === activeSessionId)?.title || '');
-                if (title?.trim()) onRenameSession(activeSessionId, title.trim());
-              }} className="p-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 disabled:opacity-40"><Pencil className="w-4 h-4" /></button>
-              <button type="button" title="Xóa phiên" disabled={!activeSessionId} onClick={() => {
-                if (window.confirm('Xóa cuộc trò chuyện này?')) onDeleteSession(activeSessionId);
-              }} className="p-1.5 rounded-lg border border-slate-700 hover:bg-red-950 disabled:opacity-40"><Trash2 className="w-4 h-4" /></button>
-            </div>
-            <div className="flex-1 overflow-y-auto space-y-1 p-1">
-              <p className="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Lịch sử phiên</p>
-              {sessions.map((session) => (
-                <button key={session.sessionId} type="button" onClick={() => onSwitchSession(session.sessionId)} className={`w-full rounded-lg border px-3 py-2 text-left text-xs ${session.sessionId === activeSessionId ? 'border-indigo-500/50 bg-indigo-500/15 text-white' : 'border-transparent text-slate-400 hover:bg-slate-800'}`}>
-                  <span className="block truncate font-medium">{session.title}</span>
-                  <span className="text-[10px] opacity-60">{session.messageCount} tin nhắn</span>
-                </button>
-              ))}
-            </div>
-
+          <div className="rounded-xl border border-violet-500/20 bg-gradient-to-br from-violet-500/10 to-cyan-500/5 p-3 text-xs animate-in fade-in duration-200">
+            <div className="flex items-center gap-2 text-violet-200"><Sparkles className="h-4 w-4 text-cyan-300" /><span className="font-semibold">Agent chỉnh ảnh theo ngữ cảnh</span></div>
+            <p className="mt-2 leading-5 text-slate-400">Mô tả kết quả bạn muốn bằng ngôn ngữ tự nhiên. Agent sẽ tự chọn công cụ và lưu lịch sử thao tác theo từng phiên.</p>
+            <button type="button" onClick={onNewSession} className="mt-3 w-full rounded-lg border border-violet-400/30 bg-violet-500/10 px-2 py-1.5 text-[11px] font-medium text-violet-200 hover:bg-violet-500/20">Bắt đầu phiên chỉnh ảnh mới</button>
           </div>
         )}
 

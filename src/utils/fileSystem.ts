@@ -64,6 +64,35 @@ export class FileSystemUtils {
   }
 
   /**
+   * Save a complete web/PWA icon set together so exported assets do not end up
+   * scattered across the workspace. Uses the VS Code filesystem API, which
+   * also works with remote workspaces and virtual file systems.
+   */
+  public static async saveIconBundle(
+    icons: ReadonlyArray<{ size: number; buffer: Buffer | Uint8Array }>,
+    bundleName = 'pixel_pilot_icons'
+  ): Promise<{ directory: vscode.Uri; relativeDirectory: string; files: string[] }> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    const root = workspaceFolder?.uri || vscode.Uri.file(process.cwd());
+    const safeName = bundleName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'pixel_pilot_icons';
+    const directory = vscode.Uri.joinPath(root, 'assets', safeName);
+    await vscode.workspace.fs.createDirectory(directory);
+
+    const files: string[] = [];
+    for (const icon of icons) {
+      const fileName = `icon-${icon.size}x${icon.size}.png`;
+      await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(directory, fileName), new Uint8Array(icon.buffer));
+      files.push(fileName);
+    }
+
+    return {
+      directory,
+      relativeDirectory: `./assets/${safeName}`,
+      files
+    };
+  }
+
+  /**
    * Automatically insert an image snippet into the active editor at the current cursor position.
    * Markdown -> ![alt_text](./assets/filename.png)
    * HTML/TSX/JSX -> <img src="./assets/filename.png" />

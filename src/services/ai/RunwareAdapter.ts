@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import sharp from 'sharp';
 import { IAIProvider } from './IAIProvider';
 import { AIResult } from '../session/types';
 import { ImageProcessor } from '../image/ImageProcessor';
@@ -95,6 +96,27 @@ export class RunwareAdapter implements IAIProvider {
     return Buffer.from(imageInput, 'base64');
   }
 
+  /** Reject false-positive background-removal responses that are still opaque. */
+  private async hasMeaningfulTransparency(imageOutput: string): Promise<boolean> {
+    let buffer: Buffer;
+    if (/^https?:\/\//i.test(imageOutput)) {
+      const response = await fetch(imageOutput);
+      if (!response.ok) return false;
+      buffer = Buffer.from(await response.arrayBuffer());
+    } else {
+      buffer = this.getBufferFromInput(imageOutput);
+    }
+
+    const { data, info } = await sharp(buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    let transparent = 0;
+    const pixels = info.width * info.height;
+    for (let index = 3; index < data.length; index += info.channels) {
+      if (data[index] < 245) transparent++;
+    }
+    const ratio = transparent / pixels;
+    return ratio >= 0.005 && ratio <= 0.995;
+  }
+
   /**
    * Universal extractor for image outputs returned by Runware API
    */
@@ -167,7 +189,9 @@ export class RunwareAdapter implements IAIProvider {
         {
           taskType: 'removeBackground',
           taskUUID,
-          model: options?.model || 'runware:112@9', // BiRefNet Matting
+          // General is more reliable than the portrait-focused matting variant
+          // for illustrations, products, anime and mixed-domain artwork.
+          model: options?.model || 'runware:112@5',
           outputFormat: 'PNG',
           outputType: 'dataURI',
           inputs: { image: img }
@@ -181,35 +205,23 @@ export class RunwareAdapter implements IAIProvider {
       if (!outputImage) {
         throw new Error('Runware API không trả về dữ liệu ảnh kết quả. Phản hồi: ' + JSON.stringify(res));
       }
+      if (!(await this.hasMeaningfulTransparency(outputImage))) {
+        throw new Error('BiRefNet trả về ảnh không có vùng trong suốt; kết quả không được chấp nhận.');
+      }
 
       return {
         success: true,
         outputImageUri: outputImage,
         metrics: {
-          model: 'Runware BiRefNet (runware:112@9)',
+          model: 'Runware BiRefNet General (runware:112@5)',
           latencyMs,
           costUsd: 0.0006
         }
       };
     } catch (err: any) {
-      if (err.message && (err.message.includes('Insufficient credits') || err.message.includes('400') || err.message.includes('Chưa cấu hình'))) {
-        try {
-          const buf = this.getBufferFromInput(imageInput);
-          const outBuf = await ImageProcessor.getInstance().removeBackground(buf);
-          return {
-            success: true,
-            outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-            metrics: {
-              model: 'BiRefNet SOTA (Local Precision - Cloud Credits Depleted)',
-              latencyMs: 65,
-              costUsd: 0
-            }
-          };
-        } catch {}
-      }
       return {
         success: false,
-        metrics: { model: 'Runware BiRefNet', latencyMs: 0, costUsd: 0 },
+        metrics: { model: 'Runware BiRefNet General', latencyMs: 0, costUsd: 0 },
         error: err.message || String(err)
       };
     }
