@@ -328,7 +328,7 @@ export class InvokeApiService {
         },
         {
           source: { node_id: 'noise', field: 'noise' },
-          destination: { node_id: 'denoise', field: 'latents' }
+          destination: { node_id: 'denoise', field: 'noise' }
         },
         {
           source: { node_id: 'denoise', field: 'latents' },
