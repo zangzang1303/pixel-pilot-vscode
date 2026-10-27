@@ -94,19 +94,52 @@ export class SecretManager {
   private static readonly LLM_DISCONNECTED_ID = 'pixelPilot.llmDisconnected';
   private static readonly LLM_PROVIDER_ID = 'pixelPilot.llmProvider';
 
+  private static llmProviderKeyId(provider: string): string {
+    return `pixelPilot.llmApiKey.${provider}`;
+  }
+
+  private static llmProviderDisconnectedId(provider: string): string {
+    return `pixelPilot.llmDisconnected.${provider}`;
+  }
+
+  private async retireLegacyLlmKey(provider: string): Promise<void> {
+    const legacyKey = await this.secrets.get(SecretManager.LLM_KEY_ID);
+    if (!legacyKey) return;
+    const tagged = await this.secrets.get(SecretManager.LLM_KEY_PROVIDER_ID);
+    const configured = vscode.workspace.getConfiguration('pixelPilot').inspect<string>('llmProvider')?.globalValue;
+    const owner = tagged || configured || provider;
+    if (owner === provider) {
+      await this.secrets.delete(SecretManager.LLM_KEY_ID);
+      await this.secrets.delete(SecretManager.LLM_KEY_PROVIDER_ID);
+    } else if (!tagged) {
+      await this.secrets.store(SecretManager.LLM_KEY_PROVIDER_ID, owner);
+    }
+  }
+
   /**
    * Retrieves the LLM API Key (Gemini, OpenAI, Groq, etc.)
    */
   public async getLlmApiKey(): Promise<string> {
-    if (await this.secrets.get(SecretManager.LLM_DISCONNECTED_ID)) return '';
     const provider = await this.getLlmProvider();
     if (provider === 'local' || provider === 'ollama') return '';
+    if (await this.secrets.get(SecretManager.llmProviderDisconnectedId(provider))) return '';
+    const providerKey = await this.secrets.get(SecretManager.llmProviderKeyId(provider));
+    if (providerKey?.trim()) return providerKey.trim();
+
+    // A legacy global disconnect prevents old settings and the old single-key
+    // slot from coming back, while newly connected provider slots still work.
+    if (await this.secrets.get(SecretManager.LLM_DISCONNECTED_ID)) return '';
     const secretKey = await this.secrets.get(SecretManager.LLM_KEY_ID);
     if (secretKey && secretKey.trim()) {
       const keyProvider = await this.secrets.get(SecretManager.LLM_KEY_PROVIDER_ID);
-      if (keyProvider && keyProvider !== provider) return '';
-      if (!keyProvider) await this.secrets.store(SecretManager.LLM_KEY_PROVIDER_ID, provider);
-      return secretKey.trim();
+      const config = vscode.workspace.getConfiguration('pixelPilot');
+      const legacyProvider = keyProvider || config.inspect<string>('llmProvider')?.globalValue || 'gemini';
+      if (legacyProvider === provider) {
+        await this.secrets.store(SecretManager.llmProviderKeyId(provider), secretKey.trim());
+        await this.secrets.delete(SecretManager.LLM_KEY_ID);
+        await this.secrets.delete(SecretManager.LLM_KEY_PROVIDER_ID);
+        return secretKey.trim();
+      }
     }
     const config = vscode.workspace.getConfiguration('pixelPilot');
     const legacyKey = config.inspect<string>('llmApiKey')?.globalValue;
@@ -123,15 +156,18 @@ export class SecretManager {
   public async setLlmApiKey(apiKey: string): Promise<void> {
     const provider = await this.getLlmProvider();
     if (provider === 'local' || provider === 'ollama') throw new Error('A cloud LLM provider is required to store an API key.');
-    await this.secrets.store(SecretManager.LLM_KEY_ID, apiKey.trim());
-    await this.secrets.store(SecretManager.LLM_KEY_PROVIDER_ID, provider);
-    await this.secrets.delete(SecretManager.LLM_DISCONNECTED_ID);
+    if (!apiKey.trim()) throw new Error('An API key is required.');
+    await this.secrets.store(SecretManager.llmProviderKeyId(provider), apiKey.trim());
+    await this.secrets.delete(SecretManager.llmProviderDisconnectedId(provider));
+    await this.retireLegacyLlmKey(provider);
   }
 
   public async deleteLlmApiKey(): Promise<void> {
-    await this.secrets.store(SecretManager.LLM_DISCONNECTED_ID, '1');
-    await this.secrets.delete(SecretManager.LLM_KEY_ID);
-    await this.secrets.delete(SecretManager.LLM_KEY_PROVIDER_ID);
+    const provider = await this.getLlmProvider();
+    if (provider === 'local' || provider === 'ollama') return;
+    await this.secrets.store(SecretManager.llmProviderDisconnectedId(provider), '1');
+    await this.secrets.delete(SecretManager.llmProviderKeyId(provider));
+    await this.retireLegacyLlmKey(provider);
   }
 
   public async getLlmProvider(): Promise<'gemini' | 'openai' | 'groq' | 'openrouter' | 'ollama' | 'local'> {

@@ -4,6 +4,9 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { SessionManager } from '../services/session/SessionManager';
 import { SessionCommitService } from '../services/session/SessionCommitService';
+import { CanvasActionCommitService, CanvasActionTarget } from '../services/session/CanvasActionCommitService';
+import { GenerationCommitService, GenerationTarget } from '../services/session/GenerationCommitService';
+import { CanvasGenerationExecutor } from '../services/copilot/CanvasGenerationExecutor';
 import { ContextBuilder } from '../services/copilot/ContextBuilder';
 import { CopilotOrchestrator } from '../services/copilot/CopilotOrchestrator';
 import { RunLifecycleService } from '../services/copilot/RunLifecycleService';
@@ -19,7 +22,7 @@ import { SecretManager } from '../services/security/SecretManager';
 import { PolicyService } from '../services/security/PolicyService';
 import { AssetStorageService } from '../services/storage/AssetStorageService';
 import { EnterpriseConfigManager } from '../services/config/EnterpriseConfigManager';
-import { InvokeApiService } from '../services/InvokeApiService';
+import { GenerationOptions, InvokeApiService, InvokeModel } from '../services/InvokeApiService';
 import { ImageProcessor } from '../services/image/ImageProcessor';
 import { CodeGenService } from '../services/ai/CodeGenService';
 import { OCRService } from '../services/ai/OCRService';
@@ -28,7 +31,7 @@ import { ComfyUIAdapter } from '../services/ai/ComfyUIAdapter';
 import { LocalChatService } from '../services/ai/LocalChatService';
 import { ImageAnalysisService } from '../services/ai/ImageAnalysisService';
 import sharp from 'sharp';
-import { decodeImageInput, imageMimeType } from '../utils/imageData';
+import { decodeImageInput, imageMimeType, validateImageBuffer } from '../utils/imageData';
 import { parseRunRequest } from '../shared/protocol';
 
 const VALID_UI_ACTIONS = new Set([
@@ -42,6 +45,9 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private sessionManager: SessionManager;
   private commitService: SessionCommitService;
+  private canvasCommit: CanvasActionCommitService;
+  private generationCommit: GenerationCommitService;
+  private generationExecutor: CanvasGenerationExecutor;
   private contextBuilder = new ContextBuilder();
   private copilotOrchestrator = new CopilotOrchestrator();
   private runLifecycle = new RunLifecycleService();
@@ -67,9 +73,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     this.secretManager = new SecretManager(context);
     this.assetStorage = new AssetStorageService(context);
     this.commitService = new SessionCommitService(this.sessionManager, this.assetStorage);
+    this.canvasCommit = new CanvasActionCommitService(this.sessionManager, this.commitService);
+    this.generationCommit = new GenerationCommitService(this.sessionManager, this.assetStorage);
     this.configManager = new EnterpriseConfigManager(workspaceRoot);
-    this.runwareAdapter = new RunwareAdapter('');
+    this.runwareAdapter = new RunwareAdapter('', () => this.secretManager.getApiKey());
     this.invokeApi = new InvokeApiService();
+    this.generationExecutor = new CanvasGenerationExecutor(this.invokeApi);
 
     // Warm the adapter, but never rely on this asynchronous preload alone.
     // A command can arrive before SecretStorage/.env has finished resolving.
@@ -83,6 +92,100 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   public getConfigManager(): EnterpriseConfigManager { return this.configManager; }
   /** Content-free run diagnostics for local troubleshooting; never sent to a webview. */
   public getRunTelemetry() { return this.telemetry.recent(); }
+
+  public captureCanvasAction(expected?: Partial<CanvasActionTarget>): CanvasActionTarget {
+    return this.canvasCommit.capture(expected);
+  }
+
+  public isCanvasTargetCurrent(target: CanvasActionTarget): boolean {
+    const active = this.sessionManager.getActiveSession();
+    return active?.sessionId === target.sessionId && active.currentNodeId === target.parentId;
+  }
+
+  public captureGenerationTarget(expected?: Partial<GenerationTarget>): GenerationTarget {
+    return this.generationCommit.capture(expected);
+  }
+
+  public async executeCanvasGeneration(
+    prompt: string,
+    model?: string | InvokeModel,
+    options?: GenerationOptions,
+    onProgress?: (status: string, percentage?: number) => void
+  ) {
+    return this.generationExecutor.execute(prompt, model, options, onProgress);
+  }
+
+  public async finishCanvasGeneration(
+    target: GenerationTarget,
+    prompt: string,
+    result: AIResult,
+    imageName: string,
+    params?: Record<string, unknown>
+  ) {
+    const session = await this.generationCommit.commit(target, prompt, result, params);
+    const nodeId = session.rootNodeId;
+    let savedPath: string | undefined;
+    let snippetInserted = false;
+    try {
+      const source = decodeImageInput(result.outputImageUri!);
+      const png = await sharp(source.buffer).png().toBuffer();
+      const saved = await FileSystemUtils.saveImageToWorkspace(png, `pixel_pilot_${Date.now()}.png`);
+      savedPath = saved.relativePath;
+      this.sessionManager.setNodeExportPath(session.sessionId, nodeId, savedPath);
+    } catch (error) {
+      console.warn('[PixelPilot] Generated image was cached but workspace export failed:', error);
+    }
+    this.broadcastSessionState();
+    if (savedPath && this.sessionManager.getActiveSession()?.sessionId === session.sessionId) {
+      try {
+        snippetInserted = await FileSystemUtils.autoInsertImageSnippet(savedPath, prompt.substring(0, 30));
+      } catch (error) {
+        console.warn('[PixelPilot] Generated image snippet insertion failed:', error);
+      }
+    }
+    return {
+      sessionId: session.sessionId, nodeId, imageName, savedPath, snippetInserted,
+      dataUrl: this.assetStorage.getWebviewUri(session.nodes[nodeId].outputImageUri)
+    };
+  }
+
+  public async requireCanvasWorkspaceTrust(): Promise<void> {
+    await this.policy.requireTrustedWorkspace('Image editing');
+  }
+
+  public async requireCanvasCloudConsent(provider: string, purpose: string): Promise<void> {
+    await this.policy.requireCloudConsent(provider, purpose);
+  }
+
+  public recordCanvasCaption(target: CanvasActionTarget, caption: string): void {
+    this.canvasCommit.recordCaption(target, caption);
+    this.broadcastSessionState();
+  }
+
+  /** Save the requested workspace export, then commit its validated preview to the pinned DAG parent. */
+  public async saveCanvasAction(
+    target: CanvasActionTarget,
+    action: string,
+    output: Buffer,
+    fileName: string,
+    options?: Record<string, unknown>,
+    preview?: Buffer
+  ) {
+    const png = await sharp(preview || output).png().toBuffer();
+    const exportBuffer = fileName.endsWith('.svg') ? output : png;
+    if (fileName.endsWith('.svg')) validateImageBuffer(exportBuffer, 'image/svg+xml');
+    const maskUri = typeof options?.maskDataUrl === 'string'
+      ? await this.assetStorage.saveToCache(options.maskDataUrl)
+      : undefined;
+    const saved = await FileSystemUtils.saveImageToWorkspace(exportBuffer, fileName);
+    const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
+    const node = await this.canvasCommit.commit(target, action, dataUrl, {
+      ...options,
+      exportPath: saved.relativePath
+    }, maskUri);
+    this.broadcastSessionState();
+    return { ...saved, dataUrl, sessionId: target.sessionId, nodeId: node.nodeId };
+  }
 
   private requestWebviewConfirmation(provider: string, purpose: string): Promise<boolean | undefined> {
     if (!this._view) return Promise.resolve(undefined);
@@ -199,60 +302,26 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
       case 'generate': {
         const { prompt, model, options } = message;
-        if (!prompt || !prompt.trim()) {
+        if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4096) {
           vscode.window.showWarningMessage('Vui lòng nhập prompt để sinh ảnh.');
           this.postToWebview({ command: 'generationError', message: 'Prompt rỗng' });
           break;
         }
 
         try {
+          const target = this.captureGenerationTarget({ sessionId: message.sessionId, nodeId: message.nodeId });
+          await this.requireCanvasWorkspaceTrust();
           this.postToWebview({ command: 'generationStarted' });
-          let imageBuffer: Buffer;
-          let dataUrl: string;
-          let imageName: string;
-          const invokeOnline = await this.invokeApi.ping();
-          const invokeModels = invokeOnline ? await this.invokeApi.getModels() : [];
-          if (invokeOnline && invokeModels.length > 0) {
-            const result = await this.invokeApi.generateTextToImage(
-              prompt, model || invokeModels[0], options || {},
-              (statusText, percentage) => this.postToWebview({ command: 'generationProgress', status: statusText, percentage })
-            );
-            imageBuffer = result.imageBuffer;
-            dataUrl = result.dataUrl;
-            imageName = result.imageName;
-          } else {
-            this.postToWebview({
-              command: 'generationProgress',
-              status: invokeOnline
-                ? 'InvokeAI không có model khả dụng, đang chuyển sang ComfyUI GPU...'
-                : 'Đang tạo ảnh bằng ComfyUI GPU...',
-              percentage: 35
-            });
-            const result = await new ComfyUIAdapter().generateImage(prompt, options?.negativePrompt, options?.width, options?.height);
-            dataUrl = result.outputImageUri!;
-            imageBuffer = Buffer.from(dataUrl.split(',')[1], 'base64');
-            imageName = 'PixelPilot_ComfyUI.png';
-          }
-
-          const savedResult = await FileSystemUtils.saveImageToWorkspace(
-            imageBuffer,
-            `pixel_pilot_${Date.now()}.png`
-          );
-          const cachedPath = await this.assetStorage.saveToCache(imageBuffer, 'png');
-          this.sessionManager.createSession(cachedPath, prompt.slice(0, 48));
-          this.broadcastSessionState();
-
-          await FileSystemUtils.autoInsertImageSnippet(savedResult.relativePath, prompt.substring(0, 30));
-
+          const generated = await this.executeCanvasGeneration(prompt, model, options, (status, percentage) => {
+            this.postToWebview({ command: 'generationProgress', status, percentage });
+          });
+          const completed = await this.finishCanvasGeneration(target, prompt, generated.result, generated.imageName, options);
           this.postToWebview({
             command: 'generationComplete',
-            dataUrl,
-            imageName,
-            savedPath: savedResult.relativePath,
-            snippetInserted: true
+            ...completed
           });
 
-          vscode.window.showInformationMessage(`✨ Sinh ảnh thành công: ${savedResult.relativePath}`);
+          vscode.window.showInformationMessage(`✨ Sinh ảnh thành công: ${completed.savedPath || 'Pixel Pilot history'}`);
         } catch (err: any) {
           this.postToWebview({ command: 'generationError', message: err.message });
           vscode.window.showErrorMessage(`Lỗi sinh ảnh: ${err.message}`);
@@ -268,10 +337,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             break;
           }
 
+          const target = this.captureCanvasAction({ sessionId: message.sessionId, parentId: message.nodeId });
+          await this.requireCanvasWorkspaceTrust();
+
           this.postToWebview({ command: 'upscaleStarted' });
-          const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-          const buffer = Buffer.from(base64Data, 'base64');
-          const targetFactor = (factor as 2 | 4) || 2;
+          const buffer = decodeImageInput(dataUrl).buffer;
+          const targetFactor = factor === 4 ? 4 : 2;
           const imageProc = ImageProcessor.getInstance();
 
           this.postToWebview({
@@ -282,18 +353,21 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
           const upscaledBuf = await imageProc.upscale(buffer, targetFactor);
 
-          const savedResult = await FileSystemUtils.saveImageToWorkspace(
+          const savedResult = await this.saveCanvasAction(target, 'upscale',
             upscaledBuf,
-            `pixel_pilot_upscaled_${targetFactor}x_${Date.now()}.png`
+            `pixel_pilot_upscaled_${targetFactor}x_${Date.now()}.png`,
+            { factor: targetFactor }
           );
 
-          await FileSystemUtils.autoInsertImageSnippet(savedResult.relativePath, `Upscaled ${targetFactor}x Image`);
-
-          const outDataUrl = `data:image/png;base64,${upscaledBuf.toString('base64')}`;
+          if (this.isCanvasTargetCurrent({ sessionId: target.sessionId, parentId: savedResult.nodeId })) {
+            await FileSystemUtils.autoInsertImageSnippet(savedResult.relativePath, `Upscaled ${targetFactor}x Image`);
+          }
 
           this.postToWebview({
             command: 'upscaleComplete',
-            dataUrl: outDataUrl,
+            dataUrl: savedResult.dataUrl,
+            sessionId: savedResult.sessionId,
+            nodeId: savedResult.nodeId,
             savedPath: savedResult.relativePath
           });
 
@@ -319,6 +393,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         }
 
         try {
+          const target = this.captureCanvasAction({ sessionId: message.sessionId, parentId: message.nodeId });
           await this.policy.requireTrustedWorkspace('Image editing');
           this.postToWebview({ command: 'actionStarted', label: `Đang thực hiện ${action}...` });
           const decodedInput = decodeImageInput(dataUrl);
@@ -346,7 +421,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               if (runwareKey && runwareKey.trim().length > 10) {
                 await this.policy.requireCloudConsent('Runware', 'Background removal');
                 try {
-                  const adapter = new RunwareAdapter(runwareKey);
+                  const adapter = new RunwareAdapter(runwareKey, () => this.secretManager.getApiKey());
                   const res = await adapter.removeBackground(dataUrl);
                   if (res.outputImageUri) {
                     const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
@@ -362,10 +437,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               }
             }
 
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_cutout_${Date.now()}.png`);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_cutout_${Date.now()}.png`, options);
             this.postToWebview({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Tách nền thành công: ${savedResult.relativePath}`);
@@ -391,7 +468,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               if (runwareKey && runwareKey.trim().length > 10) {
                 await this.policy.requireCloudConsent('Runware', `Upscale ${factor}x`);
                 try {
-                  const adapter = new RunwareAdapter(runwareKey);
+                  const adapter = new RunwareAdapter(runwareKey, () => this.secretManager.getApiKey());
                   const res = await adapter.upscale(dataUrl, factor);
                   if (res.outputImageUri) {
                     const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
@@ -406,10 +483,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
                 outBuf = await imageProc.upscale(buffer, factor);
               }
             }
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`, options);
             this.postToWebview({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Phóng to ${factor}x thành công: ${savedResult.relativePath}`);
@@ -420,7 +499,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             if (runwareKey && runwareKey.trim().length > 10) {
               await this.policy.requireCloudConsent('Runware', `Enhance ${type}`);
               try {
-                const adapter = new RunwareAdapter(runwareKey);
+                const adapter = new RunwareAdapter(runwareKey, () => this.secretManager.getApiKey());
                 const res = await adapter.enhanceImage(dataUrl, type);
                 if (res.outputImageUri) {
                   const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
@@ -434,10 +513,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             } else {
               outBuf = await imageProc.enhance(buffer, type);
             }
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_enhanced_${Date.now()}.png`);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_enhanced_${Date.now()}.png`, options);
             this.postToWebview({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Khử mờ & Làm nét HDR thành công: ${savedResult.relativePath}`);
@@ -446,10 +527,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const outBuf = maskResult.outputImageUri
               ? Buffer.from(maskResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
               : await imageProc.extractMask(buffer);
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_mask_${Date.now()}.png`);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_mask_${Date.now()}.png`, options);
             this.postToWebview({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Trích xuất Mask thành công: ${savedResult.relativePath}`);
@@ -458,19 +541,23 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const outBuf = cannyResult.outputImageUri
               ? Buffer.from(cannyResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
               : await imageProc.detectEdges(buffer, 'canny');
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_canny_${Date.now()}.png`);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_canny_${Date.now()}.png`, options);
             this.postToWebview({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Dò biên Canny thành công: ${savedResult.relativePath}`);
           } else if (action === 'lineart' || action === 'lineExtraction') {
             const outBuf = await imageProc.detectEdges(buffer, 'lineart');
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_lineart_${Date.now()}.png`);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_lineart_${Date.now()}.png`, options);
             this.postToWebview({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Trích xuất Lineart thành công: ${savedResult.relativePath}`);
@@ -479,10 +566,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const outBuf = depthResult.outputImageUri
               ? Buffer.from(depthResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
               : await imageProc.detectEdges(buffer, 'depth');
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_depth_${Date.now()}.png`);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_depth_${Date.now()}.png`, options);
             this.postToWebview({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Tạo bản đồ độ sâu 3D thành công: ${savedResult.relativePath}`);
@@ -492,10 +581,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const outBuf = extendResult.outputImageUri
               ? Buffer.from(extendResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
               : await imageProc.extendCanvas(buffer, direction);
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_extended_${Date.now()}.png`);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_extended_${Date.now()}.png`, options);
             this.postToWebview({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Mở rộng khung hình thành công: ${savedResult.relativePath}`);
@@ -503,21 +594,18 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const captionResult = await new ComfyUIAdapter().generateCaption(dataUrl);
             const captionText = captionResult.textResult || await imageProc.generateCaption(buffer);
             vscode.window.showInformationMessage(`📝 AI Caption: ${captionText}`);
-            const activeSession = this.sessionManager.getActiveSession();
-            if (activeSession) {
-              this.sessionManager.attachImage(activeSession.sessionId, await this.assetStorage.saveToCache(dataUrl));
-              this.sessionManager.addMessage(activeSession.sessionId, { sender: 'assistant', text: captionText, nodeId: activeSession.currentNodeId, operation: 'caption' });
-              this.broadcastSessionState();
-            }
-            this.postToWebview({ command: 'actionComplete' });
+            this.recordCanvasCaption(target, captionText);
+            this.postToWebview({ command: 'actionComplete', sessionId: target.sessionId, nodeId: target.parentId });
           } else if (action === 'recolor') {
             const subject = options?.subject || 'hair';
             const color = options?.color || 'cyan';
             const outBuf = await imageProc.recolor(buffer, subject, color);
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_recolor_${Date.now()}.png`);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_recolor_${Date.now()}.png`, options);
             this.postToWebview({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Đổi màu ${subject} (${color}) thành công: ${savedResult.relativePath}`);
@@ -527,19 +615,23 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const outBuf = styleResult.outputImageUri
               ? Buffer.from(styleResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
               : await imageProc.styleTransfer(buffer, style);
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_style_${style}_${Date.now()}.png`);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_style_${style}_${Date.now()}.png`, options);
             this.postToWebview({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Chuyển phong cách ${style} thành công: ${savedResult.relativePath}`);
           } else if (action === 'vectorize') {
             const { svgString, previewBuffer } = await imageProc.vectorize(buffer);
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(Buffer.from(svgString, 'utf-8'), `pixel_pilot_vector_${Date.now()}.svg`);
+            const savedResult = await this.saveCanvasAction(target, action, Buffer.from(svgString, 'utf-8'), `pixel_pilot_vector_${Date.now()}.svg`, options, previewBuffer);
             this.postToWebview({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${previewBuffer.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Vector hóa SVG thành công: ${savedResult.relativePath}`);
@@ -555,10 +647,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const outBuf = inpaintResult?.outputImageUri
               ? Buffer.from(inpaintResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
               : await imageProc.inpaint(buffer, maskBuffer);
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_inpaint_${Date.now()}.png`);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_inpaint_${Date.now()}.png`, options);
             this.postToWebview({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Inpaint & Tẩy vật thể hoàn tất: ${savedResult.relativePath}`);
@@ -584,12 +678,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           } else if (action === 'compress') {
             const comp = await imageProc.processImage(buffer, { format: options?.format || 'webp', quality: options?.quality || 85 });
             const savedResult = await FileSystemUtils.saveImageToWorkspace(comp, `pixel_pilot_compressed_${Date.now()}.${options?.format || 'webp'}`);
-            this.postToWebview({ command: 'actionComplete', savedPath: savedResult.relativePath });
+            this.postToWebview({ command: 'actionComplete', savedPath: savedResult.relativePath, sessionId: target.sessionId, nodeId: target.parentId });
             vscode.window.showInformationMessage(`💾 Đã nén thành công (${(comp.byteLength / 1024).toFixed(1)} KB): ${savedResult.relativePath}`);
           } else if (action === 'exportIcons') {
             const icons = await imageProc.exportIcons(buffer);
             const bundle = await FileSystemUtils.saveIconBundle(icons, `pixel_pilot_icons_${Date.now()}`);
-            this.postToWebview({ command: 'actionComplete', savedPath: bundle.relativeDirectory });
+            this.postToWebview({ command: 'actionComplete', savedPath: bundle.relativeDirectory, sessionId: target.sessionId, nodeId: target.parentId });
             const choice = await vscode.window.showInformationMessage(
               `✅ Đã xuất ${bundle.files.length} icon PNG vào ${bundle.relativeDirectory}`,
               'Mở thư mục'
@@ -1861,6 +1955,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       session: webviewSession,
       sessionsList: allSessions,
       history,
+      savedPath: activeSession?.nodes[activeSession.currentNodeId]?.params?.exportPath || undefined,
       currentImage: activeSession ? this.assetStorage.getWebviewUri(activeSession.nodes[activeSession.currentNodeId]?.outputImageUri || '') : ''
     };
     this.postToWebview(update);

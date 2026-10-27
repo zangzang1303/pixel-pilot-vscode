@@ -226,15 +226,17 @@ export class StudioPanel {
 
       case 'generate': {
         const { prompt, model, options } = message;
-        if (!prompt || !prompt.trim()) {
+        if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4096) {
           vscode.window.showWarningMessage('Please provide a prompt for image generation.');
           return;
         }
 
         try {
+          const target = this._copilot.captureGenerationTarget({ sessionId: message.sessionId, nodeId: message.nodeId });
+          await this._copilot.requireCanvasWorkspaceTrust();
           this.sendMessage({ command: 'generationStarted' });
 
-          const result = await this._invokeApi.generateTextToImage(
+          const generated = await this._copilot.executeCanvasGeneration(
             prompt,
             model,
             options as GenerationOptions,
@@ -247,37 +249,18 @@ export class StudioPanel {
             }
           );
 
-          // Save image to workspace assets/ directory
-          let savedResult;
-          try {
-            savedResult = await FileSystemUtils.saveImageToWorkspace(
-              result.imageBuffer,
-              `pixel_pilot_${Date.now()}.png`
-            );
-          } catch (fsErr: any) {
-            console.warn('Workspace save warning:', fsErr.message);
-          }
-
-          // Auto-insert snippet into active editor if available
-          let snippetInserted = false;
-          if (savedResult) {
-            snippetInserted = await FileSystemUtils.autoInsertImageSnippet(
-              savedResult.relativePath,
-              prompt.substring(0, 30)
-            );
-          }
+          const completed = await this._copilot.finishCanvasGeneration(
+            target, prompt, generated.result, generated.imageName, options
+          );
 
           this.sendMessage({
             command: 'generationComplete',
-            dataUrl: result.dataUrl,
-            imageName: result.imageName,
-            savedPath: savedResult?.relativePath,
-            snippetInserted
+            ...completed
           });
 
-          const notificationMsg = savedResult
-            ? `Generated image saved to ${savedResult.relativePath}!`
-            : 'Image generated successfully!';
+          const notificationMsg = completed.savedPath
+            ? `Generated image saved to ${completed.savedPath}!`
+            : 'Image generated in Pixel Pilot history.';
           vscode.window.showInformationMessage(notificationMsg);
         } catch (error: any) {
           this.sendMessage({
@@ -297,11 +280,13 @@ export class StudioPanel {
             return;
           }
 
+          const target = this._copilot.captureCanvasAction({ sessionId: message.sessionId, parentId: message.nodeId });
+          await this._copilot.requireCanvasWorkspaceTrust();
+
           this.sendMessage({ command: 'upscaleStarted' });
 
-          const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-          const buffer = Buffer.from(base64Data, 'base64');
-          const targetFactor = factor || 2;
+          const buffer = decodeImageInput(dataUrl).buffer;
+          const targetFactor = factor === 4 ? 4 : 2;
           const imageProc = ImageProcessor.getInstance();
 
           this.sendMessage({
@@ -312,18 +297,21 @@ export class StudioPanel {
 
           const upscaledBuf = await imageProc.upscale(buffer, targetFactor);
 
-          const savedResult = await FileSystemUtils.saveImageToWorkspace(
+          const savedResult = await this._copilot.saveCanvasAction(target, 'upscale',
             upscaledBuf,
-            `pixel_pilot_upscaled_${targetFactor}x_${Date.now()}.png`
+            `pixel_pilot_upscaled_${targetFactor}x_${Date.now()}.png`,
+            { factor: targetFactor }
           );
 
-          await FileSystemUtils.autoInsertImageSnippet(savedResult.relativePath, `Upscaled ${targetFactor}x Image`);
-
-          const outDataUrl = `data:image/png;base64,${upscaledBuf.toString('base64')}`;
+          if (this._copilot.isCanvasTargetCurrent({ sessionId: target.sessionId, parentId: savedResult.nodeId })) {
+            await FileSystemUtils.autoInsertImageSnippet(savedResult.relativePath, `Upscaled ${targetFactor}x Image`);
+          }
 
           this.sendMessage({
             command: 'upscaleComplete',
-            dataUrl: outDataUrl,
+            dataUrl: savedResult.dataUrl,
+            sessionId: savedResult.sessionId,
+            nodeId: savedResult.nodeId,
             savedPath: savedResult.relativePath
           });
 
@@ -399,6 +387,8 @@ export class StudioPanel {
 
         try {
           this.sendMessage({ command: 'actionStarted', label: `Đang thực hiện ${action}...` });
+          const target = this._copilot.captureCanvasAction({ sessionId: message.sessionId, parentId: message.nodeId });
+          await this._copilot.requireCanvasWorkspaceTrust();
           const decodedInput = decodeImageInput(dataUrl);
           const buffer = decodedInput.buffer;
           const imageProc = ImageProcessor.getInstance();
@@ -422,8 +412,9 @@ export class StudioPanel {
             } else {
               const runwareKey = await SecretManager.getInstance().getApiKey();
               if (runwareKey && runwareKey.trim().length > 10) {
+                await this._copilot.requireCanvasCloudConsent('Runware', 'Background removal');
                 try {
-                  const adapter = new RunwareAdapter(runwareKey);
+                  const adapter = new RunwareAdapter(runwareKey, () => this._copilot.getSecretManager().getApiKey());
                   const res = await adapter.removeBackground(dataUrl);
                   if (res.outputImageUri) {
                     const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
@@ -439,10 +430,12 @@ export class StudioPanel {
               }
             }
 
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_cutout_${Date.now()}.png`);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_cutout_${Date.now()}.png`, options);
             this.sendMessage({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Tách nền thành công: ${savedResult.relativePath}`);
@@ -466,8 +459,9 @@ export class StudioPanel {
             } else {
               const runwareKey = await SecretManager.getInstance().getApiKey();
               if (runwareKey && runwareKey.trim().length > 10) {
+                await this._copilot.requireCanvasCloudConsent('Runware', `Upscale ${factor}x`);
                 try {
-                  const adapter = new RunwareAdapter(runwareKey);
+                  const adapter = new RunwareAdapter(runwareKey, () => this._copilot.getSecretManager().getApiKey());
                   const res = await adapter.upscale(dataUrl, factor);
                   if (res.outputImageUri) {
                     const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
@@ -482,10 +476,12 @@ export class StudioPanel {
                 outBuf = await imageProc.upscale(buffer, factor);
               }
             }
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`, options);
             this.sendMessage({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Phóng to ${factor}x thành công: ${savedResult.relativePath}`);
@@ -494,8 +490,9 @@ export class StudioPanel {
             let outBuf: Buffer;
             const runwareKey = await SecretManager.getInstance().getApiKey();
             if (runwareKey && runwareKey.trim().length > 10) {
+              await this._copilot.requireCanvasCloudConsent('Runware', `Enhance ${type}`);
               try {
-                const adapter = new RunwareAdapter(runwareKey);
+                const adapter = new RunwareAdapter(runwareKey, () => this._copilot.getSecretManager().getApiKey());
                 const res = await adapter.enhanceImage(dataUrl, type);
                 if (res.outputImageUri) {
                   const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
@@ -509,94 +506,109 @@ export class StudioPanel {
             } else {
               outBuf = await imageProc.enhance(buffer, type);
             }
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_enhanced_${Date.now()}.png`);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_enhanced_${Date.now()}.png`, options);
             this.sendMessage({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Khử mờ & Làm nét HDR thành công: ${savedResult.relativePath}`);
           } else if (action === 'mask') {
             const outBuf = await imageProc.extractMask(buffer);
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_mask_${Date.now()}.png`);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_mask_${Date.now()}.png`, options);
             this.sendMessage({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Trích xuất Mask thành công: ${savedResult.relativePath}`);
           } else if (action === 'canny' || action === 'edgeDetection') {
             const outBuf = await imageProc.detectEdges(buffer, 'canny');
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_canny_${Date.now()}.png`);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_canny_${Date.now()}.png`, options);
             this.sendMessage({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Dò biên Canny thành công: ${savedResult.relativePath}`);
           } else if (action === 'lineart' || action === 'lineExtraction') {
             const outBuf = await imageProc.detectEdges(buffer, 'lineart');
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_lineart_${Date.now()}.png`);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_lineart_${Date.now()}.png`, options);
             this.sendMessage({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Trích xuất Lineart thành công: ${savedResult.relativePath}`);
           } else if (action === 'depth') {
             const outBuf = await imageProc.detectEdges(buffer, 'depth');
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_depth_${Date.now()}.png`);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_depth_${Date.now()}.png`, options);
             this.sendMessage({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Tạo bản đồ độ sâu 3D thành công: ${savedResult.relativePath}`);
           } else if (action === 'extend') {
             const direction = options?.direction || 'all';
             const outBuf = await imageProc.extendCanvas(buffer, direction);
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_extended_${Date.now()}.png`);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_extended_${Date.now()}.png`, options);
             this.sendMessage({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Mở rộng khung hình thành công: ${savedResult.relativePath}`);
           } else if (action === 'caption') {
             const captionText = await imageProc.generateCaption(buffer);
+            this._copilot.recordCanvasCaption(target, captionText);
             vscode.window.showInformationMessage(`📝 AI Caption: ${captionText}`);
-            this.sendMessage({
-              command: 'chatReply',
-              text: `📝 **Mô tả ảnh AI (Alt Text):**\n\n${captionText}`
-            });
-            this.sendMessage({ command: 'actionComplete' });
+            this.sendMessage({ command: 'actionComplete', sessionId: target.sessionId, nodeId: target.parentId });
           } else if (action === 'recolor') {
             const subject = options?.subject || 'hair';
             const color = options?.color || 'cyan';
             const outBuf = await imageProc.recolor(buffer, subject, color);
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_recolor_${Date.now()}.png`);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_recolor_${Date.now()}.png`, options);
             this.sendMessage({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Đổi màu ${subject} (${color}) thành công (bảo vệ 100% da mặt): ${savedResult.relativePath}`);
           } else if (action === 'styleTransfer') {
             const style = options?.style || 'anime';
             const outBuf = await imageProc.styleTransfer(buffer, style);
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_style_${style}_${Date.now()}.png`);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_style_${style}_${Date.now()}.png`, options);
             this.sendMessage({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Chuyển phong cách ${style} thành công: ${savedResult.relativePath}`);
           } else if (action === 'vectorize') {
             const { svgString, previewBuffer } = await imageProc.vectorize(buffer);
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(Buffer.from(svgString, 'utf-8'), `pixel_pilot_vector_${Date.now()}.svg`);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, Buffer.from(svgString, 'utf-8'), `pixel_pilot_vector_${Date.now()}.svg`, options, previewBuffer);
             this.sendMessage({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${previewBuffer.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Vector hóa SVG thành công: ${savedResult.relativePath}`);
@@ -607,10 +619,12 @@ export class StudioPanel {
               maskBuffer = Buffer.from(maskB64, 'base64');
             }
             const outBuf = await imageProc.inpaint(buffer, maskBuffer);
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_inpaint_${Date.now()}.png`);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_inpaint_${Date.now()}.png`, options);
             this.sendMessage({
               command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
+              dataUrl: savedResult.dataUrl,
+              sessionId: savedResult.sessionId,
+              nodeId: savedResult.nodeId,
               savedPath: savedResult.relativePath
             });
             vscode.window.showInformationMessage(`✨ Inpaint & Tẩy vật thể hoàn tất: ${savedResult.relativePath}`);
@@ -636,12 +650,12 @@ export class StudioPanel {
           } else if (action === 'compress') {
             const comp = await imageProc.processImage(buffer, { format: options?.format || 'webp', quality: options?.quality || 85 });
             const savedResult = await FileSystemUtils.saveImageToWorkspace(comp, `pixel_pilot_compressed_${Date.now()}.${options?.format || 'webp'}`);
-            this.sendMessage({ command: 'actionComplete', savedPath: savedResult.relativePath });
+            this.sendMessage({ command: 'actionComplete', savedPath: savedResult.relativePath, sessionId: target.sessionId, nodeId: target.parentId });
             vscode.window.showInformationMessage(`💾 Đã nén thành công (${(comp.byteLength / 1024).toFixed(1)} KB): ${savedResult.relativePath}`);
           } else if (action === 'exportIcons') {
             const icons = await imageProc.exportIcons(buffer);
             const bundle = await FileSystemUtils.saveIconBundle(icons, `pixel_pilot_icons_${Date.now()}`);
-            this.sendMessage({ command: 'actionComplete', savedPath: bundle.relativeDirectory });
+            this.sendMessage({ command: 'actionComplete', savedPath: bundle.relativeDirectory, sessionId: target.sessionId, nodeId: target.parentId });
             const choice = await vscode.window.showInformationMessage(
               `✅ Đã xuất ${bundle.files.length} icon PNG vào ${bundle.relativeDirectory}`,
               'Mở thư mục'

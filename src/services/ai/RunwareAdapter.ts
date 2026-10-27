@@ -11,7 +11,7 @@ export class RunwareAdapter implements IAIProvider {
   private apiKey: string = '';
   private endpoint = 'https://api.runware.ai/v1';
 
-  constructor(apiKey?: string) {
+  constructor(apiKey?: string, private readonly resolveApiKey?: () => Promise<string>) {
     this.updateApiKey(apiKey);
   }
 
@@ -105,12 +105,11 @@ export class RunwareAdapter implements IAIProvider {
   }
 
   private async dispatchTasks(tasks: any[]): Promise<{ data: any; latencyMs: number }> {
-    // Refresh key if needed
-    if (!this.apiKey) {
-      this.updateApiKey();
-    }
-
-    if (!this.apiKey || this.apiKey.trim() === '' || this.apiKey === 'YOUR_RUNWARE_API_KEY') {
+    // A connected adapter must recheck the vault immediately before each send.
+    // Clearing a key cannot leave an old in-memory adapter authorized.
+    const key = this.resolveApiKey ? (await this.resolveApiKey()).trim() : this.apiKey;
+    this.apiKey = key;
+    if (!key || key === 'YOUR_RUNWARE_API_KEY') {
       throw new Error('Chưa cấu hình Runware API Key. Hãy nhập API Key của bạn để gửi request thật lên Runware AI (Đăng ký nhận credits tại https://runware.ai)');
     }
 
@@ -120,7 +119,7 @@ export class RunwareAdapter implements IAIProvider {
     const response = await fetchWithTimeout(this.endpoint, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
+        'Authorization': `Bearer ${key}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(tasks)
