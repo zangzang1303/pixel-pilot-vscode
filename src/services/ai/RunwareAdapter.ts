@@ -89,6 +89,20 @@ export class RunwareAdapter implements IAIProvider {
     );
   }
 
+  private selectTaskResult(data: unknown, taskUUID: string): any {
+    const results = Array.isArray(data) ? data : [data];
+    if (results.length !== 1 || !results[0] || typeof results[0] !== 'object') {
+      const matching = results.filter(result => result && typeof result === 'object' && result.taskUUID === taskUUID);
+      if (matching.length !== 1) throw new Error('Runware response does not identify a unique matching task.');
+      return matching[0];
+    }
+    const result = results[0];
+    if (result.taskUUID !== undefined && result.taskUUID !== taskUUID) {
+      throw new Error('Runware response belongs to a different task.');
+    }
+    return result;
+  }
+
   private async dispatchTasks(tasks: any[]): Promise<{ data: any; latencyMs: number }> {
     // Refresh key if needed
     if (!this.apiKey) {
@@ -153,7 +167,7 @@ export class RunwareAdapter implements IAIProvider {
       ];
 
       const { data, latencyMs } = await this.dispatchTasks(payload);
-      const res = Array.isArray(data) ? data[0] : data;
+      const res = this.selectTaskResult(data, taskUUID);
       const outputImage = this.extractImageOutput(res);
 
       if (!outputImage) {
@@ -200,7 +214,7 @@ export class RunwareAdapter implements IAIProvider {
       ];
 
       const { data, latencyMs } = await this.dispatchTasks(payload);
-      const res = Array.isArray(data) ? data[0] : data;
+      const res = this.selectTaskResult(data, taskUUID);
       const outputImage = this.extractImageOutput(res);
 
       if (!outputImage) {
@@ -257,7 +271,7 @@ export class RunwareAdapter implements IAIProvider {
       ];
 
       const { data, latencyMs } = await this.dispatchTasks(payload);
-      const res = Array.isArray(data) ? data[0] : data;
+      const res = this.selectTaskResult(data, taskUUID);
       const outputUri = this.extractImageOutput(res);
 
       if (!outputUri) {
@@ -297,8 +311,18 @@ export class RunwareAdapter implements IAIProvider {
    */
   public async inpaint(imageInput: string, maskInput: string, prompt: string): Promise<AIResult> {
     try {
+      if (!maskInput) throw new Error('Inpaint requires a non-empty mask.');
+      const maskPixels = await sharp(this.getBufferFromInput(maskInput)).ensureAlpha().raw().toBuffer();
+      let hasEditablePixel = false;
+      for (let i = 0; i < maskPixels.length; i += 4) {
+        if (maskPixels[i + 3] > 80 && (maskPixels[i] > 120 || maskPixels[i + 1] > 120 || maskPixels[i + 2] > 120)) {
+          hasEditablePixel = true;
+          break;
+        }
+      }
+      if (!hasEditablePixel) throw new Error('Inpaint mask does not contain an editable region.');
       const seedImg = this.normalizeImageInput(imageInput);
-      const maskImg = maskInput ? this.normalizeImageInput(maskInput) : seedImg;
+      const maskImg = this.normalizeImageInput(maskInput);
       const taskUUID = crypto.randomUUID();
       const payload = [
         {
@@ -314,12 +338,13 @@ export class RunwareAdapter implements IAIProvider {
       ];
 
       const { data, latencyMs } = await this.dispatchTasks(payload);
-      const res = Array.isArray(data) ? data[0] : data;
+      const res = this.selectTaskResult(data, taskUUID);
       const outputImage = this.extractImageOutput(res);
 
       if (!outputImage) {
         throw new Error('Runware API không trả về ảnh inpaint. Phản hồi: ' + JSON.stringify(res));
       }
+      if (outputImage === seedImg) throw new Error('Inpaint returned the original image without changes.');
 
       return {
         success: true,
@@ -379,7 +404,7 @@ export class RunwareAdapter implements IAIProvider {
       ];
 
       const { data, latencyMs } = await this.dispatchTasks(payload);
-      const res = Array.isArray(data) ? data[0] : data;
+      const res = this.selectTaskResult(data, taskUUID);
       const outputImage = this.extractImageOutput(res);
 
       if (!outputImage) {
@@ -435,7 +460,7 @@ export class RunwareAdapter implements IAIProvider {
       ];
 
       const { data, latencyMs } = await this.dispatchTasks(payload);
-      const res = Array.isArray(data) ? data[0] : data;
+      const res = this.selectTaskResult(data, taskUUID);
       const captionText = res.text || res.caption || (typeof res === 'string' ? res : 'Graphic asset');
 
       return {
@@ -508,7 +533,7 @@ export class RunwareAdapter implements IAIProvider {
       ];
 
       const { data, latencyMs } = await this.dispatchTasks(payload);
-      const res = Array.isArray(data) ? data[0] : data;
+      const res = this.selectTaskResult(data, taskUUID);
       const outputImage = this.extractImageOutput(res);
 
       if (!outputImage) {
@@ -568,7 +593,7 @@ export class RunwareAdapter implements IAIProvider {
       ];
 
       const { data, latencyMs } = await this.dispatchTasks(payload);
-      const res = Array.isArray(data) ? data[0] : data;
+      const res = this.selectTaskResult(data, taskUUID);
       const outputImage = this.extractImageOutput(res);
 
       if (!outputImage) {
@@ -636,7 +661,7 @@ export class RunwareAdapter implements IAIProvider {
       ];
 
       const { data, latencyMs } = await this.dispatchTasks(payload);
-      const res = Array.isArray(data) ? data[0] : data;
+      const res = this.selectTaskResult(data, taskUUID);
       const outputImage = this.extractImageOutput(res);
 
       if (!outputImage) {

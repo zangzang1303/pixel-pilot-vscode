@@ -362,9 +362,9 @@ export class InvokeApiService {
       }
       batchId = batchData.batch?.batch_id || batchData.batch_id;
     } catch (enqueueErr: any) {
-      console.warn('Queue enqueue failed, attempting session API fallback...', enqueueErr?.message);
-      // Fallback for InvokeAI session API
-      return await this.generateViaSession(graph, onProgress);
+      // A network error can arrive after InvokeAI accepted the job. Sending the
+      // graph through the session API here could run and bill it twice.
+      throw new Error(`InvokeAI enqueue outcome is unknown; check the queue before retrying. ${enqueueErr?.message || ''}`);
     }
 
     if (!itemId && !batchId) {
@@ -412,10 +412,13 @@ export class InvokeApiService {
         let status = 'pending';
         let itemData: any = null;
 
-        if (itemId) {
+        if (itemId !== undefined) {
           // In InvokeAI v6, endpoint is /api/v1/queue/default/i/{itemId}
           const res = await this.client.get(`/api/v1/queue/default/i/${itemId}`);
           itemData = res.data;
+          if (itemData?.item_id !== undefined && String(itemData.item_id) !== String(itemId)) {
+            throw new Error('InvokeAI returned a different queue item.');
+          }
           status = itemData.status;
         } else if (batchId) {
           const res = await this.client.get(`/api/v1/queue/default/b/${batchId}/status`);
@@ -452,9 +455,7 @@ export class InvokeApiService {
             imageName = itemData.result.image.image_name;
           }
 
-          if (!imageName) {
-            throw new Error('Image generation finished but no image result was attached to this InvokeAI job.');
-          }
+          if (!imageName) throw new Error('Image generation finished but no image result was attached to this InvokeAI job.');
 
           return imageName;
         }
@@ -464,7 +465,7 @@ export class InvokeApiService {
           throw new Error(`Generation failed: ${errorMsg}`);
         }
       } catch (err: any) {
-        if (err.message && err.message.includes('Generation failed:')) {
+        if (err.message && (/Generation failed:|different queue item|finished but no image result/.test(err.message))) {
           throw err;
         }
         console.warn(`Polling error (attempt ${attempts}):`, err?.message);

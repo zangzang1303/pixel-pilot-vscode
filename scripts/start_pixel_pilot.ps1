@@ -11,6 +11,7 @@ $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $runtimeDir = Join-Path $projectRoot '.pixelpilot_runtime'
 $logDir = Join-Path $runtimeDir 'logs'
 $mockPidFile = Join-Path $runtimeDir 'mock-invokeai.pid'
+$invokePidFile = Join-Path $runtimeDir 'invokeai.pid'
 
 function Write-Step([string]$message) {
     Write-Host "`n[>] $message" -ForegroundColor Cyan
@@ -63,7 +64,27 @@ New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 $invokeOnline = Test-HttpEndpoint 'http://127.0.0.1:9090/api/v1/app/version'
 if ($invokeOnline) {
     Write-Host '[OK] InvokeAI is online at http://127.0.0.1:9090' -ForegroundColor Green
-} elseif (-not $NoMock) {
+} else {
+    $invokeLauncher = Join-Path $projectRoot 'scripts\start_invokeai_local.cmd'
+    if (Test-Path -LiteralPath $invokeLauncher) {
+        Write-Step 'InvokeAI is offline - starting the local InvokeAI server'
+        $stdoutLog = Join-Path $logDir 'invokeai.stdout.log'
+        $stderrLog = Join-Path $logDir 'invokeai.stderr.log'
+        $invokeProcess = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', "`"$invokeLauncher`"") -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
+        Set-Content -LiteralPath $invokePidFile -Value $invokeProcess.Id -Encoding ascii
+        for ($attempt = 0; $attempt -lt 60; $attempt++) {
+            if (Test-HttpEndpoint 'http://127.0.0.1:9090/api/v1/app/version') { $invokeOnline = $true; break }
+            Start-Sleep -Seconds 1
+        }
+        if ($invokeOnline) {
+            Write-Host '[OK] Local InvokeAI is ready at http://127.0.0.1:9090' -ForegroundColor Green
+        } else {
+            Write-Warning "Local InvokeAI did not start. See logs in $logDir"
+        }
+    }
+}
+
+if (-not $invokeOnline -and -not $NoMock) {
     Write-Step 'InvokeAI is offline - starting the development mock server'
     $existingMock = $null
     if (Test-Path -LiteralPath $mockPidFile) {
@@ -75,7 +96,8 @@ if ($invokeOnline) {
     if (-not $existingMock) {
         $stdoutLog = Join-Path $logDir 'mock-invokeai.stdout.log'
         $stderrLog = Join-Path $logDir 'mock-invokeai.stderr.log'
-        $mockProcess = Start-Process -FilePath 'node.exe' -ArgumentList @((Join-Path $projectRoot 'scripts\mock_invokeai.mjs')) -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
+        $mockScript = Join-Path $projectRoot 'scripts\mock_invokeai.mjs'
+        $mockProcess = Start-Process -FilePath 'node.exe' -ArgumentList @("`"$mockScript`"") -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
         Set-Content -LiteralPath $mockPidFile -Value $mockProcess.Id -Encoding ascii
     }
     for ($attempt = 0; $attempt -lt 20; $attempt++) {
@@ -87,7 +109,7 @@ if ($invokeOnline) {
     } else {
         Write-Warning "Mock server did not start. See logs in $logDir"
     }
-} else {
+} elseif (-not $invokeOnline) {
     Write-Warning 'InvokeAI is offline. The extension can still use ComfyUI, Runware, or offline tools.'
 }
 
@@ -98,6 +120,7 @@ if ($comfyOnline) {
     Write-Step 'Starting ComfyUI Local GPU'
     $comfyCandidates = @(
         $env:PIXELPILOT_COMFYUI_LAUNCHER,
+        (Join-Path $projectRoot 'scripts\start_comfyui_local.cmd'),
         'D:\Start_ComfyUI_PixelPilot.bat',
         'D:\ComfyUI_windows_portable\run_nvidia_gpu.bat'
     ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }

@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import { decodeImageInput, imageMimeType, validateImageBuffer } from '../../utils/imageData';
 
 export class AssetStorageService {
   private cacheDir: string;
@@ -21,6 +22,19 @@ export class AssetStorageService {
     }
   }
 
+  /** Only files stored by this service may be rehydrated into a webview. */
+  public isStoredArtifact(filePath: string): boolean {
+    if (typeof filePath !== 'string' || !path.isAbsolute(filePath)) return false;
+    try {
+      const cacheRoot = fs.realpathSync(this.cacheDir);
+      const resolved = fs.realpathSync(filePath);
+      const relative = path.relative(cacheRoot, resolved);
+      return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative) && fs.statSync(resolved).isFile();
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Persists an image (Data URI or Buffer) directly to disk cache.
    * Returns the absolute file path on disk.
@@ -33,30 +47,22 @@ export class AssetStorageService {
     this.ensureCacheDir();
 
     let buffer: Buffer;
-    let ext = hintExtension;
+    let ext = hintExtension.toLowerCase().replace(/^\./, '');
 
     if (typeof dataUriOrBuffer === 'string') {
-      if (dataUriOrBuffer.startsWith('data:')) {
-        const matches = dataUriOrBuffer.match(/^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/);
-        if (matches) {
-          ext = matches[1].replace('+xml', '');
-          buffer = Buffer.from(matches[2], 'base64');
-        } else {
-          // If raw SVG or plain string
-          buffer = Buffer.from(dataUriOrBuffer, 'utf-8');
-          ext = 'svg';
-        }
-      } else if (fs.existsSync(dataUriOrBuffer)) {
-        buffer = await fs.promises.readFile(dataUriOrBuffer);
-        ext = path.extname(dataUriOrBuffer).toLowerCase().replace('.', '') || 'png';
-      } else {
-        buffer = Buffer.from(dataUriOrBuffer, 'utf-8');
-      }
+      const decoded = decodeImageInput(dataUriOrBuffer);
+      buffer = decoded.buffer;
+      ext = decoded.extension;
     } else {
       buffer = dataUriOrBuffer;
+      if (!['png', 'jpg', 'jpeg', 'webp', 'avif', 'gif', 'bmp', 'svg'].includes(ext)) {
+        throw new Error('Unsupported artifact format.');
+      }
+      validateImageBuffer(buffer, imageMimeType(ext));
     }
 
     // Generate deterministic sha256 hash or unique key to avoid duplicate caching
+    if (subKey && !/^[A-Za-z0-9_-]{1,64}$/.test(subKey)) throw new Error('Invalid artifact key.');
     const hash = subKey || crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 16);
     const fileName = `asset_${hash}.${ext}`;
     const targetPath = path.join(this.cacheDir, fileName);
@@ -73,11 +79,11 @@ export class AssetStorageService {
    * Reads local files as Data URI so they are 100% guaranteed to render inside Webview without sandbox or 403 blocks.
    */
   public getWebviewUri(filePath: string, webview?: vscode.Webview): string {
-    if (!filePath) return '';
-    if (filePath.startsWith('data:') || filePath.startsWith('http:') || filePath.startsWith('https:')) {
-      return filePath;
+    if (typeof filePath !== 'string' || !filePath) return '';
+    if (filePath.startsWith('data:')) {
+      try { decodeImageInput(filePath); return filePath; } catch { return ''; }
     }
-    if (fs.existsSync(filePath)) {
+    if (this.isStoredArtifact(filePath)) {
       try {
         const ext = path.extname(filePath).toLowerCase().replace('.', '') || 'png';
         const buf = fs.readFileSync(filePath);
@@ -89,14 +95,14 @@ export class AssetStorageService {
         }
       }
     }
-    return filePath;
+    return '';
   }
 
   /**
    * Reads a cached file as Base64 Data URI if legacy component explicitly requests it
    */
   public async readAsDataUri(filePath: string): Promise<string> {
-    if (!filePath || !fs.existsSync(filePath)) return '';
+    if (!this.isStoredArtifact(filePath)) return '';
     const ext = path.extname(filePath).toLowerCase().replace('.', '') || 'png';
     const buf = await fs.promises.readFile(filePath);
     const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;

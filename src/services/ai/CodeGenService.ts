@@ -4,11 +4,14 @@ import * as path from 'path';
 import { ICodeGenService, CodeGenRequest, CodeGenResult } from './ICodeGenService';
 import { SecretManager } from '../security/SecretManager';
 import { WorkspaceFSService } from '../storage/WorkspaceFSService';
+import { PolicyService } from '../security/PolicyService';
+import { validateImageBuffer } from '../../utils/imageData';
 
 export class CodeGenService implements ICodeGenService {
   private static instance: CodeGenService;
   private secretManager: SecretManager;
   private fsService: WorkspaceFSService;
+  private readonly policy = new PolicyService();
 
   private constructor(context?: vscode.ExtensionContext) {
     this.secretManager = SecretManager.getInstance(context);
@@ -27,10 +30,15 @@ export class CodeGenService implements ICodeGenService {
    */
   public async generateCodeFromImage(request: CodeGenRequest): Promise<CodeGenResult> {
     const { imageBuffer, imageMimeType, framework } = request;
-    const base64Data = imageBuffer.toString('base64');
-
+    validateImageBuffer(imageBuffer, imageMimeType);
+    const provider = await this.secretManager.getLlmProvider();
+    if (provider !== 'gemini' && provider !== 'openai') {
+      throw new Error(`Image-to-code is unavailable for provider ${provider}. Select Gemini or OpenAI.`);
+    }
     const apiKey = await this.secretManager.getLLMKey();
-    let generatedCode = '';
+    if (!apiKey) throw new Error(`${provider} API key is required for image-to-code.`);
+    await this.policy.requireCloudConsent(provider, 'Image-to-code generation');
+    const base64Data = imageBuffer.toString('base64');
 
     const systemPrompt = `You are an expert Frontend Engineer and UI/UX Designer.
 Analyze this UI screenshot or wireframe mockup with extreme precision.
@@ -38,23 +46,10 @@ Generate modern, pixel-faithful, responsive, and accessible code using ${framewo
 Use modern Tailwind CSS utility classes with sleek gradients, nice shadows, rounded corners and clean typography.
 Output ONLY the clean source code inside a single markdown code block (\`\`\`tsx or \`\`\`html). No explanations before or after.`;
 
-    if (apiKey && (apiKey.startsWith('AIza') || apiKey.length > 20)) {
-      try {
-        if (apiKey.startsWith('AIza')) {
-          // Gemini Vision
-          generatedCode = await this.callGeminiVision(apiKey, base64Data, imageMimeType, systemPrompt);
-        } else {
-          // OpenAI Vision
-          generatedCode = await this.callOpenAIVision(apiKey, base64Data, imageMimeType, systemPrompt);
-        }
-      } catch (err: any) {
-        console.warn('[CodeGenService] AI call failed, falling back to mock UI generator:', err?.message || err);
-      }
-    }
-
-    if (!generatedCode || generatedCode.trim().length === 0) {
-      generatedCode = this.getFallbackTemplate(framework);
-    }
+    const generatedCode = provider === 'gemini'
+      ? await this.callGeminiVision(apiKey, base64Data, imageMimeType, systemPrompt)
+      : await this.callOpenAIVision(apiKey, base64Data, imageMimeType, systemPrompt);
+    if (!generatedCode.trim()) throw new Error('Image-to-code provider returned no code.');
 
     const cleanCode = this.stripMarkdownCodeBlocks(generatedCode);
     const suggestedFileName = framework === 'react-tailwind' ? 'GeneratedComponent.tsx' : 'generated_mockup.html';
@@ -81,6 +76,13 @@ Output ONLY the clean source code inside a single markdown code block (\`\`\`tsx
    * Saves the generated code directly to the workspace next to an image or in the active folder.
    */
   public async saveToFile(targetUri: vscode.Uri, code: string): Promise<void> {
+    await this.policy.requireTrustedWorkspace('Save generated code');
+    if (await this.fsService.exists(targetUri)) {
+      const choice = await vscode.window.showWarningMessage(
+        `Overwrite ${path.basename(targetUri.fsPath)} with generated code?`, { modal: true }, 'Overwrite'
+      );
+      if (choice !== 'Overwrite') throw new Error('Code overwrite was not approved.');
+    }
     await this.fsService.writeFile(targetUri, Buffer.from(code, 'utf-8'));
     const doc = await vscode.workspace.openTextDocument(targetUri);
     await vscode.window.showTextDocument(doc, { preview: false });

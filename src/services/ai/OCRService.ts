@@ -2,10 +2,13 @@
 import * as vscode from 'vscode';
 import { IOCRService, OCRResult } from './IOCRService';
 import { SecretManager } from '../security/SecretManager';
+import { PolicyService } from '../security/PolicyService';
+import { validateImageBuffer } from '../../utils/imageData';
 
 export class OCRService implements IOCRService {
   private static instance: OCRService;
   private secretManager: SecretManager;
+  private readonly policy = new PolicyService();
 
   private constructor(context?: vscode.ExtensionContext) {
     this.secretManager = SecretManager.getInstance(context);
@@ -22,42 +25,31 @@ export class OCRService implements IOCRService {
    * Extracts text from an image buffer using Vision AI models.
    */
   public async extractText(imageBuffer: Buffer, mimeType: string): Promise<OCRResult> {
-    const base64Data = imageBuffer.toString('base64');
+    validateImageBuffer(imageBuffer, mimeType);
+    const provider = await this.secretManager.getLlmProvider();
+    if (provider !== 'gemini' && provider !== 'openai') {
+      throw new Error(`OCR is unavailable for provider ${provider}. Select Gemini or OpenAI.`);
+    }
     const apiKey = await this.secretManager.getLLMKey();
+    if (!apiKey) throw new Error(`${provider} API key is required for OCR.`);
+    await this.policy.requireCloudConsent(provider, 'OCR text extraction');
+    const base64Data = imageBuffer.toString('base64');
 
     const ocrPrompt = `You are a high-accuracy OCR (Optical Character Recognition) engine.
 Extract ALL text visible in this image verbatim.
 Preserve paragraph structure, line breaks, formatting, and language (English, Vietnamese, numbers, symbols, code).
 Do NOT summarize, do NOT omit, and do NOT add explanatory text. Output ONLY the extracted text.`;
 
-    let extractedText = '';
-
-    if (apiKey && (apiKey.startsWith('AIza') || apiKey.length > 20)) {
-      try {
-        if (apiKey.startsWith('AIza')) {
-          extractedText = await this.callGeminiOCR(apiKey, base64Data, mimeType, ocrPrompt);
-        } else {
-          extractedText = await this.callOpenAIOCR(apiKey, base64Data, mimeType, ocrPrompt);
-        }
-      } catch (err: any) {
-        console.warn('[OCRService] Vision API call failed:', err?.message || err);
-      }
-    }
-
-    if (!extractedText || extractedText.trim().length === 0) {
-      extractedText = `[OCR Simulated Result]
-Sample Text extracted from image asset:
-- Title: Pixel Pilot Visual AI Studio
-- Status: Active
-- Resolution: ${imageBuffer.byteLength > 1000000 ? 'High Definition' : 'Standard'}`;
-    }
+    const extractedText = provider === 'gemini'
+      ? await this.callGeminiOCR(apiKey, base64Data, mimeType, ocrPrompt)
+      : await this.callOpenAIOCR(apiKey, base64Data, mimeType, ocrPrompt);
 
     const lines = extractedText.split('\n').filter(l => l.trim().length > 0);
 
     return {
       fullText: extractedText.trim(),
       lines,
-      confidence: 0.98
+      // The provider does not expose a calibrated OCR confidence here.
     };
   }
 

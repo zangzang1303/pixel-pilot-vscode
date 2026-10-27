@@ -304,8 +304,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         }
 
         try {
+          await this.policy.requireTrustedWorkspace('Image editing');
           this.postToWebview({ command: 'actionStarted', label: `Đang thực hiện ${action}...` });
-          const buffer = decodeImageInput(dataUrl).buffer;
+          const decodedInput = decodeImageInput(dataUrl);
+          const buffer = decodedInput.buffer;
           const imageProc = ImageProcessor.getInstance();
 
           if (action === 'removeBackground') {
@@ -327,6 +329,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             } else {
               const runwareKey = await this.secretManager.getApiKey();
               if (runwareKey && runwareKey.trim().length > 10) {
+                await this.policy.requireCloudConsent('Runware', 'Background removal');
                 try {
                   const adapter = new RunwareAdapter(runwareKey);
                   const res = await adapter.removeBackground(dataUrl);
@@ -371,6 +374,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             } else {
               const runwareKey = await this.secretManager.getApiKey();
               if (runwareKey && runwareKey.trim().length > 10) {
+                await this.policy.requireCloudConsent('Runware', `Upscale ${factor}x`);
                 try {
                   const adapter = new RunwareAdapter(runwareKey);
                   const res = await adapter.upscale(dataUrl, factor);
@@ -399,6 +403,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             let outBuf: Buffer;
             const runwareKey = await this.secretManager.getApiKey();
             if (runwareKey && runwareKey.trim().length > 10) {
+              await this.policy.requireCloudConsent('Runware', `Enhance ${type}`);
               try {
                 const adapter = new RunwareAdapter(runwareKey);
                 const res = await adapter.enhanceImage(dataUrl, type);
@@ -546,7 +551,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const codeGen = CodeGenService.getInstance();
             const codeRes = await codeGen.generateCodeFromImage({
               imageBuffer: buffer,
-              imageMimeType: 'image/png',
+              imageMimeType: decodedInput.mimeType,
               framework: options?.framework || 'react-tailwind'
             });
             await codeGen.openInEditor(codeRes.code, codeRes.suggestedFileName);
@@ -554,12 +559,13 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`✅ Đã sinh mã ${codeRes.framework} và mở trong editor!`);
           } else if (action === 'ocr') {
             const ocrService = OCRService.getInstance();
-            const ocrRes = await ocrService.extractText(buffer, 'image/png');
+            const ocrRes = await ocrService.extractText(buffer, decodedInput.mimeType);
             if (ocrRes.fullText) {
               await vscode.env.clipboard.writeText(ocrRes.fullText);
             }
             this.postToWebview({ command: 'actionComplete' });
-            vscode.window.showInformationMessage(`📋 OCR: Đã copy văn bản vào Clipboard (${ocrRes.fullText.length} ký tự)!`);
+            if (ocrRes.fullText) vscode.window.showInformationMessage(`📋 OCR: Đã copy ${ocrRes.fullText.length} ký tự vào Clipboard.`);
+            else vscode.window.showInformationMessage('OCR không phát hiện văn bản trong ảnh.');
           } else if (action === 'compress') {
             const comp = await imageProc.processImage(buffer, { format: options?.format || 'webp', quality: options?.quality || 85 });
             const savedResult = await FileSystemUtils.saveImageToWorkspace(comp, `pixel_pilot_compressed_${Date.now()}.${options?.format || 'webp'}`);
@@ -699,8 +705,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const completedNodeId = await this.webviewBridge.dispatch(request.requestId, async () => {
               this.runLifecycle.start(request.requestId);
               try {
-                await this.runCopilotOperation(session.sessionId, image, call.intent.operation, call.intent, call.intent.promptText || '', request.requestId);
-                return this.sessionManager.getSession(session.sessionId)?.currentNodeId;
+                return await this.runCopilotOperation(session.sessionId, image, call.intent.operation, call.intent, call.intent.promptText || '', request.requestId, nodeId);
               } finally {
                 this.runLifecycle.finish(request.requestId);
               }
@@ -786,8 +791,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         const key = (message.apiKey || '').trim();
         const provider = message.provider || 'gemini';
         if (key) {
-          await this.secretManager.setLlmApiKey(key);
           await this.secretManager.setLlmProvider(provider);
+          await this.secretManager.setLlmApiKey(key);
           const masked = await this.secretManager.getMaskedLlmKey();
           vscode.window.showInformationMessage(`🧠 Pixel Pilot: Đã kết nối Bộ Não AI LLM (${provider.toUpperCase()}) thành công!`);
           this.postToWebview({
@@ -802,6 +807,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
       case 'clearLlmApiKey': {
         await this.secretManager.deleteLlmApiKey();
+        await this.secretManager.setLlmProvider('local');
         this.postToWebview({
           type: 'llmKeyStatus',
           hasLlmKey: false,
@@ -828,7 +834,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           const webviewUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : filePath;
           this.uriToPathMap.set(webviewUri, cachedPath);
 
-          const session = this.sessionManager.createSession(webviewUri, path.basename(filePath));
+          this.sessionManager.createSession(cachedPath, path.basename(filePath));
           this.broadcastSessionState();
           vscode.window.showInformationMessage(`✨ Pixel Pilot: Đã nạp ảnh "${path.basename(filePath)}"`);
         }
@@ -836,6 +842,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       }
 
       case 'imageLoaded': {
+        if (!this.assetStorage.isStoredArtifact(message.imageUri)) {
+          this.postToWebview({ command: 'actionError', message: 'Image artifact is not owned by Pixel Pilot.' });
+          break;
+        }
         this.sessionManager.createSession(message.imageUri, message.fileName || 'New Session');
         this.broadcastSessionState();
         break;
@@ -918,7 +928,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           this.uriToPathMap.set(webviewUri, cachedPath);
 
           const title = `Gen: ${prompt.trim().substring(0, 24)}`;
-          this.sessionManager.createSession(webviewUri, title);
+          this.sessionManager.createSession(cachedPath, title);
           this.broadcastSessionState();
 
           this.postToWebview({
@@ -994,7 +1004,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           const cachedPath = await this.assetStorage.saveToCache(fileUris[0].fsPath);
           const webviewUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : cachedPath;
           this.uriToPathMap.set(webviewUri, cachedPath);
-          this.sessionManager.createSession(webviewUri, path.basename(fileUris[0].fsPath));
+          this.sessionManager.createSession(cachedPath, path.basename(fileUris[0].fsPath));
           this.broadcastSessionState();
           this.postToWebview({
             command: 'SET_CURRENT_IMAGE',
@@ -1226,7 +1236,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       if (chosen) {
-        await this.runCopilotOperation(sessionId, image, chosen.intent.operation, chosen.intent, text);
+        await this.runCopilotOperation(sessionId, image, chosen.intent.operation, chosen.intent, text, undefined, nodeId);
         return;
       }
       if (/^(?:\/analyze|\/analyse)\b|phan tich|danh gia|nhan xet|nen (?:chinh|sua|lam) gi|can (?:chinh|sua) gi|goi y (?:chinh|sua)|tu van (?:chinh|sua)|anh nay (?:the nao|dep khong)|analy[sz]e (?:this |the )?image|what should i (?:edit|fix)/.test(normalized)) {
@@ -1274,7 +1284,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             reply('Hãy mở một ảnh bằng nút “Mở ảnh”, rồi gửi lại yêu cầu chỉnh sửa.');
             return;
           }
-          await this.runCopilotOperation(sessionId, image, decision.intent.operation, decision.intent, text);
+          await this.runCopilotOperation(sessionId, image, decision.intent.operation, decision.intent, text, undefined, nodeId);
           return;
         }
         let localAnswer: string | null = null;
@@ -1289,7 +1299,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         reply('Hãy mở một ảnh bằng nút “Mở ảnh”, rồi gửi lại yêu cầu chỉnh sửa.');
         return;
       }
-      await this.runCopilotOperation(sessionId, image, intent.operation, intent, text);
+      await this.runCopilotOperation(sessionId, image, intent.operation, intent, text, undefined, nodeId);
     } catch (error: any) {
       reply(`Không thực hiện được yêu cầu: ${error?.message || String(error)}`);
     }
@@ -1323,10 +1333,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     return null;
   }
 
-  private async runCopilotOperation(sessionId: string, image: string, operation: OperationType, intent: any, prompt: string, requestId?: string): Promise<void> {
+  private async runCopilotOperation(sessionId: string, image: string, operation: OperationType, intent: any, prompt: string, requestId?: string, pinnedNodeId?: string): Promise<string | undefined> {
     const session = this.sessionManager.getSession(sessionId);
-    if (!session) return;
-    const parentId = session.currentNodeId;
+    if (!session) throw new Error('The target session no longer exists.');
+    const parentId = pinnedNodeId || session.currentNodeId;
+    if (!session.nodes[parentId]) throw new Error('Pinned context node no longer exists.');
     const adapter = new ComfyUIAdapter();
     const input = operation === 'generate' ? Buffer.alloc(0) : decodeImageInput(this.uriToPathMap.get(image) || image).buffer;
     let result: AIResult;
@@ -1347,10 +1358,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       case 'enhance': result = localResult(await ImageProcessor.getInstance().enhance(input, intent.enhanceType || 'clarity'), 'Local enhance'); break;
       case 'vectorize': result = await adapter.vectorize(image); break;
       case 'inpaint':
+        if (requestId) throw new Error('Inpaint requires a painted mask in the Canvas.');
         this.sessionManager.addMessage(sessionId, { sender: 'assistant', text: 'Để Inpaint, chọn Brush trên canvas, tô vùng cần sửa rồi nhấn Inpaint. Vùng tô là phần sẽ được tạo lại.', nodeId: parentId });
         this.broadcastSessionState();
         return;
       default:
+        if (requestId) throw new Error(`The ${operation} tool is not available in Copilot.`);
         this.sessionManager.addMessage(sessionId, { sender: 'assistant', text: `Thao tác “${intent.label || operation}” hiện chưa được nối vào Copilot.`, nodeId: parentId });
         this.broadcastSessionState();
         return;
@@ -1363,7 +1376,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     if (!result.outputImageUri) throw new Error('Công cụ không trả về ảnh');
-    await this.commitService.commitImageResult({
+    const committedNode = await this.commitService.commitImageResult({
       sessionId,
       parentId,
       operation,
@@ -1373,9 +1386,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     });
     if (operation === 'vectorize' && result.textResult) {
       const svgPath = await this.assetStorage.saveToCache(Buffer.from(result.textResult), 'svg');
-      this.sessionManager.addMessage(sessionId, { sender: 'assistant', text: `Đã lưu SVG: ${svgPath}`, nodeId: session.currentNodeId });
+      this.sessionManager.addMessage(sessionId, { sender: 'assistant', text: `Đã lưu SVG: ${svgPath}`, nodeId: committedNode.nodeId });
     }
     this.broadcastSessionState();
+    return committedNode.nodeId;
   }
 
   private async handleCodexPrompt(message: any): Promise<void> {
@@ -1575,16 +1589,14 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           const displayUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : cachedPath;
           this.uriToPathMap.set(displayUri, cachedPath);
 
-          this.sessionManager.addOperationNode(
-            session.sessionId,
-            parentNode.nodeId,
-            op,
-            message.operationLabel || op,
-            inputImg,
-            displayUri,
-            { model: 'Local Sharp / ImageProcessor Engine', latencyMs: 35, costUsd: 0 },
-            { textResult }
-          );
+          await this.commitService.commitImageResult({
+            sessionId: session.sessionId, parentId: parentNode.nodeId, operation: op,
+            intent: { label: message.operationLabel || op },
+            result: {
+              success: true, outputImageUri: cachedPath, textResult,
+              metrics: { model: 'Local Sharp / ImageProcessor Engine', latencyMs: 35, costUsd: 0 }
+            }
+          });
           this.broadcastSessionState();
 
           this.postToWebview({
@@ -1621,6 +1633,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     let res: AIResult;
 
     try {
+      await this.policy.requireCloudConsent('Runware', message.operationLabel || op);
       switch (op) {
         case 'remove_background':
           res = await this.runwareAdapter.removeBackground(realInput);
@@ -1679,31 +1692,23 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       }
 
       if (res.success) {
-        let displayUri = res.outputImageUri || inputImg;
-        if (res.outputImageUri && this._view) {
-          const cachedPath = await this.assetStorage.saveToCache(
-            res.outputImageUri,
-            op === 'vectorize' ? 'svg' : 'png'
-          );
-          displayUri = this.assetStorage.getWebviewUri(cachedPath, this._view.webview);
-          this.uriToPathMap.set(displayUri, cachedPath);
+        if (op === 'caption') {
+          if (!res.textResult) throw new Error('Caption provider returned no text.');
+          this.sessionManager.addMessage(session.sessionId, { sender: 'assistant', text: res.textResult, nodeId: parentNode.nodeId });
+          this.broadcastSessionState();
+          this.postToWebview({ type: 'operationCompleted', operation: op });
+          return;
         }
-
-        this.sessionManager.addOperationNode(
-          session.sessionId,
-          parentNode.nodeId,
-          op,
-          message.operationLabel || op,
-          inputImg,
-          displayUri,
-          res.metrics,
-          {
-            maskUri: res.maskUri,
-            prompt: message.prompt,
-            textResult: res.textResult
-          }
-        );
-
+        if (!res.outputImageUri) throw new Error('Provider returned no image artifact.');
+        const committed = await this.commitService.commitImageResult({
+          sessionId: session.sessionId, parentId: parentNode.nodeId, operation: op,
+          intent: { label: message.operationLabel || op }, prompt: message.prompt,
+          maskUri: res.maskUri, result: res
+        });
+        if (this._view) {
+          const displayUri = this.assetStorage.getWebviewUri(committed.outputImageUri, this._view.webview);
+          this.uriToPathMap.set(displayUri, committed.outputImageUri);
+        }
         this.broadcastSessionState();
         this.postToWebview({ type: 'operationCompleted', operation: op });
       } else {
@@ -1721,8 +1726,9 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         this.postToWebview({ command: 'actionError', message: errorText });
       }
     } catch (err: any) {
-      console.warn(`[PixelPilot] Cloud AI execution error (${err.message}), falling back to Smart Client Engine.`);
-      forwardToClient();
+      const errorText = err?.message || String(err);
+      console.warn(`[PixelPilot] AI operation failed: ${errorText}`);
+      this.postToWebview({ command: 'actionError', message: errorText });
     }
   }
 
