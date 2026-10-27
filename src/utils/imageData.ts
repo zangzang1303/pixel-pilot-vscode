@@ -18,16 +18,25 @@ const MIME_EXTENSIONS: Record<string, string> = {
 };
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 
-function validateImageBuffer(buffer: Buffer, mimeType: string): void {
+export function validateImageBuffer(buffer: Buffer, mimeType: string): void {
   if (buffer.length === 0 || buffer.length > MAX_IMAGE_BYTES) {
     throw new Error('Dữ liệu ảnh vượt quá giới hạn cho phép.');
   }
   if (mimeType === 'image/svg+xml') {
     const svg = buffer.toString('utf8');
-    if (!/<svg\b/i.test(svg) || /<\/?script\b|\son\w+\s*=|(?:href|xlink:href)\s*=\s*["']\s*(?:https?:|data:)/i.test(svg)) {
+    if (!/<svg\b/i.test(svg) || /<\/?(?:script|foreignObject)\b|<!\s*(?:DOCTYPE|ENTITY)\b|\son\w+\s*=|(?:href|xlink:href)\s*=\s*["']\s*(?:https?:|data:|file:|javascript:)|url\(\s*["']?\s*(?:https?:|data:|file:)/i.test(svg)) {
       throw new Error('SVG contains unsupported active or remote content.');
     }
+    return;
   }
+  const signature = mimeType === 'image/png' ? buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    : mimeType === 'image/jpeg' ? buffer.length >= 3 && buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255
+    : mimeType === 'image/webp' ? buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP'
+    : mimeType === 'image/gif' ? /^GIF8[79]a$/.test(buffer.toString('ascii', 0, 6))
+    : mimeType === 'image/bmp' ? buffer.toString('ascii', 0, 2) === 'BM'
+    : mimeType === 'image/avif' ? buffer.toString('ascii', 4, 8) === 'ftyp' && buffer.toString('ascii', 8, 12).includes('avif')
+    : false;
+  if (!signature) throw new Error('Image content does not match its MIME type.');
 }
 
 /** Decode a real image data URI or read an existing local file. */

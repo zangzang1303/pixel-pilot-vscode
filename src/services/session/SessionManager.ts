@@ -8,6 +8,8 @@ export class SessionManager {
   private sessions: Map<string, ImageSession> = new Map();
   private activeSessionId: string | null = null;
   private storageFilePath: string | null = null;
+  private legacyBackupPath: string | null = null;
+  private legacyBackupCreated = false;
 
   constructor(storageDir?: string) {
     if (storageDir) {
@@ -18,21 +20,44 @@ export class SessionManager {
 
   private saveToDisk(): void {
     if (!this.storageFilePath) return;
+    const dir = path.dirname(this.storageFilePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const data = {
+      schemaVersion: SessionManager.STORE_SCHEMA_VERSION,
+      activeSessionId: this.activeSessionId,
+      sessions: Array.from(this.sessions.values())
+    };
+    const temporaryPath = `${this.storageFilePath}.tmp`;
     try {
-      const dir = path.dirname(this.storageFilePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+      if (this.legacyBackupPath && !this.legacyBackupCreated) {
+        fs.copyFileSync(this.storageFilePath, this.legacyBackupPath, fs.constants.COPYFILE_EXCL);
+        this.legacyBackupCreated = true;
       }
-      const data = {
-        schemaVersion: SessionManager.STORE_SCHEMA_VERSION,
-        activeSessionId: this.activeSessionId,
-        sessions: Array.from(this.sessions.values())
-      };
-      const temporaryPath = `${this.storageFilePath}.tmp`;
       fs.writeFileSync(temporaryPath, JSON.stringify(data, null, 2), 'utf-8');
       fs.renameSync(temporaryPath, this.storageFilePath);
+      this.legacyBackupPath = null;
     } catch (e) {
-      console.error('Failed to save sessions to disk:', e);
+      try { fs.unlinkSync(temporaryPath); } catch { /* Keep the original store intact. */ }
+      throw e;
+    }
+  }
+
+  /** A failed store write must not leave a new node or active pointer in memory. */
+  private persistMutation<T>(mutation: () => T): T {
+    if (!this.storageFilePath) return mutation();
+    const before = new Map(Array.from(this.sessions, ([id, session]) =>
+      [id, JSON.parse(JSON.stringify(session)) as ImageSession] as const));
+    const activeBefore = this.activeSessionId;
+    try {
+      const result = mutation();
+      this.saveToDisk();
+      return result;
+    } catch (error) {
+      this.sessions = before;
+      this.activeSessionId = activeBefore;
+      throw error;
     }
   }
 
@@ -54,6 +79,9 @@ export class SessionManager {
       const validSessions = Array.from(this.sessions.values());
       if (validSessions.length > 0) this.activeSessionId = !Array.isArray(stored) && stored.activeSessionId && this.sessions.has(stored.activeSessionId)
         ? stored.activeSessionId : validSessions[0].sessionId;
+      if (Array.isArray(stored) || stored.schemaVersion !== SessionManager.STORE_SCHEMA_VERSION) {
+        this.legacyBackupPath = `${this.storageFilePath}.v1.bak.${Date.now()}`;
+      }
     } catch {
       console.warn('Pixel Pilot session store was malformed and has been quarantined.');
       try {
@@ -113,10 +141,11 @@ export class SessionManager {
       messages: [initialMessage]
     };
 
-    this.sessions.set(sessionId, session);
-    this.activeSessionId = sessionId;
-    this.saveToDisk();
-    return session;
+    return this.persistMutation(() => {
+      this.sessions.set(sessionId, session);
+      this.activeSessionId = sessionId;
+      return session;
+    });
   }
 
   /**
@@ -135,6 +164,7 @@ export class SessionManager {
       prompt?: string;
       params?: Record<string, any>;
       textResult?: string;
+      activateCurrent?: boolean;
     }
   ): HistoryNode {
     const session = this.sessions.get(sessionId);
@@ -166,28 +196,18 @@ export class SessionManager {
       metrics
     };
 
-    // Update parent's children array to enable branch traversal
-    parentNode.childrenIds.push(nodeId);
-
-    // Save into session DAG
-    session.nodes[nodeId] = newNode;
-    session.currentNodeId = nodeId;
-    session.updatedAt = Date.now();
-
-    // Auto add friendly assistant message to conversation flow
-    session.messages.push({
-      id: 'msg_' + Date.now(),
-      sender: 'assistant',
-      timestamp: Date.now(),
-      text: `✨ Đã hoàn tất "${operationLabel}". Kết quả đã hiển thị trên khung hình phía trên. Bạn có thể so sánh với ảnh gốc hoặc tải về máy.`,
-      nodeId,
-      operation,
-      outputImageUri,
-      metrics
+    return this.persistMutation(() => {
+      parentNode.childrenIds.push(nodeId);
+      session.nodes[nodeId] = newNode;
+      if (options?.activateCurrent !== false) session.currentNodeId = nodeId;
+      session.updatedAt = Date.now();
+      session.messages.push({
+        id: 'msg_' + Date.now(), sender: 'assistant', timestamp: Date.now(),
+        text: `✨ Đã hoàn tất "${operationLabel}". Kết quả đã hiển thị trên khung hình phía trên. Bạn có thể so sánh với ảnh gốc hoặc tải về máy.`,
+        nodeId, operation, outputImageUri, metrics
+      });
+      return newNode;
     });
-
-    this.saveToDisk();
-    return newNode;
   }
 
   /**
@@ -203,10 +223,11 @@ export class SessionManager {
       ...message
     };
 
-    session.messages.push(fullMessage);
-    session.updatedAt = Date.now();
-    this.saveToDisk();
-    return fullMessage;
+    return this.persistMutation(() => {
+      session.messages.push(fullMessage);
+      session.updatedAt = Date.now();
+      return fullMessage;
+    });
   }
 
   public attachImage(sessionId: string, imageUri: string): void {
@@ -214,22 +235,23 @@ export class SessionManager {
     if (!session || !imageUri) return;
     const current = session.nodes[session.currentNodeId];
     if (current.outputImageUri === imageUri) return;
-    if (!current.outputImageUri && current.nodeId === session.rootNodeId) {
-      current.inputImageUri = imageUri;
-      current.outputImageUri = imageUri;
-    } else {
-      const nodeId = `node_${Object.keys(session.nodes).length}_attached`;
-      current.childrenIds.push(nodeId);
-      session.nodes[nodeId] = {
-        nodeId, parentId: current.nodeId, childrenIds: [], timestamp: Date.now(),
-        operation: 'original', operationLabel: 'Ảnh đang mở',
-        inputImageUri: current.outputImageUri, outputImageUri: imageUri,
-        metrics: { model: 'Canvas', latencyMs: 0, costUsd: 0 }
-      };
-      session.currentNodeId = nodeId;
-    }
-    session.updatedAt = Date.now();
-    this.saveToDisk();
+    this.persistMutation(() => {
+      if (!current.outputImageUri && current.nodeId === session.rootNodeId) {
+        current.inputImageUri = imageUri;
+        current.outputImageUri = imageUri;
+      } else {
+        const nodeId = `node_${Object.keys(session.nodes).length}_attached`;
+        current.childrenIds.push(nodeId);
+        session.nodes[nodeId] = {
+          nodeId, parentId: current.nodeId, childrenIds: [], timestamp: Date.now(),
+          operation: 'original', operationLabel: 'Ảnh đang mở',
+          inputImageUri: current.outputImageUri, outputImageUri: imageUri,
+          metrics: { model: 'Canvas', latencyMs: 0, costUsd: 0 }
+        };
+        session.currentNodeId = nodeId;
+      }
+      session.updatedAt = Date.now();
+    });
   }
 
   /**
@@ -240,37 +262,36 @@ export class SessionManager {
     if (!session) throw new Error(`Session ${sessionId} not found`);
     if (!session.nodes[targetNodeId]) throw new Error(`Target node ${targetNodeId} not found`);
 
-    session.currentNodeId = targetNodeId;
-    session.updatedAt = Date.now();
-
-    session.messages.push({
-      id: 'msg_' + Date.now(),
-      sender: 'system',
-      timestamp: Date.now(),
-      text: `↩️ Đã chuyển trạng thái (Rollback) về: "${session.nodes[targetNodeId].operationLabel}"`,
-      nodeId: targetNodeId
+    return this.persistMutation(() => {
+      session.currentNodeId = targetNodeId;
+      session.updatedAt = Date.now();
+      session.messages.push({
+        id: 'msg_' + Date.now(), sender: 'system', timestamp: Date.now(),
+        text: `↩️ Đã chuyển trạng thái (Rollback) về: "${session.nodes[targetNodeId].operationLabel}"`,
+        nodeId: targetNodeId
+      });
+      return session.nodes[targetNodeId];
     });
-
-    this.saveToDisk();
-    return session.nodes[targetNodeId];
   }
 
   public renameSession(sessionId: string, newTitle: string): void {
     const session = this.sessions.get(sessionId);
     if (session) {
-      session.title = newTitle;
-      session.updatedAt = Date.now();
-      this.saveToDisk();
+      this.persistMutation(() => {
+        session.title = newTitle;
+        session.updatedAt = Date.now();
+      });
     }
   }
 
   public deleteSession(sessionId: string): void {
-    this.sessions.delete(sessionId);
-    if (this.activeSessionId === sessionId) {
-      const remaining = Array.from(this.sessions.keys());
-      this.activeSessionId = remaining.length > 0 ? remaining[0] : null;
-    }
-    this.saveToDisk();
+    this.persistMutation(() => {
+      this.sessions.delete(sessionId);
+      if (this.activeSessionId === sessionId) {
+        const remaining = Array.from(this.sessions.keys());
+        this.activeSessionId = remaining.length > 0 ? remaining[0] : null;
+      }
+    });
   }
 
   public getActiveSession(): ImageSession | null {
@@ -280,9 +301,10 @@ export class SessionManager {
 
   public setActiveSession(sessionId: string): ImageSession | null {
     if (this.sessions.has(sessionId)) {
-      this.activeSessionId = sessionId;
-      this.saveToDisk();
-      return this.sessions.get(sessionId) || null;
+      return this.persistMutation(() => {
+        this.activeSessionId = sessionId;
+        return this.sessions.get(sessionId) || null;
+      });
     }
     return null;
   }
@@ -327,10 +349,11 @@ export class SessionManager {
     if (!session.messages) {
       session.messages = [];
     }
-    this.sessions.set(session.sessionId, session);
-    this.activeSessionId = session.sessionId;
-    this.saveToDisk();
-    return session;
+    return this.persistMutation(() => {
+      this.sessions.set(session.sessionId, session);
+      this.activeSessionId = session.sessionId;
+      return session;
+    });
   }
 
   /** Validate parent links and rebuild child links instead of trusting persisted input. */

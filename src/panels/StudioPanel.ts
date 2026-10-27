@@ -399,7 +399,8 @@ export class StudioPanel {
 
         try {
           this.sendMessage({ command: 'actionStarted', label: `Đang thực hiện ${action}...` });
-          const buffer = decodeImageInput(dataUrl).buffer;
+          const decodedInput = decodeImageInput(dataUrl);
+          const buffer = decodedInput.buffer;
           const imageProc = ImageProcessor.getInstance();
 
           if (action === 'removeBackground') {
@@ -617,7 +618,7 @@ export class StudioPanel {
             const codeGen = CodeGenService.getInstance();
             const codeRes = await codeGen.generateCodeFromImage({
               imageBuffer: buffer,
-              imageMimeType: 'image/png',
+              imageMimeType: decodedInput.mimeType,
               framework: options?.framework || 'react-tailwind'
             });
             await codeGen.openInEditor(codeRes.code, codeRes.suggestedFileName);
@@ -625,12 +626,13 @@ export class StudioPanel {
             vscode.window.showInformationMessage(`✅ Đã sinh mã ${codeRes.framework} và mở trong editor!`);
           } else if (action === 'ocr') {
             const ocrService = OCRService.getInstance();
-            const ocrRes = await ocrService.extractText(buffer, 'image/png');
+            const ocrRes = await ocrService.extractText(buffer, decodedInput.mimeType);
             if (ocrRes.fullText) {
               await vscode.env.clipboard.writeText(ocrRes.fullText);
             }
             this.sendMessage({ command: 'actionComplete' });
-            vscode.window.showInformationMessage(`📋 OCR: Đã copy văn bản vào Clipboard (${ocrRes.fullText.length} ký tự)!`);
+            if (ocrRes.fullText) vscode.window.showInformationMessage(`📋 OCR: Đã copy ${ocrRes.fullText.length} ký tự vào Clipboard.`);
+            else vscode.window.showInformationMessage('OCR không phát hiện văn bản trong ảnh.');
           } else if (action === 'compress') {
             const comp = await imageProc.processImage(buffer, { format: options?.format || 'webp', quality: options?.quality || 85 });
             const savedResult = await FileSystemUtils.saveImageToWorkspace(comp, `pixel_pilot_compressed_${Date.now()}.${options?.format || 'webp'}`);

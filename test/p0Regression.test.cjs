@@ -45,3 +45,23 @@ test('Runware never rehydrates a credential from the environment', () => {
     else process.env.RUNWARE_API_KEY = prior;
   }
 });
+
+test('Runware rejects a result tagged with another task ID', async () => {
+  const adapter = new RunwareAdapter('test-key');
+  adapter.dispatchTasks = async () => ({ data: [{ taskUUID: 'another-job', imageURL: 'data:image/png;base64,AA==' }], latencyMs: 1 });
+  const result = await adapter.upscale('data:image/png;base64,AA==', 2);
+  assert.equal(result.success, false);
+  assert.match(result.error, /different task/i);
+});
+
+test('Runware inpaint rejects an absent or empty mask before calling the provider', async () => {
+  const adapter = new RunwareAdapter('test-key');
+  let calls = 0;
+  adapter.dispatchTasks = async () => { calls++; return { data: [], latencyMs: 1 }; };
+  const image = await sharp({ create: { width: 2, height: 2, channels: 4, background: { r: 1, g: 2, b: 3, alpha: 1 } } }).png().toBuffer();
+  const emptyMask = await sharp({ create: { width: 2, height: 2, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+  const source = `data:image/png;base64,${image.toString('base64')}`;
+  assert.equal((await adapter.inpaint(source, '', 'repair')).success, false);
+  assert.match((await adapter.inpaint(source, `data:image/png;base64,${emptyMask.toString('base64')}`, 'repair')).error, /editable region/i);
+  assert.equal(calls, 0);
+});

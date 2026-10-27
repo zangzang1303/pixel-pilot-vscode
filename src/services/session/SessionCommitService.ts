@@ -31,6 +31,8 @@ export class SessionCommitService {
     if (!session || !parent) throw new Error('The target session or parent node no longer exists.');
 
     const outputPath = await this.assets.saveToCache(input.result.outputImageUri);
+    const latest = this.sessions.getSession(input.sessionId);
+    if (!latest?.nodes[input.parentId]) throw new Error('The target session or parent node no longer exists.');
     return this.sessions.addOperationNode(
       input.sessionId,
       input.parentId,
@@ -39,7 +41,11 @@ export class SessionCommitService {
       parent.outputImageUri,
       outputPath,
       input.result.metrics,
-      { prompt: input.prompt, maskUri: input.maskUri, params: input.params, textResult: input.result.textResult }
+      {
+        prompt: input.prompt, maskUri: input.maskUri, params: input.params,
+        textResult: input.result.textResult,
+        activateCurrent: latest.currentNodeId === input.parentId
+      }
     );
   }
 }

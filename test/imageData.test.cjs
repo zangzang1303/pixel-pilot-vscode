@@ -17,11 +17,11 @@ test('decodeImageInput reads local files and normalizes jpeg', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-pilot-image-'));
   const file = path.join(directory, 'photo.jpeg');
   try {
-    fs.writeFileSync(file, Buffer.from([1, 2, 3]));
+    fs.writeFileSync(file, Buffer.from([255, 216, 255, 217]));
     const decoded = decodeImageInput(file);
     assert.equal(decoded.extension, 'jpg');
     assert.equal(decoded.mimeType, 'image/jpeg');
-    assert.deepEqual([...decoded.buffer], [1, 2, 3]);
+    assert.deepEqual([...decoded.buffer], [255, 216, 255, 217]);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

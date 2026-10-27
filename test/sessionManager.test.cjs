@@ -97,3 +97,46 @@ test('importDAG rejects cycles and invalid parent links', () => {
   };
   assert.throws(() => manager.importDAG(JSON.stringify(invalid)), /root must not have a parent/i);
 });
+
+test('failed session-store rename rejects an edit and rolls back the in-memory DAG', () => {
+  const directory = tempStore();
+  const originalRename = fs.renameSync;
+  try {
+    const manager = new SessionManager(directory);
+    const session = manager.createSession('source.png');
+    const storePath = path.join(directory, '.pixelpilot_sessions.json');
+    const before = fs.readFileSync(storePath, 'utf8');
+    fs.renameSync = () => { throw new Error('disk rename failed'); };
+    assert.throws(() => manager.addOperationNode(
+      session.sessionId, session.rootNodeId, 'upscale', 'Upscale', 'source.png',
+      'result.png', { model: 'test', latencyMs: 1, costUsd: 0 }
+    ), /disk rename failed/);
+    assert.equal(manager.getSession(session.sessionId).currentNodeId, session.rootNodeId);
+    assert.deepEqual(manager.getSession(session.sessionId).nodes[session.rootNodeId].childrenIds, []);
+    assert.equal(fs.readFileSync(storePath, 'utf8'), before);
+    assert.equal(fs.existsSync(`${storePath}.tmp`), false);
+  } finally {
+    fs.renameSync = originalRename;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('first v2 write backs up a valid legacy session store byte for byte', () => {
+  const directory = tempStore();
+  try {
+    const storePath = path.join(directory, '.pixelpilot_sessions.json');
+    const source = new SessionManager().createSession('source.png', 'legacy');
+    const legacy = JSON.stringify([source]);
+    fs.writeFileSync(storePath, legacy, 'utf8');
+    const manager = new SessionManager(directory);
+    manager.renameSession(source.sessionId, 'migrated');
+    const backups = fs.readdirSync(directory).filter(name => name.startsWith('.pixelpilot_sessions.json.v1.bak.'));
+    assert.equal(backups.length, 1);
+    assert.equal(fs.readFileSync(path.join(directory, backups[0]), 'utf8'), legacy);
+    const current = JSON.parse(fs.readFileSync(storePath, 'utf8'));
+    assert.equal(current.schemaVersion, 2);
+    assert.equal(current.sessions[0].title, 'migrated');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

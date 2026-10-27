@@ -11,6 +11,7 @@ import { SecretManager } from '../services/security/SecretManager';
 import { ConfigManager } from '../services/security/ConfigManager';
 import { WorkspaceFSService } from '../services/storage/WorkspaceFSService';
 import { WebviewToHostMessage, HostToWebviewMessage } from './WebviewMessageProtocol';
+import { decodeImageInput } from '../utils/imageData';
 
 export class ImageStudioPanel {
   public static currentPanel: ImageStudioPanel | undefined;
@@ -185,16 +186,11 @@ export class ImageStudioPanel {
               const { imageUri, framework } = message.payload;
               this.postMessage({ command: 'UPDATE_AI_PROGRESS', payload: { status: 'Đang phân tích mockup và sinh code...' } });
 
-              let buffer: Buffer;
-              if (imageUri.startsWith('data:')) {
-                buffer = Buffer.from(imageUri.split(',')[1], 'base64');
-              } else {
-                buffer = await this.fsService.readFile(vscode.Uri.file(imageUri));
-              }
+              const decoded = decodeImageInput(imageUri);
 
               const result = await this.codeGenService.generateCodeFromImage({
-                imageBuffer: buffer,
-                imageMimeType: 'image/png',
+                imageBuffer: decoded.buffer,
+                imageMimeType: decoded.mimeType,
                 framework: framework || this.configManager.getImageToCodeFramework()
               });
 
@@ -208,14 +204,9 @@ export class ImageStudioPanel {
               const { imageUri } = message.payload;
               this.postMessage({ command: 'UPDATE_AI_PROGRESS', payload: { status: 'Đang trích xuất chữ OCR...' } });
 
-              let buffer: Buffer;
-              if (imageUri.startsWith('data:')) {
-                buffer = Buffer.from(imageUri.split(',')[1], 'base64');
-              } else {
-                buffer = await this.fsService.readFile(vscode.Uri.file(imageUri));
-              }
+              const decoded = decodeImageInput(imageUri);
 
-              const result = await this.ocrService.extractAndCopy(buffer, 'image/png');
+              const result = await this.ocrService.extractAndCopy(decoded.buffer, decoded.mimeType);
               this.postMessage({ command: 'AI_ACTION_SUCCESS', payload: { text: result.fullText } });
               break;
             }
