@@ -15,53 +15,7 @@ export class RunwareAdapter implements IAIProvider {
   }
 
   public updateApiKey(key?: string): void {
-    if (key && key.trim()) {
-      this.apiKey = key.trim();
-      return;
-    }
-
-    // Try environment variable
-    if (process.env.RUNWARE_API_KEY && process.env.RUNWARE_API_KEY.trim()) {
-      this.apiKey = process.env.RUNWARE_API_KEY.trim();
-      return;
-    }
-
-    // Try reading from .env files in common workspace locations
-    const possibleEnvPaths = [
-      'd:/CODE/DAKH/pixel-pilot-vscode/.env',
-      'd:\\CODE\\DAKH\\pixel-pilot-vscode\\.env',
-      'd:/CODE/DAKH/.env',
-      path.resolve('.env'),
-      path.resolve('pixel-pilot-vscode', '.env'),
-      path.resolve('..', '.env')
-    ];
-
-    for (const envPath of possibleEnvPaths) {
-      if (fs.existsSync(envPath)) {
-        try {
-          const content = fs.readFileSync(envPath, 'utf-8');
-          for (const line of content.split('\n')) {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith('#')) continue;
-            const eqIdx = trimmed.indexOf('=');
-            if (eqIdx !== -1) {
-              const k = trimmed.substring(0, eqIdx).trim();
-              let v = trimmed.substring(eqIdx + 1).trim();
-              if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-                v = v.slice(1, -1).trim();
-              }
-              if (k === 'RUNWARE_API_KEY' && v && v !== 'YOUR_RUNWARE_API_KEY') {
-                this.apiKey = v;
-                console.log(`[RunwareAdapter] Loaded API Key from: ${envPath}`);
-                return;
-              }
-            }
-          }
-        } catch (e) {
-          // ignore read error
-        }
-      }
-    }
+    this.apiKey = (key || '').trim();
   }
 
   public getApiKey(): string {
@@ -330,32 +284,6 @@ export class RunwareAdapter implements IAIProvider {
         }
       };
     } catch (err: any) {
-      if (err.message && (err.message.includes('Insufficient credits') || err.message.includes('400'))) {
-        const fallbackSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500">
-  <defs>
-    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38bdf8"/>
-      <stop offset="100%" stop-color="#818cf8"/>
-    </linearGradient>
-  </defs>
-  <rect width="100%" height="100%" fill="#0d0e12" rx="20"/>
-  <circle cx="250" cy="220" r="120" fill="url(#grad)" opacity="0.85"/>
-  <path d="M 170 340 Q 250 280 330 340" stroke="#38bdf8" stroke-width="8" fill="none" stroke-linecap="round"/>
-  <text x="250" y="420" fill="#e4e4e7" font-size="22" font-weight="bold" text-anchor="middle" font-family="sans-serif">Pixel Pilot Vector SOTA</text>
-  <text x="250" y="450" fill="#a1a1aa" font-size="14" text-anchor="middle" font-family="sans-serif">Offline Fallback Bézier Paths</text>
-</svg>`;
-        const base64Svg = Buffer.from(fallbackSvg, 'utf-8').toString('base64');
-        return {
-          success: true,
-          outputImageUri: `data:image/svg+xml;base64,${base64Svg}`,
-          textResult: fallbackSvg,
-          metrics: {
-            model: 'Bézier Vectorizer (Fallback Mode - Runware Credits Depleted)',
-            latencyMs: 50,
-            costUsd: 0
-          }
-        };
-      }
       return {
         success: false,
         metrics: { model: 'Runware Vectorize', latencyMs: 0, costUsd: 0 },
@@ -586,6 +514,9 @@ export class RunwareAdapter implements IAIProvider {
       if (!outputImage) {
         throw new Error('Runware API không trả về ảnh nền mới.');
       }
+      if (outputImage === img) {
+        throw new Error('Runware returned the original image; background replacement made no change.');
+      }
 
       return {
         success: true,
@@ -597,17 +528,6 @@ export class RunwareAdapter implements IAIProvider {
         }
       };
     } catch (err: any) {
-      if (err.message && (err.message.includes('Insufficient credits') || err.message.includes('400'))) {
-        return {
-          success: true,
-          outputImageUri: this.normalizeImageInput(imageInput),
-          metrics: {
-            model: 'AI Background Compositor (Fallback Mode)',
-            latencyMs: 55,
-            costUsd: 0
-          }
-        };
-      }
       return {
         success: false,
         metrics: { model: 'Runware Replace Background', latencyMs: 0, costUsd: 0 },

@@ -1,6 +1,8 @@
 # 🚀 PIXEL PILOT (DAKH 2026)
 ### Context-Aware Visual AI Assistant & SOTA Matting Studio for VS Code
 
+> **Implementation status:** capability labels describe intended integrations, not a guarantee that a provider/model is available or that a tool has run successfully. See [Copilot implementation progress](docs/COPILOT_IMPLEMENTATION_PROGRESS.md) for verified coverage, known limits, and release gates.
+
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue.svg)](https://www.typescriptlang.org/)
 [![VS Code Extension](https://img.shields.io/badge/VS_Code-Extension-007ACC.svg)](https://code.visualstudio.com/)
 [![SOTA Model](https://img.shields.io/badge/Model-BiRefNet%20Matting-brightgreen.svg)](https://github.com/ZhengPeng7/BiRefNet)

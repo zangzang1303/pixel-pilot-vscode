@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    name: Build and regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install host dependencies
+        run: npm ci
+      - name: Install webview dependencies
+        run: npm --prefix webview-ui ci
+      - name: Build and run regression suite
+        run: npm run check

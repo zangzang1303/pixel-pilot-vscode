@@ -8,7 +8,7 @@ export interface AgentContext {
   height?: number;
   currentNodeId?: string;
   previousOperations?: string[];
-  conversationHistory?: ChatMessage[];
+  conversationHistory?: readonly ChatMessage[];
 }
 
 export interface AgentDecision {

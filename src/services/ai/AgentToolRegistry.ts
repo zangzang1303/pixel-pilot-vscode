@@ -21,6 +21,24 @@ export interface ToolDefinition {
   mapToIntent: (args: Record<string, any>) => ParsedIntent;
 }
 
+export interface ValidatedToolCall {
+  tool: ToolDefinition;
+  args: Record<string, unknown>;
+  intent: ParsedIntent;
+}
+
+/**
+ * A tool call is untrusted input even when it came from a model provider.
+ * Keeping this error separate lets callers show a useful message without
+ * silently substituting a different editing operation.
+ */
+export class ToolValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ToolValidationError';
+  }
+}
+
 /**
  * Registry of all concrete image editing primitives available in Pixel Pilot.
  * Compatible with OpenAI / Gemini Function Calling format.
@@ -357,6 +375,52 @@ export class AgentToolRegistry {
 
   public static getAllTools(): ToolDefinition[] {
     return Array.from(this.tools.values());
+  }
+
+  /** Resolve and validate an LLM/UI tool call before it can reach an executor. */
+  public static validateToolCall(name: unknown, rawArgs: unknown): ValidatedToolCall {
+    if (typeof name !== 'string' || !name.trim()) {
+      throw new ToolValidationError('Tool name is required.');
+    }
+    const tool = this.getTool(name);
+    if (!tool) {
+      throw new ToolValidationError(`Unknown tool: ${name}`);
+    }
+    if (rawArgs === null || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) {
+      throw new ToolValidationError(`Arguments for ${name} must be an object.`);
+    }
+
+    const args = rawArgs as Record<string, unknown>;
+    for (const required of tool.parameters.required || []) {
+      if (!(required in args) || args[required] === undefined || args[required] === null || args[required] === '') {
+        throw new ToolValidationError(`Missing required argument "${required}" for ${name}.`);
+      }
+    }
+
+    for (const [key, value] of Object.entries(args)) {
+      const property = tool.parameters.properties[key];
+      if (!property) {
+        throw new ToolValidationError(`Unknown argument "${key}" for ${name}.`);
+      }
+      if (property.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) {
+        throw new ToolValidationError(`Argument "${key}" for ${name} must be a finite number.`);
+      }
+      if (property.type === 'string' && typeof value !== 'string') {
+        throw new ToolValidationError(`Argument "${key}" for ${name} must be a string.`);
+      }
+      if (property.type === 'boolean' && typeof value !== 'boolean') {
+        throw new ToolValidationError(`Argument "${key}" for ${name} must be a boolean.`);
+      }
+      if (property.enum && !property.enum.includes(value as string | number)) {
+        throw new ToolValidationError(`Argument "${key}" for ${name} has an unsupported value.`);
+      }
+    }
+
+    const normalized = { ...args } as Record<string, any>;
+    for (const [key, property] of Object.entries(tool.parameters.properties)) {
+      if (normalized[key] === undefined && property.default !== undefined) normalized[key] = property.default;
+    }
+    return { tool, args: normalized, intent: tool.mapToIntent(normalized) };
   }
 
   /**

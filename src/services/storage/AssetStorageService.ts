@@ -103,20 +103,27 @@ export class AssetStorageService {
     return `data:${mime};base64,${buf.toString('base64')}`;
   }
 
-  /**
-   * Cleans up entire cache directory
-   */
-  public async clearCache(): Promise<void> {
+  /** Removes disposable cache files without deleting artifacts referenced by history. */
+  public async clearCache(referencedArtifacts: ReadonlySet<string> = new Set()): Promise<{ removed: number; retained: number }> {
+    let removed = 0;
+    let retained = 0;
     if (fs.existsSync(this.cacheDir)) {
       const files = await fs.promises.readdir(this.cacheDir);
       for (const file of files) {
+        const target = path.resolve(this.cacheDir, file);
+        if (referencedArtifacts.has(target)) {
+          retained++;
+          continue;
+        }
         try {
-          await fs.promises.unlink(path.join(this.cacheDir, file));
+          await fs.promises.unlink(target);
+          removed++;
         } catch {
           // Ignore locks
         }
       }
     }
+    return { removed, retained };
   }
 
   /**

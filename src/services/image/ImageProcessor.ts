@@ -632,7 +632,7 @@ export class ImageProcessor implements IImageProcessor {
    */
   public async inpaint(inputBuffer: Buffer, maskBuffer?: Buffer): Promise<Buffer> {
     if (!maskBuffer || maskBuffer.length === 0) {
-      return inputBuffer;
+      throw new Error('Inpaint requires a non-empty mask.');
     }
 
     const { data: imgData, info: imgInfo } = await sharp(inputBuffer)
@@ -642,6 +642,7 @@ export class ImageProcessor implements IImageProcessor {
 
     const w = imgInfo.width;
     const h = imgInfo.height;
+    const sourcePixels = Buffer.from(imgData);
 
     const maskRes = await sharp(maskBuffer)
       .resize(w, h, { fit: 'fill' })
@@ -651,6 +652,7 @@ export class ImageProcessor implements IImageProcessor {
 
     const maskData = maskRes.data;
 
+    let maskedPixels = 0;
     // Identify masked pixels (red mask or alpha > 100)
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
@@ -659,6 +661,7 @@ export class ImageProcessor implements IImageProcessor {
         const ma = maskData[idx + 3];
 
         if (ma > 80 && mr > 120) {
+          maskedPixels++;
           // Inpaint by sampling nearby border pixels
           let sumR = 0;
           let sumG = 0;
@@ -689,6 +692,13 @@ export class ImageProcessor implements IImageProcessor {
           }
         }
       }
+    }
+
+    if (maskedPixels === 0) {
+      throw new Error('Inpaint mask does not contain an editable region.');
+    }
+    if (imgData.equals(sourcePixels)) {
+      throw new Error('Inpaint produced no pixel changes for the selected mask.');
     }
 
     return await sharp(imgData, { raw: { width: w, height: h, channels: 4 } })

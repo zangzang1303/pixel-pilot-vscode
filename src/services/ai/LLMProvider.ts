@@ -1,5 +1,5 @@
 // LLMProvider.ts - Multi-Provider LLM Cognitive Brain & Conversational Agent Engine
-import { AgentToolRegistry } from './AgentToolRegistry';
+import { AgentToolRegistry, ToolValidationError } from './AgentToolRegistry';
 import { AgentContext, AgentDecision } from './VisionAgentOrchestrator';
 
 export interface LLMConfig {
@@ -26,6 +26,7 @@ export class LLMProvider {
       try {
         return await this.callGeminiVision(prompt, context, apiKey, config?.model || 'gemini-1.5-flash');
       } catch (err: any) {
+        if (err instanceof ToolValidationError) throw err;
         console.warn('[PixelPilot LLM] Gemini call failed, falling back to smart local reasoning:', err?.message || err);
       }
     }
@@ -35,6 +36,7 @@ export class LLMProvider {
       try {
         return await this.callOpenAICompatible(prompt, context, provider, apiKey, config?.model, config?.baseUrl);
       } catch (err: any) {
+        if (err instanceof ToolValidationError) throw err;
         console.warn(`[PixelPilot LLM] ${provider.toUpperCase()} call failed, falling back to smart local reasoning:`, err?.message || err);
       }
     }
@@ -162,9 +164,8 @@ QUY TẮC PHÂN BIỆT Ý ĐỊNH RÕ RÀNG:
 
     if (callPart && callPart.functionCall) {
       const toolName = callPart.functionCall.name;
-      const args = callPart.functionCall.args || {};
-      const tool = AgentToolRegistry.getTool(toolName) || AgentToolRegistry.getTool('recolor_subject')!;
-      const intent = tool.mapToIntent(args);
+      const validation = AgentToolRegistry.validateToolCall(toolName, callPart.functionCall.args || {});
+      const { tool, args, intent } = validation;
 
       const thought = `[Gemini Vision Brain] Phân tích ngữ cảnh ảnh và yêu cầu "${userPrompt}". Quyết định gọi công cụ ${tool.displayName} (${toolName}) với tham số: ${JSON.stringify(args)}.`;
 
@@ -291,9 +292,14 @@ QUY TẮC QUAN TRỌNG:
 
     if (toolCall && toolCall.function) {
       const toolName = toolCall.function.name;
-      const args = JSON.parse(toolCall.function.arguments || '{}');
-      const tool = AgentToolRegistry.getTool(toolName) || AgentToolRegistry.getTool('recolor_subject')!;
-      const intent = tool.mapToIntent(args);
+      let rawArgs: unknown;
+      try {
+        rawArgs = JSON.parse(toolCall.function.arguments || '{}');
+      } catch {
+        throw new ToolValidationError(`Invalid JSON arguments for ${toolName}.`);
+      }
+      const validation = AgentToolRegistry.validateToolCall(toolName, rawArgs);
+      const { tool, args, intent } = validation;
 
       return {
         type: 'tool_call',

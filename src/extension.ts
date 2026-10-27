@@ -56,18 +56,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
   };
 
-  // Watch for .env file changes to immediately auto-connect
-  const envWatcher = vscode.workspace.createFileSystemWatcher('**/.env');
-  envWatcher.onDidChange(async () => {
-    provider.getRunwareAdapter().updateApiKey();
-    await broadcastApiKeyStatus();
-  });
-  envWatcher.onDidCreate(async () => {
-    provider.getRunwareAdapter().updateApiKey();
-    await broadcastApiKeyStatus();
-  });
-  context.subscriptions.push(envWatcher);
-
   // 4. Command: Set Runware / AI API Key (Securely in SecretStorage)
   context.subscriptions.push(
     vscode.commands.registerCommand('pixelPilot.setApiKey', async () => {
@@ -114,8 +102,8 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('pixelPilot.clearCache', async () => {
       const sizeMb = provider.getAssetStorage().getCacheSizeMb();
-      await provider.getAssetStorage().clearCache();
-      vscode.window.showInformationMessage(`🧹 Pixel Pilot: Đã giải phóng ${sizeMb} MB bộ đệm cache đĩa cứng!`);
+      const result = await provider.getAssetStorage().clearCache(provider.getReferencedArtifactPaths());
+      vscode.window.showInformationMessage(`🧹 Pixel Pilot: Đã xóa ${result.removed} cache file (${sizeMb} MB trước dọn); giữ ${result.retained} artifact thuộc lịch sử.`);
     })
   );
 

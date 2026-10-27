@@ -11,6 +11,13 @@ import { SecretManager } from '../services/security/SecretManager';
 import { RunwareAdapter } from '../services/ai/RunwareAdapter';
 import { ComfyUIAdapter } from '../services/ai/ComfyUIAdapter';
 import { PixelPilotViewProvider } from '../providers/PixelPilotViewProvider';
+import { decodeImageInput } from '../utils/imageData';
+
+const VALID_UI_ACTIONS = new Set([
+  'removeBackground', 'upscale', 'enhance', 'mask', 'canny', 'edgeDetection',
+  'lineart', 'lineExtraction', 'depth', 'extend', 'caption', 'recolor',
+  'styleTransfer', 'vectorize', 'inpaint', 'imageToCode', 'ocr', 'compress', 'exportIcons'
+]);
 
 /**
  * Manages the AI Image Studio Webview panel.
@@ -385,10 +392,14 @@ export class StudioPanel {
           break;
         }
 
+        if (typeof action !== 'string' || !VALID_UI_ACTIONS.has(action)) {
+          this.sendMessage({ command: 'actionError', message: 'Unsupported image action.' });
+          break;
+        }
+
         try {
           this.sendMessage({ command: 'actionStarted', label: `Đang thực hiện ${action}...` });
-          const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-          const buffer = Buffer.from(base64Data, 'base64');
+          const buffer = decodeImageInput(dataUrl).buffer;
           const imageProc = ImageProcessor.getInstance();
 
           if (action === 'removeBackground') {
@@ -637,15 +648,7 @@ export class StudioPanel {
               await vscode.commands.executeCommand('revealFileInOS', bundle.directory);
             }
           } else {
-            // Default enhance clarity
-            const outBuf = await imageProc.enhance(buffer, 'clarity');
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_enhanced_${Date.now()}.png`);
-            this.sendMessage({
-              command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
-              savedPath: savedResult.relativePath
-            });
-            vscode.window.showInformationMessage(`✨ Thực hiện ${action} hoàn tất!`);
+            throw new Error(`Unsupported image action: ${action}`);
           }
         } catch (err: any) {
           this.sendMessage({ command: 'actionError', message: err.message });
@@ -699,6 +702,9 @@ export class StudioPanel {
         );
         return `${attr}="${assetUri}"`;
       });
+
+      const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data: blob: https:; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; connect-src 'none';">`;
+      html = html.replace('</head>', `${csp}</head>`);
 
       return html;
     }

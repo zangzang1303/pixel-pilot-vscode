@@ -31,3 +31,16 @@ test('decodeImageInput rejects unknown input instead of treating text as base64'
   assert.throws(() => decodeImageInput('not-an-image'), /không hợp lệ|không còn tồn tại/i);
   assert.equal(imageMimeType('jpg'), 'image/jpeg');
 });
+
+test('decodeImageInput rejects SVG with active content', () => {
+  const source = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>';
+  const dataUri = `data:image/svg+xml;base64,${Buffer.from(source).toString('base64')}`;
+  assert.throws(() => decodeImageInput(dataUri), /active or remote content/i);
+});
+
+test('decodeImageInput rejects malformed base64 before allocation', () => {
+  assert.throws(
+    () => decodeImageInput('data:image/png;base64,not-valid-base64'),
+    /không hợp lệ|not valid/i
+  );
+});

@@ -452,13 +452,8 @@ export class InvokeApiService {
             imageName = itemData.result.image.image_name;
           }
 
-          // 3. Fallback: fetch latest image from InvokeAI gallery
           if (!imageName) {
-            imageName = await this.getLatestImageName();
-          }
-
-          if (!imageName) {
-            throw new Error('Image generation finished but no image name was reported by InvokeAI.');
+            throw new Error('Image generation finished but no image result was attached to this InvokeAI job.');
           }
 
           return imageName;
@@ -519,11 +514,7 @@ export class InvokeApiService {
     }
 
     if (!imageName) {
-      imageName = await this.getLatestImageName();
-    }
-
-    if (!imageName) {
-      throw new Error('Could not find resulting image from session.');
+      throw new Error('Session completed without an image result attached to this session.');
     }
 
     const imageBuffer = await this.downloadImage(imageName);
@@ -619,19 +610,4 @@ export class InvokeApiService {
     }
   }
 
-  /**
-   * Fallback to retrieve the latest image from InvokeAI gallery.
-   */
-  private async getLatestImageName(): Promise<string | undefined> {
-    try {
-      const res = await this.client.get('/api/v1/images/?limit=1');
-      const items = res.data?.items || res.data;
-      if (Array.isArray(items) && items.length > 0) {
-        return items[0].image_name || items[0].name;
-      }
-    } catch {
-      // ignore
-    }
-    return undefined;
-  }
 }

@@ -3,11 +3,17 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { SessionManager } from '../services/session/SessionManager';
+import { SessionCommitService } from '../services/session/SessionCommitService';
+import { ContextBuilder } from '../services/copilot/ContextBuilder';
+import { CopilotOrchestrator } from '../services/copilot/CopilotOrchestrator';
+import { RunLifecycleService } from '../services/copilot/RunLifecycleService';
+import { WebviewBridge } from '../services/copilot/WebviewBridge';
 import { RunwareAdapter } from '../services/ai/RunwareAdapter';
 import { IntentRouter } from '../services/ai/IntentRouter';
 import { VisionAgentOrchestrator } from '../services/ai/VisionAgentOrchestrator';
 import { OperationType, AIResult } from '../services/session/types';
 import { SecretManager } from '../services/security/SecretManager';
+import { PolicyService } from '../services/security/PolicyService';
 import { AssetStorageService } from '../services/storage/AssetStorageService';
 import { EnterpriseConfigManager } from '../services/config/EnterpriseConfigManager';
 import { InvokeApiService } from '../services/InvokeApiService';
@@ -20,13 +26,26 @@ import { LocalChatService } from '../services/ai/LocalChatService';
 import { ImageAnalysisService } from '../services/ai/ImageAnalysisService';
 import sharp from 'sharp';
 import { decodeImageInput, imageMimeType } from '../utils/imageData';
+import { parseRunRequest } from '../shared/protocol';
+
+const VALID_UI_ACTIONS = new Set([
+  'removeBackground', 'upscale', 'enhance', 'mask', 'canny', 'edgeDetection',
+  'lineart', 'lineExtraction', 'depth', 'extend', 'caption', 'recolor',
+  'styleTransfer', 'vectorize', 'inpaint', 'imageToCode', 'ocr', 'compress', 'exportIcons'
+]);
 
 export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'pixelPilot.sidebarView';
   private _view?: vscode.WebviewView;
   private sessionManager: SessionManager;
+  private commitService: SessionCommitService;
+  private contextBuilder = new ContextBuilder();
+  private copilotOrchestrator = new CopilotOrchestrator();
+  private runLifecycle = new RunLifecycleService();
+  private webviewBridge = new WebviewBridge();
   private runwareAdapter: RunwareAdapter;
   private secretManager: SecretManager;
+  private policy = new PolicyService();
   private assetStorage: AssetStorageService;
   private configManager: EnterpriseConfigManager;
   private invokeApi: InvokeApiService;
@@ -41,6 +60,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     this.sessionManager = new SessionManager(context.globalStorageUri.fsPath);
     this.secretManager = new SecretManager(context);
     this.assetStorage = new AssetStorageService(context);
+    this.commitService = new SessionCommitService(this.sessionManager, this.assetStorage);
     this.configManager = new EnterpriseConfigManager(workspaceRoot);
     this.runwareAdapter = new RunwareAdapter('');
     this.invokeApi = new InvokeApiService();
@@ -53,6 +73,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   public getRunwareAdapter(): RunwareAdapter { return this.runwareAdapter; }
   public getSecretManager(): SecretManager { return this.secretManager; }
   public getAssetStorage(): AssetStorageService { return this.assetStorage; }
+  public getReferencedArtifactPaths(): Set<string> { return this.sessionManager.getReferencedArtifactPaths(); }
   public getConfigManager(): EnterpriseConfigManager { return this.configManager; }
 
   private async refreshRunwareApiKey(): Promise<boolean> {
@@ -277,10 +298,14 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           break;
         }
 
+        if (typeof action !== 'string' || !VALID_UI_ACTIONS.has(action)) {
+          this.postToWebview({ command: 'actionError', message: 'Unsupported image action.' });
+          break;
+        }
+
         try {
           this.postToWebview({ command: 'actionStarted', label: `Đang thực hiện ${action}...` });
-          const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-          const buffer = Buffer.from(base64Data, 'base64');
+          const buffer = decodeImageInput(dataUrl).buffer;
           const imageProc = ImageProcessor.getInstance();
 
           if (action === 'removeBackground') {
@@ -552,14 +577,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               await vscode.commands.executeCommand('revealFileInOS', bundle.directory);
             }
           } else {
-            const outBuf = await imageProc.enhance(buffer, 'clarity');
-            const savedResult = await FileSystemUtils.saveImageToWorkspace(outBuf, `pixel_pilot_enhanced_${Date.now()}.png`);
-            this.postToWebview({
-              command: 'actionComplete',
-              dataUrl: `data:image/png;base64,${outBuf.toString('base64')}`,
-              savedPath: savedResult.relativePath
-            });
-            vscode.window.showInformationMessage(`✨ Thực hiện ${action} hoàn tất!`);
+            throw new Error(`Unsupported image action: ${action}`);
           }
         } catch (err: any) {
           this.postToWebview({ command: 'actionError', message: err.message });
@@ -654,6 +672,54 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
       case 'chatMessage': {
         await this.handleCopilotChat(message);
+        break;
+      }
+
+      case 'copilotRequest': {
+        const parsed = parseRunRequest(message.request);
+        if (!parsed.ok) {
+          this.postToWebview({ type: 'copilotError', requestId: parsed.error.requestId, error: parsed.error });
+          break;
+        }
+        const request = parsed.value;
+        try {
+          if (request.command === 'chat' || request.command === 'analyze') {
+            await this.handleCopilotChat({ text: request.text });
+            break;
+          }
+          if (request.command === 'tool') {
+            const call = this.copilotOrchestrator.validateTool(request.toolName, request.args || {});
+            const session = request.sessionId ? this.sessionManager.getSession(request.sessionId) : this.sessionManager.getActiveSession();
+            if (!session) throw new Error('No active image session.');
+            const nodeId = request.nodeId || session.currentNodeId;
+            const node = session.nodes[nodeId];
+            if (!node) throw new Error('Pinned context node no longer exists.');
+            const image = node.outputImageUri || node.inputImageUri;
+            if (!image && call.intent.operation !== 'generate') throw new Error('An image is required for this tool.');
+            const completedNodeId = await this.webviewBridge.dispatch(request.requestId, async () => {
+              this.runLifecycle.start(request.requestId);
+              try {
+                await this.runCopilotOperation(session.sessionId, image, call.intent.operation, call.intent, call.intent.promptText || '', request.requestId);
+                return this.sessionManager.getSession(session.sessionId)?.currentNodeId;
+              } finally {
+                this.runLifecycle.finish(request.requestId);
+              }
+            });
+            this.postToWebview({ type: 'copilotCompleted', requestId: request.requestId, nodeId: completedNodeId });
+            break;
+          }
+          if (this.runLifecycle.cancel(request.targetRequestId!)) {
+            this.postToWebview({ type: 'copilotCancelled', requestId: request.targetRequestId });
+          } else {
+            this.postToWebview({ type: 'copilotError', requestId: request.requestId, error: { code: 'cancelled', message: 'No cancellable run is active for this request.' } });
+          }
+        } catch (error: any) {
+          if (/^Operation cancelled\.?$/i.test(error?.message || '')) {
+            this.postToWebview({ type: 'copilotCancelled', requestId: request.requestId });
+          } else {
+            this.postToWebview({ type: 'copilotError', requestId: request.requestId, error: { code: 'invalid_message', message: error?.message || String(error) } });
+          }
+        }
         break;
       }
 
@@ -893,6 +959,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             payload: { status: 'Đang thực hiện AI Inpaint & Generative Fill...' }
           });
           const realInput = this.uriToPathMap.get(imageUri) || imageUri;
+          await this.policy.requireCloudConsent('Runware', 'Generative inpaint');
           const res = await this.runwareAdapter.inpaint(realInput, maskBase64 || '', prompt || 'high quality restoration');
           if (res.success && res.outputImageUri) {
             const cachedPath = await this.assetStorage.saveToCache(res.outputImageUri, 'png');
@@ -1193,11 +1260,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         }
         const llmKey = await this.secretManager.getLlmApiKey();
         if (llmKey) {
-          const decision = await VisionAgentOrchestrator.decideTool(text, {
-            currentImageUri: image,
-            imageTitle: current.title,
-            conversationHistory: current.messages.slice(0, -1)
-          }, { apiKey: llmKey, provider: await this.secretManager.getLlmProvider() });
+          const provider = await this.secretManager.getLlmProvider();
+          if (provider !== 'local' && provider !== 'ollama') {
+            await this.policy.requireCloudConsent(provider, 'Cloud planning');
+          }
+          const context = this.contextBuilder.build(current, current.currentNodeId);
+          const decision = await this.copilotOrchestrator.plan(text, context, { apiKey: llmKey, provider });
           if (decision.type === 'chat' || !decision.intent) {
             reply(decision.replyText || 'Bạn có thể mô tả cụ thể điều muốn chỉnh trên ảnh.');
             return;
@@ -1255,7 +1323,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     return null;
   }
 
-  private async runCopilotOperation(sessionId: string, image: string, operation: OperationType, intent: any, prompt: string): Promise<void> {
+  private async runCopilotOperation(sessionId: string, image: string, operation: OperationType, intent: any, prompt: string, requestId?: string): Promise<void> {
     const session = this.sessionManager.getSession(sessionId);
     if (!session) return;
     const parentId = session.currentNodeId;
@@ -1288,14 +1356,21 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         return;
     }
     if (!result.success) throw new Error(result.error || 'Công cụ xử lý ảnh thất bại');
+    if (requestId) this.runLifecycle.throwIfCancelled(requestId);
     if (operation === 'caption') {
       this.sessionManager.addMessage(sessionId, { sender: 'assistant', text: result.textResult || 'Chưa tạo được mô tả ảnh.', nodeId: parentId });
       this.broadcastSessionState();
       return;
     }
     if (!result.outputImageUri) throw new Error('Công cụ không trả về ảnh');
-    const savedPath = await this.assetStorage.saveToCache(result.outputImageUri);
-    this.sessionManager.addOperationNode(sessionId, parentId, operation, intent.label || operation, session.nodes[parentId].outputImageUri, savedPath, result.metrics, { prompt, textResult: result.textResult });
+    await this.commitService.commitImageResult({
+      sessionId,
+      parentId,
+      operation,
+      intent,
+      prompt,
+      result
+    });
     if (operation === 'vectorize' && result.textResult) {
       const svgPath = await this.assetStorage.saveToCache(Buffer.from(result.textResult), 'svg');
       this.sessionManager.addMessage(sessionId, { sender: 'assistant', text: `Đã lưu SVG: ${svgPath}`, nodeId: session.currentNodeId });
@@ -1325,14 +1400,13 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     const llmApiKey = await this.secretManager.getLlmApiKey();
     const llmProvider = await this.secretManager.getLlmProvider();
 
-    const decision = await VisionAgentOrchestrator.decideTool(
+    if (llmApiKey && llmProvider !== 'local' && llmProvider !== 'ollama') {
+      await this.policy.requireCloudConsent(llmProvider, 'Cloud planning');
+    }
+
+    const decision = await this.copilotOrchestrator.plan(
       promptText,
-      {
-        currentImageUri: inputImg,
-        imageTitle: session.title,
-        currentNodeId: session.currentNodeId,
-        conversationHistory: session.messages
-      },
+      this.contextBuilder.build(session, session.currentNodeId),
       {
         apiKey: llmApiKey,
         provider: llmProvider
@@ -1435,6 +1509,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     if (op === 'change_bg_color') {
       if (this.runwareAdapter.getApiKey()) {
         try {
+          await this.policy.requireCloudConsent('Runware', 'Background removal');
           const bgRes = await this.runwareAdapter.removeBackground(realInput);
           if (bgRes.success && bgRes.outputImageUri) {
             forwardToClient(bgRes.outputImageUri, true);
@@ -1797,6 +1872,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         );
         return `${attr}="${assetUri}"`;
       });
+      const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data: blob: https:; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline'; font-src ${webview.cspSource}; connect-src 'none';">`;
+      html = html.replace('</head>', `${csp}</head>`);
       return html;
     }
 

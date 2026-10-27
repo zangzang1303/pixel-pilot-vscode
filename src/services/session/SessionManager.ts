@@ -4,6 +4,7 @@ import path from 'path';
 import { ImageSession, HistoryNode, OperationType, NodeMetrics, ChatMessage } from './types';
 
 export class SessionManager {
+  private static readonly STORE_SCHEMA_VERSION = 2;
   private sessions: Map<string, ImageSession> = new Map();
   private activeSessionId: string | null = null;
   private storageFilePath: string | null = null;
@@ -22,7 +23,11 @@ export class SessionManager {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      const data = { activeSessionId: this.activeSessionId, sessions: Array.from(this.sessions.values()) };
+      const data = {
+        schemaVersion: SessionManager.STORE_SCHEMA_VERSION,
+        activeSessionId: this.activeSessionId,
+        sessions: Array.from(this.sessions.values())
+      };
       const temporaryPath = `${this.storageFilePath}.tmp`;
       fs.writeFileSync(temporaryPath, JSON.stringify(data, null, 2), 'utf-8');
       fs.renameSync(temporaryPath, this.storageFilePath);
@@ -35,11 +40,12 @@ export class SessionManager {
     if (!this.storageFilePath || !fs.existsSync(this.storageFilePath)) return;
     try {
       const raw = fs.readFileSync(this.storageFilePath, 'utf-8');
-      const stored = JSON.parse(raw) as ImageSession[] | { activeSessionId: string | null; sessions: ImageSession[] };
+      const stored = JSON.parse(raw) as ImageSession[] | { schemaVersion?: number; activeSessionId: string | null; sessions: ImageSession[] };
       const list = Array.isArray(stored) ? stored : stored.sessions;
       if (!Array.isArray(list)) throw new Error('Invalid session store');
       for (const s of list) {
         if (s && typeof s.sessionId === 'string' && s.nodes && typeof s.rootNodeId === 'string') {
+          this.validateAndRepairSession(s);
           s.messages = Array.isArray(s.messages) ? s.messages : [];
           s.updatedAt = Number.isFinite(s.updatedAt) ? s.updatedAt : Date.now();
           this.sessions.set(s.sessionId, s);
@@ -48,8 +54,14 @@ export class SessionManager {
       const validSessions = Array.from(this.sessions.values());
       if (validSessions.length > 0) this.activeSessionId = !Array.isArray(stored) && stored.activeSessionId && this.sessions.has(stored.activeSessionId)
         ? stored.activeSessionId : validSessions[0].sessionId;
-    } catch (e) {
-      console.error('Failed to load sessions from disk:', e);
+    } catch {
+      console.warn('Pixel Pilot session store was malformed and has been quarantined.');
+      try {
+        const quarantinePath = `${this.storageFilePath}.corrupt.${Date.now()}`;
+        fs.renameSync(this.storageFilePath, quarantinePath);
+      } catch {
+        // Keep the original file if it cannot be moved; do not overwrite it.
+      }
     }
   }
 
@@ -283,6 +295,23 @@ export class SessionManager {
     return Array.from(this.sessions.values()).sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
+  /** Absolute artifact paths referenced by retained history. */
+  public getReferencedArtifactPaths(): Set<string> {
+    const referenced = new Set<string>();
+    const collect = (value: string | undefined) => {
+      if (value && path.isAbsolute(value)) referenced.add(path.resolve(value));
+    };
+    for (const session of this.sessions.values()) {
+      for (const node of Object.values(session.nodes)) {
+        collect(node.inputImageUri);
+        collect(node.outputImageUri);
+        collect(node.maskUri);
+      }
+      for (const message of session.messages) collect(message.outputImageUri);
+    }
+    return referenced;
+  }
+
   public exportDAG(sessionId: string): string {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error(`Session ${sessionId} not found`);
@@ -291,9 +320,7 @@ export class SessionManager {
 
   public importDAG(jsonStr: string): ImageSession {
     const session = JSON.parse(jsonStr) as ImageSession;
-    if (!session.sessionId || !session.nodes || !session.rootNodeId || !session.nodes[session.rootNodeId]) {
-      throw new Error('Invalid Session DAG format');
-    }
+    this.validateAndRepairSession(session);
     if (!session.currentNodeId || !session.nodes[session.currentNodeId]) {
       session.currentNodeId = session.rootNodeId;
     }
@@ -304,5 +331,35 @@ export class SessionManager {
     this.activeSessionId = session.sessionId;
     this.saveToDisk();
     return session;
+  }
+
+  /** Validate parent links and rebuild child links instead of trusting persisted input. */
+  private validateAndRepairSession(session: ImageSession): void {
+    if (!session.sessionId || !session.nodes || !session.rootNodeId || !session.nodes[session.rootNodeId]) {
+      throw new Error('Invalid Session DAG format');
+    }
+    const nodes = session.nodes;
+    if (nodes[session.rootNodeId].parentId !== null) {
+      throw new Error('Session root must not have a parent');
+    }
+    for (const [nodeId, node] of Object.entries(nodes)) {
+      if (!node || node.nodeId !== nodeId) throw new Error('Invalid node record');
+      if (nodeId !== session.rootNodeId && (!node.parentId || !nodes[node.parentId])) {
+        throw new Error(`Node ${nodeId} has an invalid parent`);
+      }
+      node.childrenIds = [];
+    }
+    for (const [nodeId, node] of Object.entries(nodes)) {
+      if (node.parentId) nodes[node.parentId].childrenIds.push(nodeId);
+    }
+    for (const startId of Object.keys(nodes)) {
+      const seen = new Set<string>();
+      let cursor: HistoryNode | undefined = nodes[startId];
+      while (cursor) {
+        if (seen.has(cursor.nodeId)) throw new Error('Session graph contains a cycle');
+        seen.add(cursor.nodeId);
+        cursor = cursor.parentId ? nodes[cursor.parentId] : undefined;
+      }
+    }
   }
 }
