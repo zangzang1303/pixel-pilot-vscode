@@ -186,6 +186,26 @@ export const Canvas: React.FC<CanvasProps> = ({
     a.click();
   };
 
+  const handleCanvasKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key === 'b' || event.key === 'B') {
+      event.preventDefault();
+      setBrushMode((mode) => mode === 'brush' ? 'none' : 'brush');
+    } else if (event.key === 'e' || event.key === 'E') {
+      event.preventDefault();
+      setBrushMode((mode) => mode === 'eraser' ? 'none' : 'eraser');
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      setBrushMode('none');
+    } else if (event.key === '+' || event.key === '=') {
+      event.preventDefault();
+      setZoom((value) => Math.min(3, value + 0.25));
+    } else if (event.key === '-') {
+      event.preventDefault();
+      setZoom((value) => Math.max(0.25, value - 0.25));
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-slate-950 relative overflow-hidden select-none">
       {/* Top Toolbar */}
@@ -195,6 +215,7 @@ export const Canvas: React.FC<CanvasProps> = ({
           <span className="text-xs text-slate-400 font-medium mr-1">Inpaint Mask:</span>
           <button
             onClick={() => setBrushMode(brushMode === 'brush' ? 'none' : 'brush')}
+            aria-pressed={brushMode === 'brush'}
             disabled={!imageUrl}
             className={`p-1.5 rounded-lg flex items-center gap-1 text-xs font-medium transition-all ${
               brushMode === 'brush'
@@ -209,6 +230,7 @@ export const Canvas: React.FC<CanvasProps> = ({
 
           <button
             onClick={() => setBrushMode(brushMode === 'eraser' ? 'none' : 'eraser')}
+            aria-pressed={brushMode === 'eraser'}
             disabled={!imageUrl}
             className={`p-1.5 rounded-lg flex items-center gap-1 text-xs font-medium transition-all ${
               brushMode === 'eraser'
@@ -357,6 +379,9 @@ export const Canvas: React.FC<CanvasProps> = ({
       {/* Main Canvas Viewport */}
       <div
         ref={containerRef}
+        tabIndex={0}
+        onKeyDown={handleCanvasKeyDown}
+        aria-label="Image canvas. Press B for brush, E for eraser, Escape to stop drawing, and plus or minus to zoom."
         className="flex-1 flex items-center justify-center p-6 overflow-auto relative canvas-checkerboard"
       >
         {imageUrl ? (

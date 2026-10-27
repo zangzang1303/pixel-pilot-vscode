@@ -4,6 +4,7 @@ import { IOCRService, OCRResult } from './IOCRService';
 import { SecretManager } from '../security/SecretManager';
 import { PolicyService } from '../security/PolicyService';
 import { validateImageBuffer } from '../../utils/imageData';
+import { fetchWithTimeout } from '../../utils/fetchWithTimeout';
 
 export class OCRService implements IOCRService {
   private static instance: OCRService;
@@ -88,7 +89,7 @@ Do NOT summarize, do NOT omit, and do NOT add explanatory text. Output ONLY the 
       }]
     };
 
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -118,7 +119,7 @@ Do NOT summarize, do NOT omit, and do NOT add explanatory text. Output ONLY the 
       max_tokens: 2000
     };
 
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

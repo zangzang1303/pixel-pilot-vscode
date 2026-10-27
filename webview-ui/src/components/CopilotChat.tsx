@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Bot, ChevronDown, Cloud, CloudOff, Code2, ImagePlus, Loader2, MessageSquarePlus, MoreHorizontal, Send, Sparkles, Wand2 } from 'lucide-react';
 import type { StudioTab } from './SettingsSidebar';
+import type { RunState } from '../state/runReducer';
 
 export interface CopilotMessage {
   id?: string;
@@ -12,10 +13,12 @@ export interface CopilotMessage {
 }
 
 interface SessionSummary { sessionId: string; title: string; updatedAt: number; messageCount: number; }
+interface HistoryNodeSummary { nodeId: string; parentId?: string; operation: string; operationLabel: string; timestamp: number; outputImageUri?: string; }
 interface CopilotChatProps {
-  messages: CopilotMessage[]; isThinking: boolean; hasImage: boolean; currentImageUrl?: string | null;
+  messages: CopilotMessage[]; isThinking: boolean; runState: RunState; hasImage: boolean; currentImageUrl?: string | null;
   sessions: SessionSummary[]; activeSessionId: string;
   onSend: (text: string) => void; onOpenImage: () => void; onNewSession: () => void; onSwitchSession: (sessionId: string) => void;
+  history: HistoryNodeSummary[]; currentNodeId: string; onSelectNode: (nodeId: string) => void;
   onNavigate: (tab: StudioTab) => void;
   hasApiKey: boolean; onConfigureApiKey: () => void;
 }
@@ -33,7 +36,7 @@ function formatMessage(text: string): React.ReactNode {
     : <React.Fragment key={index}>{part}</React.Fragment>);
 }
 
-export const CopilotChat: React.FC<CopilotChatProps> = ({ messages, isThinking, hasImage, currentImageUrl, sessions, activeSessionId, onSend, onOpenImage, onNewSession, onSwitchSession, onNavigate, hasApiKey, onConfigureApiKey }) => {
+export const CopilotChat: React.FC<CopilotChatProps> = ({ messages, isThinking, runState, hasImage, currentImageUrl, sessions, activeSessionId, onSend, onOpenImage, onNewSession, onSwitchSession, history, currentNodeId, onSelectNode, onNavigate, hasApiKey, onConfigureApiKey }) => {
   const [draft, setDraft] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const activeSession = sessions.find((session) => session.sessionId === activeSessionId);
@@ -67,6 +70,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ messages, isThinking, 
           <button type="button" onClick={onNewSession} title="Tạo phiên mới" className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-2 text-xs text-slate-300 transition hover:border-violet-500/60 hover:bg-violet-500/10 hover:text-white"><MessageSquarePlus className="h-4 w-4" /><span className="hidden sm:inline">Phiên mới</span></button>
         </div>
       </header>
+      {history.length > 1 && <nav aria-label="Image edit history" className="shrink-0 border-b border-slate-800 bg-slate-950/50 px-4 py-2 sm:px-6"><div className="flex gap-2 overflow-x-auto">{history.slice().sort((a, b) => a.timestamp - b.timestamp).map((node) => <button key={node.nodeId} type="button" onClick={() => onSelectNode(node.nodeId)} aria-current={node.nodeId === currentNodeId ? 'step' : undefined} className={`min-w-28 rounded-lg border px-2 py-1.5 text-left text-[11px] transition ${node.nodeId === currentNodeId ? 'border-cyan-400/60 bg-cyan-400/10 text-cyan-100' : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-violet-400/60 hover:bg-violet-500/10'}`}><span className="block truncate font-medium">{node.operationLabel || node.operation}</span><span className="mt-0.5 block text-[9px] text-slate-500">{node.nodeId === currentNodeId ? 'Current version' : 'Restore version'}</span></button>)}</div></nav>}
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain"><div className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-4 py-6 sm:px-8">
         {hasImage && currentImageUrl && <div className="flex items-center gap-3 rounded-2xl border border-cyan-400/15 bg-gradient-to-r from-cyan-500/[0.08] to-violet-500/[0.06] p-3"><img src={currentImageUrl} alt="Ảnh đang chỉnh sửa" className="h-14 w-14 rounded-lg border border-white/10 object-cover" /><div className="min-w-0 flex-1"><p className="text-xs font-medium text-slate-100">Ảnh hiện tại đã được thêm vào ngữ cảnh</p><p className="mt-0.5 text-[11px] text-slate-400">Agent có thể đề xuất và thực hiện thao tác chỉnh ảnh trong cuộc trò chuyện này.</p></div><span className="hidden rounded-lg bg-cyan-400/10 px-2 py-1 text-[10px] font-medium text-cyan-300 sm:block">Context active</span></div>}
@@ -79,6 +83,8 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ messages, isThinking, 
             {item.suggestions && item.suggestions.length > 0 && index === messages.length - 1 && <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-700/70 pt-3">{item.suggestions.map((suggestion, suggestionIndex) => <button key={suggestionIndex} type="button" disabled={isThinking} title={suggestion.reason} onClick={() => onSend(`/apply ${suggestionIndex + 1}`)} className="rounded-lg border border-cyan-400/25 bg-cyan-400/10 px-2.5 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-400/20 disabled:opacity-40">{suggestion.label}</button>)}</div>}
           </div>
         </article>)}
+        {runState.phase === 'failed' && <div role="alert" className="self-start rounded-xl border border-rose-400/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">{runState.error || 'Agent could not complete the request.'}</div>}
+        {runState.phase === 'cancelled' && <div role="status" className="self-start rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">Operation cancelled.</div>}
         {isThinking && <div className="flex items-center gap-3 self-start rounded-2xl rounded-tl-md border border-violet-400/20 bg-violet-500/[0.08] px-4 py-3 text-sm text-violet-200"><Loader2 className="h-4 w-4 animate-spin" /> Agent đang phân tích và chuẩn bị thao tác...</div>}<div ref={bottomRef} />
       </div></div>
 

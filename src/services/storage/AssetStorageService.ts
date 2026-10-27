@@ -26,10 +26,15 @@ export class AssetStorageService {
   public isStoredArtifact(filePath: string): boolean {
     if (typeof filePath !== 'string' || !path.isAbsolute(filePath)) return false;
     try {
-      const cacheRoot = fs.realpathSync(this.cacheDir);
-      const resolved = fs.realpathSync(filePath);
+      // `realpathSync` can be denied by a sandbox even for a file we have just
+      // written. Resolve lexically, then reject links, so cache membership stays
+      // reliable without following a link outside of the cache.
+      const cacheRoot = path.resolve(this.cacheDir);
+      const resolved = path.resolve(filePath);
       const relative = path.relative(cacheRoot, resolved);
-      return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative) && fs.statSync(resolved).isFile();
+      if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) return false;
+      const stat = fs.lstatSync(resolved);
+      return stat.isFile() && !stat.isSymbolicLink();
     } catch {
       return false;
     }

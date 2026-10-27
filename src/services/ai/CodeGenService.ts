@@ -6,6 +6,7 @@ import { SecretManager } from '../security/SecretManager';
 import { WorkspaceFSService } from '../storage/WorkspaceFSService';
 import { PolicyService } from '../security/PolicyService';
 import { validateImageBuffer } from '../../utils/imageData';
+import { fetchWithTimeout } from '../../utils/fetchWithTimeout';
 
 export class CodeGenService implements ICodeGenService {
   private static instance: CodeGenService;
@@ -99,7 +100,7 @@ Output ONLY the clean source code inside a single markdown code block (\`\`\`tsx
       }]
     };
 
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -129,7 +130,7 @@ Output ONLY the clean source code inside a single markdown code block (\`\`\`tsx
       max_tokens: 3000
     };
 
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

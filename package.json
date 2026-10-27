@@ -173,8 +173,9 @@
     "mock:invokeai": "node scripts/mock_invokeai.mjs",
     "build:webview": "npm --prefix webview-ui run build",
     "build": "npm run build:webview && npm run compile",
-    "test": "npm run compile && node --test test/*.test.cjs",
-    "check": "npm run build && npm test"
+    "test": "npm run compile && node scripts/run-tests.cjs",
+    "check": "npm run build && npm test",
+    "package:smoke": "npm pack --dry-run"
   },
   "dependencies": {
     "sharp": "^0.33.5"

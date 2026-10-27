@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useReducer } from 'react';
 import { AlertCircle, CheckCircle2, X } from 'lucide-react';
 import {
   SettingsSidebar,
@@ -10,6 +10,7 @@ import { PromptInput } from './components/PromptInput';
 import { Canvas } from './components/Canvas';
 import { CopilotChat } from './components/CopilotChat';
 import { vscode } from './utils/vscode';
+import { initialRunState, runReducer } from './state/runReducer';
 
 interface ChatMessage {
   id?: string;
@@ -26,11 +27,26 @@ interface ToastState {
   message: string;
 }
 
+interface ConfirmationState {
+  token: string;
+  provider: string;
+  purpose: string;
+}
+
 interface ChatSessionSummary {
   sessionId: string;
   title: string;
   updatedAt: number;
   messageCount: number;
+}
+
+interface HistoryNodeSummary {
+  nodeId: string;
+  parentId?: string;
+  operation: string;
+  operationLabel: string;
+  timestamp: number;
+  outputImageUri?: string;
 }
 
 export const App: React.FC = () => {
@@ -80,13 +96,17 @@ export const App: React.FC = () => {
   // Copilot Chat State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatThinking, setIsChatThinking] = useState<boolean>(false);
+  const [chatRun, dispatchChatRun] = useReducer(runReducer, initialRunState);
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string>('');
+  const [history, setHistory] = useState<HistoryNodeSummary[]>([]);
+  const [currentNodeId, setCurrentNodeId] = useState<string>('');
 
   // Cloud AI Key status
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
   const [apiKeyMasked, setApiKeyMasked] = useState<string>('');
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
 
   useEffect(() => {
     if (!toast) return;
@@ -112,6 +132,12 @@ export const App: React.FC = () => {
         case 'apiKeyStatus':
           setHasApiKey(Boolean(message.hasApiKey));
           setApiKeyMasked(message.apiKeyMasked || '');
+          break;
+
+        case 'confirmationRequested':
+          if (message.confirmation?.token && message.confirmation?.provider && message.confirmation?.purpose) {
+            setConfirmation(message.confirmation);
+          }
           break;
 
         case 'modelsLoaded':
@@ -211,12 +237,29 @@ export const App: React.FC = () => {
         case 'operationFailed':
           setIsProcessingAction(false);
           setIsChatThinking(false);
+          dispatchChatRun({ type: 'fail', error: message.error || 'Agent could not complete the request.' });
           setToast({ kind: 'error', message: message.error || 'Agent không thể hoàn tất yêu cầu.' });
           break;
 
         case 'operationCompleted':
           setIsProcessingAction(false);
           setIsChatThinking(false);
+          break;
+
+        case 'copilotCompleted':
+          dispatchChatRun({ type: 'succeed', requestId: message.requestId });
+          setIsChatThinking(false);
+          break;
+
+        case 'copilotCancelled':
+          dispatchChatRun({ type: 'cancel', requestId: message.requestId });
+          setIsChatThinking(false);
+          break;
+
+        case 'copilotError':
+          dispatchChatRun({ type: 'fail', requestId: message.requestId, error: message.error?.message || 'Agent could not complete the request.' });
+          setIsChatThinking(false);
+          setToast({ kind: 'error', message: message.error?.message || 'Agent could not complete the request.' });
           break;
 
         case 'chatReply':
@@ -233,6 +276,8 @@ export const App: React.FC = () => {
         case 'sessionUpdated': {
           setSessions(Array.isArray(message.sessionsList) ? message.sessionsList : []);
           setActiveSessionId(message.session?.sessionId || '');
+          setHistory(Array.isArray(message.history) ? message.history : []);
+          setCurrentNodeId(message.session?.currentNodeId || '');
           const history = Array.isArray(message.session?.messages) ? message.session.messages : [];
           setChatMessages(history.filter((item: any) => item.sender === 'user' || item.sender === 'assistant').map((item: any) => ({
             id: item.id,
@@ -242,7 +287,6 @@ export const App: React.FC = () => {
             outputImageUri: item.outputImageUri,
             suggestions: item.suggestions
           })));
-          setIsChatThinking(history.length > 0 && history[history.length - 1]?.sender === 'user');
           setCurrentImageUrl(message.currentImage || null);
           setSavedPath(message.currentImage ? message.session?.title : undefined);
           break;
@@ -331,12 +375,13 @@ export const App: React.FC = () => {
 
   // Send Copilot Chat Message
   const handleSendMessage = (text: string) => {
+    const requestId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     setIsChatThinking(true);
+    dispatchChatRun({ type: 'start', requestId, label: 'Agent is analysing your request' });
 
     vscode.postMessage({
-      command: 'chatMessage',
-      text,
-      currentImage: currentImageUrl
+      command: 'copilotRequest',
+      request: { version: 2, requestId, command: 'chat', text, sessionId: activeSessionId || undefined }
     });
   };
 
@@ -416,7 +461,8 @@ export const App: React.FC = () => {
           <div className={`grid h-full min-h-0 min-w-0 grid-cols-1 overflow-hidden ${currentImageUrl ? 'xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.85fr)]' : ''}`}>
             <CopilotChat
               messages={chatMessages}
-              isThinking={isChatThinking}
+              isThinking={isChatThinking || chatRun.phase === 'running'}
+              runState={chatRun}
               hasImage={Boolean(currentImageUrl)}
               currentImageUrl={currentImageUrl}
               sessions={sessions}
@@ -425,6 +471,9 @@ export const App: React.FC = () => {
               onOpenImage={handleOpenImage}
               onNewSession={() => vscode.postMessage({ command: 'newSession' })}
               onSwitchSession={(sessionId) => vscode.postMessage({ command: 'switchSession', sessionId })}
+              history={history}
+              currentNodeId={currentNodeId}
+              onSelectNode={(nodeId) => vscode.postMessage({ command: 'rollbackNode', targetNodeId: nodeId })}
               onNavigate={setActiveTab}
               hasApiKey={hasApiKey}
               onConfigureApiKey={() => vscode.postMessage({ command: 'openApiKeyPrompt' })}
@@ -451,6 +500,16 @@ export const App: React.FC = () => {
           {toast.kind === 'error' ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />}
           <span className="leading-5">{toast.message}</span>
           <button type="button" onClick={() => setToast(null)} className="ml-1 rounded p-0.5 opacity-70 hover:bg-white/10 hover:opacity-100" aria-label="Đóng thông báo"><X className="h-3.5 w-3.5" /></button>
+        </div>
+      )}
+      {confirmation && (
+        <div role="dialog" aria-modal="true" aria-labelledby="cloud-confirmation-title" className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-violet-400/30 bg-slate-900 p-5 shadow-2xl">
+            <h2 id="cloud-confirmation-title" className="text-base font-semibold text-white">Confirm cloud operation</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-300"><strong>{confirmation.purpose}</strong> will send the selected image or prompt to <strong>{confirmation.provider}</strong>.</p>
+            <p className="mt-2 text-xs leading-5 text-slate-400">The request is one-time. Declining keeps the image and prompt on this machine.</p>
+            <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => { vscode.postMessage({ command: 'confirmationResponse', token: confirmation.token, approved: false }); setConfirmation(null); }} className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800">Cancel</button><button type="button" autoFocus onClick={() => { vscode.postMessage({ command: 'confirmationResponse', token: confirmation.token, approved: true }); setConfirmation(null); }} className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white hover:bg-violet-500">Continue</button></div>
+          </div>
         </div>
       )}
     </div>

@@ -1,6 +1,7 @@
 // LLMProvider.ts - Multi-Provider LLM Cognitive Brain & Conversational Agent Engine
 import { AgentToolRegistry, ToolValidationError } from './AgentToolRegistry';
 import { AgentContext, AgentDecision } from './VisionAgentOrchestrator';
+import { fetchWithTimeout } from '../../utils/fetchWithTimeout';
 
 export interface LLMConfig {
   provider: 'gemini' | 'openai' | 'groq' | 'openrouter' | 'ollama' | 'local';
@@ -147,7 +148,7 @@ QUY TẮC PHÂN BIỆT Ý ĐỊNH RÕ RÀNG:
       }
     };
 
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -267,7 +268,7 @@ QUY TẮC QUAN TRỌNG:
       content: `${imageInfo}\n\nNgười dùng: "${userPrompt}"`
     });
 
-    const res = await fetch(endpoint, {
+    const res = await fetchWithTimeout(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

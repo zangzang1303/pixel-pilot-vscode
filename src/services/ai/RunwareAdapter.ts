@@ -4,6 +4,7 @@ import sharp from 'sharp';
 import { IAIProvider } from './IAIProvider';
 import { AIResult } from '../session/types';
 import { ImageProcessor } from '../image/ImageProcessor';
+import { fetchWithTimeout } from '../../utils/fetchWithTimeout';
 
 export class RunwareAdapter implements IAIProvider {
   public name = 'Runware SOTA Cloud Vision';
@@ -116,7 +117,7 @@ export class RunwareAdapter implements IAIProvider {
     console.log(`[Runware API] Đang gửi request tới: ${this.endpoint} (Tasks: ${tasks.map(t => t.taskType).join(', ')})`);
     const startTime = Date.now();
 
-    const response = await fetch(this.endpoint, {
+    const response = await fetchWithTimeout(this.endpoint, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${this.apiKey}`,

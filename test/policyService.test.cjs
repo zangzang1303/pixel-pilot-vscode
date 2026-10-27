@@ -5,8 +5,9 @@ const Module = require('node:module');
 test('cloud policy checks Workspace Trust and requires a fresh native consent', async () => {
   let dialogs = 0;
   let approved = false;
+  let offline = false;
   const vscode = {
-    workspace: { isTrusted: false },
+    workspace: { isTrusted: false, getConfiguration: () => ({ get: key => key === 'offlineMode' ? offline : undefined }) },
     window: { showWarningMessage: async () => { dialogs++; return approved ? 'Continue' : undefined; } }
   };
   const originalLoad = Module._load;
@@ -29,5 +30,8 @@ test('cloud policy checks Workspace Trust and requires a fresh native consent', 
   approved = true;
   await policy.requireCloudConsent('Runware', 'Upscale');
   await policy.requireCloudConsent('Runware', 'Upscale');
+  assert.equal(dialogs, 3);
+  offline = true;
+  await assert.rejects(() => policy.requireCloudConsent('Runware', 'Upscale'), /offline mode/i);
   assert.equal(dialogs, 3);
 });

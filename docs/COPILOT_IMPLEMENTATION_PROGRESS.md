@@ -5,7 +5,7 @@ Ngày cập nhật: **27/10/2026 (Asia/Saigon)**. Báo cáo này đối chiếu 
 ## Tóm tắt trung thực
 
 - Đã triển khai các guard P0 có thể kiểm thử không cần cloud/model: false-success, tool validation, credential boundary, image/SVG boundary, CSP, persistence artifact reference, protocol v2 foundation và một phần policy consent.
-- Đã bổ sung regression tests; `npm.cmd run check` (build webview, compile Host, test) pass **38/38** ngày 27/10/2026. Đây là kiểm thử offline bằng fixture, chưa phải smoke provider thật.
+- Đã bổ sung regression tests; `npm.cmd run check` (build webview, compile Host, test) pass **42/42 test cases** ngày 27/10/2026. Runner `scripts/run-tests.cjs` phát hiện tường minh mọi `test/*.test.cjs`, nên không còn phụ thuộc vào cách shell mở rộng glob. Đây là kiểm thử offline bằng fixture, chưa phải smoke provider thật.
 - Chưa có bằng chứng để đánh dấu hoàn thành P0 gate, P1–P5, hay Definition of Done. Chưa chạy smoke provider thật, VSIX máy sạch, E2E VS Code, eval VI/EN, performance benchmark hoặc chất lượng ảnh có ground truth.
 
 ## Backlog status
@@ -17,22 +17,30 @@ Ngày cập nhật: **27/10/2026 (Asia/Saigon)**. Báo cáo này đối chiếu 
 | B03 | Một phần | `PolicyService` yêu cầu Workspace Trust + native consent cho cloud LLM, Runware, OCR, image-to-code và legacy `VisionService`; save code kiểm tra trust và overwrite. Deny được test không gọi cloud cho OCR/codegen/text-to-image. Chưa phủ mọi fetch/write/spawn/cost path. |
 | B04 | Một phần | Validate data URI/MIME header/size/SVG active content; cache từ chối URL hoặc input không phải ảnh; chỉ rehydrate artifact thuộc cache vào Webview; CSP production/fallback. Chưa có resolver/download redirect/quota/symlink suite đầy đủ. |
 | B05 | Một phần | Cache reference-aware; DAG import kiểm tra root/parent/cycle; malformed store được quarantine; artifact được ghi trước DAG. Save failure rollback in-memory; lần ghi v2 đầu tiên sao lưu byte-for-byte store v1 hợp lệ. Chưa có migration/verification/rollback v2 đầy đủ. |
-| B06 | Một phần | Chat/v2 tool pin parent node tới lúc commit; kết quả muộn tạo branch mà không đổi node đang chọn; local/cloud operation dispatcher dùng commit facade. Chưa có parity Studio/sidebar và stale-result policy đầy đủ. |
+| B06 | Một phần | Chat/v2 tool pin parent node tới lúc commit; kết quả muộn tạo branch mà không đổi node đang chọn; các dispatcher Copilot dùng commit facade. Audit xác nhận `applyAction` legacy vẫn có nhánh lưu thẳng workspace chưa commit DAG, nên parity Studio/sidebar và stale-result policy chưa đạt. |
 | B07 | Một phần | SecretStorage-only runtime; bỏ `.env`/environment scan. Disconnect ghi tombstone; global setting migration xóa đúng scope; workspace key không âm thầm chuyển thành global. LLM key được ràng buộc với provider nên đổi provider không dùng lại nhầm key. Chưa có vault nhiều key đồng thời/import workspace và migration matrix đầy đủ. |
 | B08 | Một phần | `src/shared/protocol.ts` có v2 request parse/version/request ID/size guard; host chấp nhận `copilotRequest` v2 và trả structured error. Chưa thay mọi bridge producer/consumer. |
 | B09 | Một phần | Registry có schema/runtime input validation; v2 protocol đi qua orchestrator để validate tool. Chưa có executor/output validator/capability catalog toàn diện. |
 | B10 | Một phần | `CopilotOrchestrator` là facade dùng chung cho planning của hai LLM ingress và validation của v2 tool ingress. Legacy/UI executors vẫn chưa hợp nhất hoàn toàn. |
 | B11 | Một phần | `ContextBuilder` tạo snapshot bounded, immutable, node-pinned và revision hash; cloud LLM ingress dùng snapshot. Chưa có mask/artifact hash, cache analysis hoặc stale-revision policy đầy đủ. |
 | B12 | Một phần | `WebviewBridge` dedupe v2 request IDs; retry/replay cùng ID không start execution thứ hai. Chưa có surface registration, reconnect snapshot/delta hoặc legacy adapter parity. |
-| B13–B17 | Một phần (B14/B15 scaffold, B17 guard) | Session envelope ghi `schemaVersion: 2`; v2 cancel ngăn late DAG commit. OCR/codegen không trả nội dung mô phỏng; `VisionService` dùng `ImageProcessor` cho local remove/upscale/inpaint thay mock, text-to-image thiếu cloud trả unavailable. Chưa có provider abort/deadline/retry/reconcile, artifact store/migration v2, adapter conformance hay 5 tool E2E. |
-| B18–B21 | Chưa bắt đầu | Reducer/cards, confirmation UI, preview/compare/DAG UI, accessibility chưa triển khai theo acceptance. |
-| B22–B25 | Chưa bắt đầu | Multi-step planner, routing capability/offline, recovery/resume chưa triển khai. |
-| B26–B29 | Một phần (B28/B29) | CI clean-install build/regression job và README capability disclaimer đã có; eval, observability thực, E2E/VSIX smoke và documentation/legacy audit chưa hoàn tất. |
+| B13–B17 | Một phần (B14/B15 scaffold, B17 guard) | Session envelope ghi `schemaVersion: 2`; v2 cancel ngăn late DAG commit. LLM planner, OCR, image-to-code và Runware có fetch deadline/AbortSignal chung, timeout được regression test. OCR/codegen không trả nội dung mô phỏng; `VisionService` dùng `ImageProcessor` cho local remove/upscale/inpaint thay mock, text-to-image thiếu cloud trả unavailable. Chưa có provider retry/reconcile, artifact store/migration v2, adapter conformance hay 5 tool E2E. |
+| B18 | Một phần | Chat webview có `runReducer` theo request ID với trạng thái running/succeeded/failed/cancelled; chat gửi protocol v2, pin đúng `sessionId`, và Host trả terminal event tương quan. Chưa có run cards/progress stage cho mọi tool, reconnect hoặc reducer E2E. |
+| B19 | Một phần | Cloud confirmation dialog trong webview dùng token one-time do Host giữ, timeout mặc định deny; khi chưa có webview, policy fallback native VS Code dialog. Chưa có provider/cost breakdown, grant/budget UX hay E2E accessibility. |
+| B20 | Một phần | `sessionUpdated` chỉ gửi DTO history/renderable URI thay vì DAG/path nội bộ; chat có thanh chọn version/nhánh gọi rollback DAG nên không gọi lại provider. Chưa có compare slider, thumbnail strategy hay E2E navigation. |
+| B21 | Một phần | Canvas nhận focus, có ARIA label/pressed state và keyboard workflow: B=Brush, E=Eraser, Esc=thoát tool, +/-=zoom. Chưa có accessibility audit, focus management toàn UI hoặc narrow-sidebar acceptance. |
+| B22 | Một phần | Chuỗi lệnh explicit (`rồi`/`sau đó`/`then`) được tách tối đa ba bước, câu hỏi giữ single-step; mỗi bước tạo nhánh từ node đã pin và dùng artifact của bước trước. Caption/Inpaint bị từ chối trong chuỗi thay vì đoán. Chưa có structured LLM plan, clarification UI, rollback policy hay integration/E2E. |
+| B23, B25 | Chưa bắt đầu | Routing capability và recovery/resume chưa triển khai theo acceptance. |
+| B24 | Một phần | `PolicyService` chặn mọi ingress cloud đã dùng policy khi `pixelPilot.offlineMode` bật, trước Trust/dialog; fixture xác minh offline tạo 0 dialog. Chưa có capability view/UI offline thống nhất hoặc kiểm thử inventory mọi ingress. |
+| B26 | Chưa bắt đầu | Eval VI/EN versioned, held-out split và quality rubric chưa triển khai theo acceptance. |
+| B27 | Một phần | V2 run lifecycle ghi telemetry in-memory, bounded và content-free (request ID, command/tool, outcome, latency); test xác minh không giữ prompt/ảnh và capacity giới hạn. Chưa có persistence/opt-in export, performance benchmark hoặc production observability dashboard. |
+| B28–B29 | Một phần | CI clean-install build/regression job và package-manifest smoke (`npm pack --dry-run`) đã có; README capability disclaimer đã có. VSIX smoke chưa có evidence (tool `@vscode/vsce` không nằm trong project và thử chạy tạm trong môi trường này không tạo artifact); E2E/VSIX clean-install smoke và documentation/legacy audit chưa hoàn tất. |
 
 ## Files thay đổi trong đợt hiện tại
 
 - Core guard: `RunwareAdapter`, `InvokeApiService`, `ImageProcessor`, `AgentToolRegistry`, `LLMProvider`, `SecretManager`, `PolicyService`, `imageData`.
 - Data/UI boundary: `SessionManager`, `AssetStorageService`, `PixelPilotViewProvider`, `StudioPanel`, `extension.ts`, shared protocol v2.
+- Webview run state: `webview-ui/src/state/runReducer.ts`, `App.tsx`, `CopilotChat.tsx`.
 - Tests: `p0Regression`, `toolValidation`, `protocol`, mở rộng image/session tests.
 
 ## Bổ sung ngày 27/10/2026
@@ -41,7 +49,7 @@ Ngày cập nhật: **27/10/2026 (Asia/Saigon)**. Báo cáo này đối chiếu 
 - B03/B06: legacy Runware operation và nút `applyAction` dùng Runware phải qua native consent; lỗi dispatcher không âm thầm chuyển sang client executor. Kết quả caption chỉ thêm tin nhắn, không tạo edit node giả. Kết quả ảnh local/cloud trong dispatcher đi qua `SessionCommitService`.
 - B04/B05: cache chỉ nhận ảnh có MIME/header hợp lệ hoặc Buffer có định dạng hợp lệ; chặn SVG active/remote content và URL chưa qua resolver. Webview chỉ nhận data URI đã validate hoặc artifact thật thuộc cache. Session mutation rollback nếu ghi manifest lỗi; regression test mô phỏng rename failure.
 - B06: v2 request dùng node đã pin xuyên suốt execution và trả ID của node thực sự được commit; kết quả muộn không đổi selection đã chuyển. Test nhánh DAG xác minh hành vi này.
-- Verification: `npm.cmd run check` pass **32/32** ở mốc này. Chưa chạy E2E VS Code hoặc cloud/model smoke; P0 gate vẫn **chưa đạt**.
+- Verification ở mốc trung gian: **32/32** test cases. Sau khi bổ sung các regression còn lại, xem kết quả kiểm tra cuối ở bên dưới. Chưa chạy E2E VS Code hoặc cloud/model smoke; P0 gate vẫn **chưa đạt**.
 
 ## Đối chiếu bổ sung với acceptance của kế hoạch (27/10/2026)
 
@@ -55,7 +63,7 @@ Ngày cập nhật: **27/10/2026 (Asia/Saigon)**. Báo cáo này đối chiếu 
 
 Legacy `VisionService`: remove/upscale/inpaint offline dùng `ImageProcessor` với provenance local; text-to-image không còn SVG placeholder, yêu cầu key/consent và kiểm tra `taskUUID`/PNG trước khi ghi file. Fixture xác nhận deny/mismatch tạo **0 file write**.
 
-Verification hiện tại: `npm.cmd run check` pass **38/38**. Tất cả item trên vẫn **một phần**; P0/P1–P5 gate chưa đạt.
+Verification hiện tại: `npm.cmd run check` pass **42/42 test cases** (build webview, TypeScript host và tất cả `test/*.test.cjs`). Tất cả item trên vẫn **một phần**; P0/P1–P5 gate chưa đạt.
 
 ## Điều kiện còn thiếu để tuyên bố hoàn thành toàn bộ
 

@@ -8,6 +8,9 @@ import { ContextBuilder } from '../services/copilot/ContextBuilder';
 import { CopilotOrchestrator } from '../services/copilot/CopilotOrchestrator';
 import { RunLifecycleService } from '../services/copilot/RunLifecycleService';
 import { WebviewBridge } from '../services/copilot/WebviewBridge';
+import { splitSequentialPrompt } from '../services/copilot/SequentialPlan';
+import { SafeTelemetry } from '../services/copilot/SafeTelemetry';
+import { ConfirmationBroker } from '../services/copilot/ConfirmationBroker';
 import { RunwareAdapter } from '../services/ai/RunwareAdapter';
 import { IntentRouter } from '../services/ai/IntentRouter';
 import { VisionAgentOrchestrator } from '../services/ai/VisionAgentOrchestrator';
@@ -42,10 +45,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   private contextBuilder = new ContextBuilder();
   private copilotOrchestrator = new CopilotOrchestrator();
   private runLifecycle = new RunLifecycleService();
+  private readonly telemetry = new SafeTelemetry();
   private webviewBridge = new WebviewBridge();
   private runwareAdapter: RunwareAdapter;
   private secretManager: SecretManager;
-  private policy = new PolicyService();
+  private readonly confirmationBroker = new ConfirmationBroker();
+  private policy: PolicyService;
   private assetStorage: AssetStorageService;
   private configManager: EnterpriseConfigManager;
   private invokeApi: InvokeApiService;
@@ -56,6 +61,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
+    this.policy = new PolicyService((provider, purpose) => this.requestWebviewConfirmation(provider, purpose));
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     this.sessionManager = new SessionManager(context.globalStorageUri.fsPath);
     this.secretManager = new SecretManager(context);
@@ -75,6 +81,15 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   public getAssetStorage(): AssetStorageService { return this.assetStorage; }
   public getReferencedArtifactPaths(): Set<string> { return this.sessionManager.getReferencedArtifactPaths(); }
   public getConfigManager(): EnterpriseConfigManager { return this.configManager; }
+  /** Content-free run diagnostics for local troubleshooting; never sent to a webview. */
+  public getRunTelemetry() { return this.telemetry.recent(); }
+
+  private requestWebviewConfirmation(provider: string, purpose: string): Promise<boolean | undefined> {
+    if (!this._view) return Promise.resolve(undefined);
+    return this.confirmationBroker.request(provider, purpose, (request) => {
+      this.postToWebview({ type: 'confirmationRequested', confirmation: request });
+    });
+  }
 
   private async refreshRunwareApiKey(): Promise<boolean> {
     try {
@@ -681,6 +696,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         break;
       }
 
+      case 'confirmationResponse': {
+        const token = typeof message.token === 'string' ? message.token : '';
+        this.confirmationBroker.settle(token, message.approved === true);
+        break;
+      }
+
       case 'copilotRequest': {
         const parsed = parseRunRequest(message.request);
         if (!parsed.ok) {
@@ -688,9 +709,20 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           break;
         }
         const request = parsed.value;
+          const startedAt = Date.now();
+          this.telemetry.record({ requestId: request.requestId, command: request.command, outcome: 'started', toolName: request.toolName });
         try {
           if (request.command === 'chat' || request.command === 'analyze') {
-            await this.handleCopilotChat({ text: request.text });
+            await this.webviewBridge.dispatch(request.requestId, async () => {
+              this.runLifecycle.start(request.requestId);
+              try {
+                await this.handleCopilotChat({ text: request.text, sessionId: request.sessionId });
+              } finally {
+                this.runLifecycle.finish(request.requestId);
+              }
+            });
+            this.postToWebview({ type: 'copilotCompleted', requestId: request.requestId });
+            this.telemetry.record({ requestId: request.requestId, command: request.command, outcome: 'succeeded', latencyMs: Date.now() - startedAt });
             break;
           }
           if (request.command === 'tool') {
@@ -711,18 +743,22 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               }
             });
             this.postToWebview({ type: 'copilotCompleted', requestId: request.requestId, nodeId: completedNodeId });
+            this.telemetry.record({ requestId: request.requestId, command: request.command, outcome: 'succeeded', toolName: request.toolName, latencyMs: Date.now() - startedAt });
             break;
           }
           if (this.runLifecycle.cancel(request.targetRequestId!)) {
             this.postToWebview({ type: 'copilotCancelled', requestId: request.targetRequestId });
+            this.telemetry.record({ requestId: request.targetRequestId!, command: 'cancel', outcome: 'cancelled', latencyMs: Date.now() - startedAt });
           } else {
             this.postToWebview({ type: 'copilotError', requestId: request.requestId, error: { code: 'cancelled', message: 'No cancellable run is active for this request.' } });
           }
         } catch (error: any) {
           if (/^Operation cancelled\.?$/i.test(error?.message || '')) {
             this.postToWebview({ type: 'copilotCancelled', requestId: request.requestId });
+            this.telemetry.record({ requestId: request.requestId, command: request.command, outcome: 'cancelled', toolName: request.toolName, latencyMs: Date.now() - startedAt });
           } else {
             this.postToWebview({ type: 'copilotError', requestId: request.requestId, error: { code: 'invalid_message', message: error?.message || String(error) } });
+            this.telemetry.record({ requestId: request.requestId, command: request.command, outcome: 'failed', toolName: request.toolName, latencyMs: Date.now() - startedAt });
           }
         }
         break;
@@ -1203,7 +1239,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   private async handleCopilotChat(message: any): Promise<void> {
     const text = String(message.text || '').trim();
     if (!text) return;
-    let session = this.sessionManager.getActiveSession();
+    let session = typeof message.sessionId === 'string'
+      ? this.sessionManager.getSession(message.sessionId)
+      : this.sessionManager.getActiveSession();
+    if (typeof message.sessionId === 'string' && !session) {
+      throw new Error('The requested chat session no longer exists.');
+    }
     if (!session) session = this.sessionManager.createSession('', 'Cuộc trò chuyện mới');
     const sessionId = session.sessionId;
     const suppliedImage = typeof message.currentImage === 'string' && message.currentImage.startsWith('data:image/') ? message.currentImage : '';
@@ -1253,6 +1294,24 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       const intent = this.getCopilotIntent(text, normalized);
+      const sequentialSteps = splitSequentialPrompt(text);
+      if (sequentialSteps.length > 1) {
+        const intents = sequentialSteps.map((step) => this.getCopilotIntent(step, step.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')));
+        if (intents.some((candidate) => !candidate)) {
+          reply('Mình chỉ có thể chạy nhiều bước khi mỗi bước là một lệnh chỉnh ảnh rõ ràng. Hãy tách rõ từng thao tác.');
+          return;
+        }
+        if (intents.some((candidate) => candidate.operation === 'caption' || candidate.operation === 'inpaint')) {
+          reply('Caption và Inpaint cần kết quả hoặc mask riêng, nên không thể nằm trong chuỗi tự động này. Hãy chạy chúng thành yêu cầu riêng.');
+          return;
+        }
+        if (!image && intents.some((candidate) => candidate.operation !== 'generate')) {
+          reply('Hãy mở một ảnh trước khi chạy chuỗi chỉnh sửa này.');
+          return;
+        }
+        await this.runSequentialCopilotPlan(sessionId, image, nodeId, intents as any[], text);
+        return;
+      }
       if (!intent) {
         if (/ban (la ai|lam duoc gi)|co the (lam|giup) gi|huong dan|cach dung|^help\??$/.test(normalized)) {
           reply('Mình là Pixel Pilot Copilot. Bạn có thể hỏi về ảnh đang mở hoặc ra lệnh: “tạo ảnh a cat in a garden”, “tách nền”, “phóng to 2x”, “đổi áo sang xanh”, “tạo Depth”, “mở rộng ảnh”, “chuyển sang anime”, “xuất SVG”. Mỗi kết quả ảnh được lưu trong phiên chat để mở lại hoặc tiếp tục chỉnh sửa.');
@@ -1302,6 +1361,35 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       await this.runCopilotOperation(sessionId, image, intent.operation, intent, text, undefined, nodeId);
     } catch (error: any) {
       reply(`Không thực hiện được yêu cầu: ${error?.message || String(error)}`);
+    }
+  }
+
+  /** Execute an explicit, bounded plan as a pinned DAG branch. */
+  private async runSequentialCopilotPlan(
+    sessionId: string,
+    initialImage: string,
+    initialNodeId: string,
+    intents: any[],
+    originalPrompt: string
+  ): Promise<void> {
+    let image = initialImage;
+    let parentId = initialNodeId;
+    for (const intent of intents) {
+      const committedNodeId = await this.runCopilotOperation(
+        sessionId,
+        image,
+        intent.operation,
+        intent,
+        intent.promptText || originalPrompt,
+        undefined,
+        parentId
+      );
+      if (!committedNodeId) throw new Error(`Step “${intent.label || intent.operation}” did not produce an image.`);
+      const session = this.sessionManager.getSession(sessionId);
+      const node = session?.nodes[committedNodeId];
+      if (!node?.outputImageUri) throw new Error('A plan step completed without a durable image artifact.');
+      parentId = committedNodeId;
+      image = node.outputImageUri;
     }
   }
 
@@ -1746,7 +1834,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     // to data URIs before broadcasting so every chat result can be rendered in
     // both the sidebar and the full Studio panel.
     const webviewSession = activeSession ? {
-      ...activeSession,
+      sessionId: activeSession.sessionId,
+      title: activeSession.title,
+      createdAt: activeSession.createdAt,
+      updatedAt: activeSession.updatedAt,
+      rootNodeId: activeSession.rootNodeId,
+      currentNodeId: activeSession.currentNodeId,
       messages: activeSession.messages.map((message) => ({
         ...message,
         outputImageUri: message.outputImageUri
@@ -1754,11 +1847,20 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           : undefined
       }))
     } : null;
+    const history = activeSession ? Object.values(activeSession.nodes).map((node) => ({
+      nodeId: node.nodeId,
+      parentId: node.parentId,
+      operation: node.operation,
+      operationLabel: node.operationLabel,
+      timestamp: node.timestamp,
+      outputImageUri: this.assetStorage.getWebviewUri(node.outputImageUri || node.inputImageUri || '')
+    })) : [];
 
     const update = {
       type: 'sessionUpdated',
       session: webviewSession,
       sessionsList: allSessions,
+      history,
       currentImage: activeSession ? this.assetStorage.getWebviewUri(activeSession.nodes[activeSession.currentNodeId]?.outputImageUri || '') : ''
     };
     this.postToWebview(update);
