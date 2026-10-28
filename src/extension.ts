@@ -44,9 +44,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   const broadcastApiKeyStatus = async () => {
     const key = await provider.getSecretManager().getApiKey();
-    if (key) {
-      provider.getRunwareAdapter().setApiKey(key);
-    }
+    provider.getRunwareAdapter().setApiKey(key);
     const masked = await provider.getSecretManager().getMaskedApiKey();
     const msg = {
       command: 'apiKeyStatus',

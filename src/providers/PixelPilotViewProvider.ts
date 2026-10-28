@@ -205,15 +205,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   private async refreshRunwareApiKey(): Promise<boolean> {
     try {
       const key = await this.secretManager.getApiKey();
-      if (key) {
-        this.runwareAdapter.setApiKey(key);
-      } else {
-        // Re-read process/.env sources in case configuration changed after activation.
-        this.runwareAdapter.updateApiKey();
-      }
-    } catch (error) {
-      console.warn('[PixelPilot] Unable to refresh the Runware API key:', error);
-      this.runwareAdapter.updateApiKey();
+      this.runwareAdapter.setApiKey(key);
+    } catch {
+      console.warn('[PixelPilot] Unable to refresh the Runware API key.');
+      this.runwareAdapter.setApiKey('');
     }
     return Boolean(this.runwareAdapter.getApiKey());
   }

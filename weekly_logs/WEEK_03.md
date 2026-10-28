@@ -1,5 +1,7 @@
 # 📋 BÁO CÁO TIẾN ĐỘ TUẦN 03 (WEEK 03 PROGRESS LOG)
 
+> **Lưu ý lịch sử (28/10/2026):** Đây là nhật ký tại thời điểm tuần 03; các claim và số liệu chưa thay thế [release evidence hiện tại](../docs/COPILOT_RELEASE_EVIDENCE.md).
+
 > **Tên đề tài**: *Nghiên cứu & Xây dựng Trợ lý Thị giác AI Đa phương thức trên VS Code (Pixel Pilot - Visual AI Studio & Agentic Vision Engine)*  
 > **Trọng tâm Tuần 03**: *Bộ Não AI LLM Agent (Multi-modal Vision & Function Calling), Giải thuật Phân tích Quang phổ Bảo vệ Da Mặt (Skin Chrominance Exclusion) & Báo cáo Tổng kết Đồ án*  
 > **Sinh viên thực hiện**: [Họ và Tên Sinh Viên] - MSSV: [Mã Số Sinh Viên]  

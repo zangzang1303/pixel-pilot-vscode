@@ -1,4 +1,6 @@
 # BÁO CÁO KẾT QUẢ THỬ NGHIỆM ĐỐI ĐẦU: ADOBE FIREFLY VS RUNWARE (BIREFNET)
+
+> **Lưu ý lịch sử (28/10/2026):** Giữ nguyên số liệu/kịch bản gốc để tham khảo. Chúng chưa được xác minh lại với VSIX, provider/model và môi trường release hiện tại; xem [release evidence](docs/COPILOT_RELEASE_EVIDENCE.md) trước khi dùng như kết quả sản phẩm.
 **Đề tài**: Nghiên cứu & Phát triển công cụ xử lý ảnh AI trên VS Code (Pixel Pilot)  
 **Nhóm sinh viên thực hiện**: [Tên nhóm]  
 **Ngày thực nghiệm**: [Điền ngày, ví dụ: 17/09/2026]  

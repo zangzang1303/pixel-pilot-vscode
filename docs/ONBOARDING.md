@@ -4,24 +4,23 @@
 Chào mừng bạn gia nhập đội ngũ phát triển **Pixel Pilot**!  
 Tài liệu này được biên soạn nhằm giúp bạn hiểu rõ bức tranh tổng thể, nắm vững kiến trúc kỹ thuật và có thể bắt tay vào code ngay trong ngày đầu tiên làm việc.
 
+> **Hiệu đính 28/10/2026:** Một số sơ đồ và mô tả bên dưới ghi lại định hướng ban đầu. Để cài/chạy bản hiện tại, dùng [SETUP_GUIDE.md](SETUP_GUIDE.md); để xác định capability và release gate, dùng [báo cáo tiến độ](COPILOT_IMPLEMENTATION_PROGRESS.md). Tác vụ thiếu model/provider phải báo không khả dụng, không dùng mock hoặc Sharp để giả làm kết quả AI.
+
 ---
 
 ## 📌 1. BỨC TRANH TỔNG THỂ (PROJECT OVERVIEW)
 
 ### 1.1. Pixel Pilot là gì?
-**Pixel Pilot** là một tiện ích mở rộng (**VS Code Extension**) đóng vai trò như một **AI Image Studio toàn diện** tích hợp thẳng vào không gian làm việc của lập trình viên. Thay vì phải chuyển qua lại giữa Photoshop, trình duyệt web, Figma hay các trang AI trả phí, lập trình viên có thể:
+**Pixel Pilot** là một tiện ích mở rộng (**VS Code Extension**) tích hợp công cụ xử lý ảnh vào không gian làm việc của lập trình viên. Tùy provider và model được cấu hình, người dùng có thể:
 1. Sinh ảnh trực tiếp từ văn bản (Text-to-Image).
-2. Chỉnh sửa ảnh thông minh (Tách nền SOTA, Phóng to 4x, Khử mờ HDR, Đổi màu chọn lọc, Inpaint, Outpaint...).
+2. Chỉnh sửa ảnh bằng Sharp hoặc provider AI nếu capability tương ứng sẵn sàng.
 3. Tiền xử lý ControlNet (Dò biên Canny, Lineart, Bản đồ độ sâu 3D, AI Mask).
 4. Chuyển đổi thiết kế thành mã nguồn (Image-to-Code: React Tailwind, HTML/CSS).
 5. Tự động chèn thẻ ảnh hoặc code snippet vào tệp đang mở trong editor.
 
 ### 1.2. Triết lý thiết kế cốt lõi
-- **Zero-Dependency Crash Guarantee**: Ứng dụng **không bao giờ được crash** hoặc trả về ảnh rỗng khi mất mạng, hết credit hoặc GPU offline.
-- **Kiến trúc phân tầng 3 cấp (3-Tier Hybrid Fallback)**:
-  - **Tier 1 (Local GPU - 100% Free)**: ComfyUI (`port 8188`) & InvokeAI (`port 9090`) chạy trực tiếp trên card đồ họa người dùng.
-  - **Tier 2 (Cloud SOTA API)**: Runware Fast Cloud (~380ms) khi có API Key và credit.
-  - **Tier 3 (Native Precision Engine)**: Thư viện xử lý ảnh nội bộ Sharp (Node.js/C++) bảo đảm chạy mượt 100% offline mọi lúc mọi nơi.
+- **Báo lỗi trung thực**: mất mạng, hết credit hoặc thiếu model phải trả về lỗi/unavailable có lý do; không trả ảnh gốc hoặc mock như một edit thành công.
+- **Provider theo capability**: ComfyUI và InvokeAI chạy cục bộ khi đã cài server/model; Runware là cloud cần key và consent; Sharp chỉ thực hiện thao tác pixel cơ bản.
 - **Single Source of Truth**: Đồng bộ trạng thái mượt mà giữa **Secondary Sidebar** và **Canvas Studio Tab**.
 
 ---
@@ -30,7 +29,7 @@ Tài liệu này được biên soạn nhằm giúp bạn hiểu rõ bức tranh
 
 ```
 pixel-pilot-vscode/
-├── .env                              # Biến môi trường cục bộ (RUNWARE_API_KEY, v.v.)
+├── package-lock.json                 # Khóa phiên bản dependency để build lặp lại
 ├── package.json                      # Cấu hình extension, command, activationEvents, menus
 ├── tsconfig.json                     # Cấu hình TypeScript cho extension host
 ├── README.md                         # Tài liệu tổng quan dự án
@@ -145,11 +144,11 @@ pixel-pilot-vscode/
 
 ## 📋 5. CHECKLIST NGÀY ĐẦU TIÊN (DAY 1 CHECKLIST)
 
-- [ ] Đọc hết tài liệu này và [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md).
+- [ ] Đọc hết tài liệu này và [`SETUP_GUIDE.md`](SETUP_GUIDE.md).
 - [ ] Chạy `npm install` tại cả thư mục gốc và thư mục `webview-ui/`.
 - [ ] Chạy `npm run compile` và `npm run build:webview` để đảm bảo 0 lỗi TypeScript.
 - [ ] Nhấn `F5` trong VS Code để khởi chạy Extension Host và mở thử Studio.
 - [ ] Chạy script benchmark để kiểm tra bộ engine: `node benchmark/run_benchmark.js`.
 - [ ] Kiểm tra khả năng kết nối ComfyUI / InvokeAI theo hướng dẫn cài đặt.
 
-Nếu bạn gặp bất kỳ trở ngại nào trong quá trình cài đặt hay tìm hiểu mã nguồn, hãy xem mục **Troubleshooting** trong [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md)! Chúc bạn có trải nghiệm tuyệt vời cùng Pixel Pilot! 🚀
+Nếu bạn gặp bất kỳ trở ngại nào trong quá trình cài đặt hay tìm hiểu mã nguồn, hãy xem mục **Troubleshooting** trong [`SETUP_GUIDE.md`](SETUP_GUIDE.md).

@@ -2,6 +2,8 @@
 param(
     [switch]$SkipInstall,
     [switch]$NoMock,
+    [switch]$Mock,
+    [switch]$StartInvokeAI,
     [switch]$StartComfyUI,
     [switch]$NoLaunch
 )
@@ -12,6 +14,9 @@ $runtimeDir = Join-Path $projectRoot '.pixelpilot_runtime'
 $logDir = Join-Path $runtimeDir 'logs'
 $mockPidFile = Join-Path $runtimeDir 'mock-invokeai.pid'
 $invokePidFile = Join-Path $runtimeDir 'invokeai.pid'
+if ($Mock -and $NoMock) {
+    throw 'Choose either -Mock or -NoMock, not both.'
+}
 
 function Write-Step([string]$message) {
     Write-Host "`n[>] $message" -ForegroundColor Cyan
@@ -20,7 +25,7 @@ function Write-Step([string]$message) {
 function Test-HttpEndpoint([string]$url) {
     try {
         $response = Invoke-WebRequest -Uri $url -Method Get -TimeoutSec 2 -UseBasicParsing
-        return $response.StatusCode -ge 200 -and $response.StatusCode -lt 500
+        return $response.StatusCode -ge 200 -and $response.StatusCode -lt 300
     } catch {
         return $false
     }
@@ -49,11 +54,11 @@ if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
 if (-not $SkipInstall) {
     if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'node_modules'))) {
         Write-Step 'Installing extension dependencies'
-        Invoke-Npm @('install')
+        Invoke-Npm @('ci')
     }
     if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'webview-ui\node_modules'))) {
         Write-Step 'Installing webview dependencies'
-        Invoke-Npm @('--prefix', 'webview-ui', 'install')
+        Invoke-Npm @('--prefix', 'webview-ui', 'ci')
     }
 }
 
@@ -66,7 +71,9 @@ if ($invokeOnline) {
     Write-Host '[OK] InvokeAI is online at http://127.0.0.1:9090' -ForegroundColor Green
 } else {
     $invokeLauncher = Join-Path $projectRoot 'scripts\start_invokeai_local.cmd'
-    if (Test-Path -LiteralPath $invokeLauncher) {
+    $invokeRoot = if ($env:PIXELPILOT_INVOKEAI_HOME) { $env:PIXELPILOT_INVOKEAI_HOME } else { 'C:\AI\InvokeAI' }
+    $invokeExecutable = Join-Path $invokeRoot '.venv\Scripts\invokeai-web.exe'
+    if ($StartInvokeAI -and (Test-Path -LiteralPath $invokeLauncher) -and (Test-Path -LiteralPath $invokeExecutable)) {
         Write-Step 'InvokeAI is offline - starting the local InvokeAI server'
         $stdoutLog = Join-Path $logDir 'invokeai.stdout.log'
         $stderrLog = Join-Path $logDir 'invokeai.stderr.log'
@@ -81,22 +88,30 @@ if ($invokeOnline) {
         } else {
             Write-Warning "Local InvokeAI did not start. See logs in $logDir"
         }
+    } elseif ($StartInvokeAI) {
+        Write-Warning 'InvokeAI executable was not found. Set PIXELPILOT_INVOKEAI_HOME to the installed InvokeAI directory.'
     }
 }
 
-if (-not $invokeOnline -and -not $NoMock) {
+if (-not $invokeOnline -and $Mock -and -not $NoMock) {
     Write-Step 'InvokeAI is offline - starting the development mock server'
+    $mockScript = Join-Path $projectRoot 'scripts\mock_invokeai.mjs'
     $existingMock = $null
     if (Test-Path -LiteralPath $mockPidFile) {
         $savedPid = (Get-Content -LiteralPath $mockPidFile -Raw).Trim()
         if ($savedPid -match '^\d+$') {
             $existingMock = Get-Process -Id ([int]$savedPid) -ErrorAction SilentlyContinue
+            if ($existingMock) {
+                $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $savedPid" -ErrorAction SilentlyContinue
+                if (-not $processInfo -or $processInfo.CommandLine -notlike "*$mockScript*") {
+                    $existingMock = $null
+                }
+            }
         }
     }
     if (-not $existingMock) {
         $stdoutLog = Join-Path $logDir 'mock-invokeai.stdout.log'
         $stderrLog = Join-Path $logDir 'mock-invokeai.stderr.log'
-        $mockScript = Join-Path $projectRoot 'scripts\mock_invokeai.mjs'
         $mockProcess = Start-Process -FilePath 'node.exe' -ArgumentList @("`"$mockScript`"") -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
         Set-Content -LiteralPath $mockPidFile -Value $mockProcess.Id -Encoding ascii
     }
@@ -116,13 +131,19 @@ if (-not $invokeOnline -and -not $NoMock) {
 $comfyOnline = Test-HttpEndpoint 'http://127.0.0.1:8188/system_stats'
 if ($comfyOnline) {
     Write-Host '[OK] ComfyUI is online at http://127.0.0.1:8188' -ForegroundColor Green
-} else {
+} elseif ($StartComfyUI) {
     Write-Step 'Checking for ComfyUI Local GPU installation...'
+    $comfyRoot = if ($env:PIXELPILOT_COMFYUI_HOME) { $env:PIXELPILOT_COMFYUI_HOME } else { 'C:\AI\ComfyUI' }
+    $comfyFallback = if (Test-Path -LiteralPath (Join-Path $comfyRoot '.venv\Scripts\python.exe')) {
+        Join-Path $projectRoot 'scripts\start_comfyui_local.cmd'
+    } else {
+        $null
+    }
     $comfyCandidates = @(
         $env:PIXELPILOT_COMFYUI_LAUNCHER,
         'D:\Start_ComfyUI_PixelPilot.bat',
         'D:\ComfyUI_windows_portable\run_nvidia_gpu.bat',
-        (Join-Path $projectRoot 'scripts\start_comfyui_local.cmd')
+        $comfyFallback
     ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
     $comfyLauncher = $comfyCandidates | Select-Object -First 1
     if ($comfyLauncher) {
@@ -141,6 +162,8 @@ if ($comfyOnline) {
     } else {
         Write-Host '[--] ComfyUI was not found.' -ForegroundColor Yellow
     }
+} else {
+    Write-Host '[--] ComfyUI is offline. Use npm run start:gpu to start it when configured.' -ForegroundColor Yellow
 }
 
 if (-not $NoLaunch) {
@@ -154,8 +177,9 @@ if (-not $NoLaunch) {
     }
 }
 
-Write-Host "`n[OK] Pixel Pilot is ready." -ForegroundColor Green
-Write-Host '  npm start            Build + mock when needed + Extension Host' -ForegroundColor DarkGray
-Write-Host '  npm run start:real   Never start the mock server' -ForegroundColor DarkGray
-Write-Host '  npm run start:gpu    Also try to start ComfyUI' -ForegroundColor DarkGray
+Write-Host "`n[OK] Pixel Pilot development build is ready. Provider status is shown above." -ForegroundColor Green
+Write-Host '  npm start            Build + status check + Extension Host' -ForegroundColor DarkGray
+Write-Host '  npm run start:real   Try configured InvokeAI and ComfyUI servers' -ForegroundColor DarkGray
+Write-Host '  npm run start:gpu    Try configured ComfyUI server' -ForegroundColor DarkGray
+Write-Host '  npm run start:mock   Explicit development mock InvokeAI' -ForegroundColor DarkGray
 Write-Host '  npm stop             Stop the managed mock server' -ForegroundColor DarkGray

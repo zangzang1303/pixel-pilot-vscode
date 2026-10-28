@@ -11,10 +11,20 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 }
 $packageJsonPath = Join-Path $root 'package.json'
 $packageJson = Get-Content -LiteralPath $packageJsonPath -Raw | ConvertFrom-Json
-$stageRoot = Join-Path $root '.vsix-stage'
+$stageRoot = [System.IO.Path]::GetFullPath((Join-Path $root '.vsix-stage'))
+if (-not $stageRoot.StartsWith($root + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+  throw 'VSIX staging directory must stay inside the project.'
+}
 $extensionRoot = Join-Path $stageRoot 'extension'
 $outputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
 $vsixPath = Join-Path $outputDirectory ("{0}-{1}.vsix" -f $packageJson.name, $packageJson.version)
+
+# Compile from a clean out/ directory so removed source modules cannot remain
+# in a VSIX because of a previous local TypeScript build.
+& npm.cmd run build
+if ($LASTEXITCODE -ne 0) {
+  throw 'Unable to build the extension before packaging.'
+}
 
 function Copy-RequiredPath([string]$relativePath) {
   $source = Join-Path $root $relativePath
@@ -103,6 +113,11 @@ try {
   foreach ($requiredEntry in @('[Content_Types].xml', 'extension.vsixmanifest', 'extension/package.json', 'extension/out/extension.js', 'extension/webview-ui/dist/index.html', 'extension/node_modules/sharp/package.json')) {
     if (-not ($entryNames -contains $requiredEntry)) {
       throw "VSIX validation failed; missing $requiredEntry"
+    }
+  }
+  foreach ($obsoletePrefix in @('extension/out/panels/ImageStudioPanel.', 'extension/out/panels/WebviewMessageProtocol.', 'extension/out/webview/StudioPanel.')) {
+    if (@($entryNames | Where-Object { $_.StartsWith($obsoletePrefix, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0) {
+      throw "VSIX validation failed; obsolete compiled module remains: $obsoletePrefix"
     }
   }
 } finally {
