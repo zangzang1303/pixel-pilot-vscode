@@ -267,22 +267,48 @@ export class ImageProcessor implements IImageProcessor {
     let targetH = 275, targetS = 0.80, targetLScale = 0.95;
 
     switch (targetColor.toLowerCase()) {
-      case 'cyan':
-        targetH = 195; targetS = 0.88; targetLScale = 1.0;
+      case 'orange':
+      case 'cam':
+        targetH = 28; targetS = 0.95; targetLScale = 1.35;
         break;
+      case 'yellow':
+      case 'vang':
       case 'blonde':
-        targetH = 45; targetS = 0.85; targetLScale = 1.25;
+        targetH = 48; targetS = 0.92; targetLScale = 1.40;
+        break;
+      case 'cyan':
+        targetH = 195; targetS = 0.88; targetLScale = 1.15;
+        break;
+      case 'blue':
+      case 'xanh':
+        targetH = 220; targetS = 0.88; targetLScale = 1.05;
         break;
       case 'red':
-        targetH = 355; targetS = 0.85; targetLScale = 0.85;
+      case 'do':
+        targetH = 355; targetS = 0.90; targetLScale = 1.10;
         break;
       case 'purple':
-        targetH = 275; targetS = 0.80; targetLScale = 0.95;
+      case 'tim':
+        targetH = 275; targetS = 0.80; targetLScale = 1.05;
         break;
       case 'green':
-        targetH = 145; targetS = 0.80; targetLScale = 0.90;
+      case 'xanhla':
+        targetH = 145; targetS = 0.80; targetLScale = 1.05;
+        break;
+      case 'pink':
+      case 'hong':
+        targetH = 330; targetS = 0.85; targetLScale = 1.25;
+        break;
+      case 'white':
+      case 'trang':
+        targetH = 0; targetS = 0.05; targetLScale = 1.70;
+        break;
+      case 'brown':
+      case 'nau':
+        targetH = 28; targetS = 0.65; targetLScale = 0.85;
         break;
       case 'black':
+      case 'den':
         targetH = 0; targetS = 0.05; targetLScale = 0.25;
         break;
     }
@@ -301,7 +327,16 @@ export class ImageProcessor implements IImageProcessor {
         const strength = Math.max(0, Math.min(0.94, (probability - 0.38) / 0.50)) * region * (1 - skinProtection);
         if (strength > 0) {
           const [, , lightness] = this.rgbToHsl(r, g, b);
-          const targetLightness = Math.max(0.04, Math.min(0.94, lightness * targetLScale));
+          let targetLightness: number;
+          const lowerColor = targetColor.toLowerCase();
+          if (lowerColor === 'black' || lowerColor === 'den') {
+            targetLightness = Math.max(0.04, Math.min(0.30, lightness * targetLScale));
+          } else if (lowerColor === 'white' || lowerColor === 'trang') {
+            targetLightness = Math.max(0.70, Math.min(0.96, 0.45 + lightness * 0.5));
+          } else {
+            const baseLightness = Math.max(lightness, 0.32);
+            targetLightness = Math.max(0.15, Math.min(0.88, baseLightness * targetLScale));
+          }
           const [newR, newG, newB] = this.hslToRgb(targetH, targetS, targetLightness);
           data[idx] = Math.round(r * (1 - strength) + newR * strength);
           data[idx + 1] = Math.round(g * (1 - strength) + newG * strength);

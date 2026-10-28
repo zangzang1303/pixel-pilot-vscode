@@ -203,11 +203,20 @@ export const Canvas: React.FC<CanvasProps> = ({
     } else if (event.key === '-') {
       event.preventDefault();
       setZoom((value) => Math.max(0.25, value - 0.25));
+    } else if (event.key === '0') {
+      event.preventDefault();
+      setZoom(1);
     }
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-slate-950 relative overflow-hidden select-none">
+    <div
+      role="region"
+      aria-label="Khung vẽ chỉnh sửa ảnh"
+      tabIndex={0}
+      onKeyDown={handleCanvasKeyDown}
+      className="flex-1 flex flex-col h-full bg-slate-950 relative overflow-hidden select-none outline-none focus:ring-1 focus:ring-violet-500/20"
+    >
       {/* Top Toolbar */}
       <div className="h-12 px-4 border-b border-slate-800 bg-slate-900/60 backdrop-blur flex items-center justify-between z-10">
         {/* Brush Tools */}
@@ -282,6 +291,9 @@ export const Canvas: React.FC<CanvasProps> = ({
 
         {/* View & Export Tools */}
         <div className="flex items-center gap-2">
+          <span className="hidden 2xl:inline text-[10px] text-slate-500 font-mono mr-1 whitespace-nowrap shrink-0">
+            B: Brush · E: Eraser · Esc: Thoát · +/-: Zoom · 0: 100%
+          </span>
           {/* Open Image Button */}
           {onOpenImage && (
             <button

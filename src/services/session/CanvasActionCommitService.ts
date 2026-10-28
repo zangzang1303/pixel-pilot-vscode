@@ -44,6 +44,10 @@ export class CanvasActionCommitService {
     const definition = IMAGE_ACTIONS[action];
     if (!definition) throw new Error(`Unsupported image edit: ${action}`);
     const { maskDataUrl: _maskDataUrl, ...params } = options || {};
+    const provider = typeof options?.provider === 'string' ? options.provider : undefined;
+    const model = typeof options?.model === 'string'
+      ? options.model
+      : (provider ? `Canvas action (${provider})` : 'Canvas action (provider unspecified)');
     return this.commits.commitImageResult({
       ...target,
       operation: definition.operation,
@@ -54,7 +58,7 @@ export class CanvasActionCommitService {
       result: {
         success: true,
         outputImageUri,
-        metrics: { model: 'Canvas action (provider unspecified)', latencyMs: 0, costUsd: 0 }
+        metrics: { model, latencyMs: 0, costUsd: 0 }
       }
     });
   }

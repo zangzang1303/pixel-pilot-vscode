@@ -158,6 +158,24 @@
           "type": "string",
           "default": "http://127.0.0.1:9090",
           "description": "Local InvokeAI server instance URL (default: http://127.0.0.1:9090)."
+        },
+        "pixelPilot.offlineMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enforce strict offline mode: strictly blocks all external cloud network calls and restricts tools to local providers."
+        },
+        "pixelPilot.llmProvider": {
+          "type": "string",
+          "default": "local",
+          "enum": [
+            "local",
+            "ollama",
+            "gemini",
+            "openai",
+            "groq",
+            "openrouter"
+          ],
+          "description": "Selected AI reasoning engine provider."
         }
       }
     }
@@ -173,17 +191,23 @@
     "mock:invokeai": "node scripts/mock_invokeai.mjs",
     "build:webview": "npm --prefix webview-ui run build",
     "build": "npm run build:webview && npm run compile",
+    "lint": "node scripts/lint.cjs",
     "test": "npm run compile && node scripts/run-tests.cjs",
+    "test:e2e": "npm run build && node scripts/run-vscode-e2e.cjs",
     "check": "npm run build && npm test",
-    "package:smoke": "npm pack --dry-run"
+    "package:smoke": "npm pack --dry-run",
+    "package:vsix": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-vsix.ps1",
+    "package:vsix:install-smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-vsix-install.ps1",
+    "provider:smoke:local": "npm run compile && node scripts/run-local-provider-smoke.cjs"
   },
   "dependencies": {
-    "sharp": "^0.33.5"
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/sharp": "^0.31.1",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.5.2",
     "typescript": "^5.3.3"
   }
 }

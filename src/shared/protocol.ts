@@ -1,5 +1,5 @@
 /**
- * Versioned, serializable contract shared by extension-host ingress points.
+ * Versioned, serializable contract shared by extension-host ingress points and webview.
  * Keep this module dependency-free so it can also be consumed by a webview build.
  */
 export const PROTOCOL_VERSION = 2 as const;
@@ -70,8 +70,108 @@ export function parseRunRequest(input: unknown): ProtocolParseResult {
       nodeId: typeof value.nodeId === 'string' ? value.nodeId : undefined,
       text: typeof value.text === 'string' ? value.text : undefined,
       toolName: typeof value.toolName === 'string' ? value.toolName : undefined,
-      args: value.args as Record<string, unknown> | undefined
-      ,targetRequestId: typeof value.targetRequestId === 'string' ? value.targetRequestId : undefined
+      args: value.args as Record<string, unknown> | undefined,
+      targetRequestId: typeof value.targetRequestId === 'string' ? value.targetRequestId : undefined
     }
   };
+}
+
+// ---------------------------------------------------------------------------
+// Protocol v2 DTOs and Unions (Section 11 of COPILOT_DEVELOPMENT_PLAN.md)
+// ---------------------------------------------------------------------------
+
+export interface Envelope {
+  protocolVersion: typeof PROTOCOL_VERSION;
+  requestId: string;
+  correlationId?: string;
+  sessionId?: string;
+}
+
+export interface ToolResultView {
+  toolName: string;
+  status: 'succeeded' | 'failed' | 'no_change';
+  outputImageUri?: string;
+  previewImageUri?: string;
+  summary: string;
+  metrics?: {
+    model?: string;
+    provider?: string;
+    latencyMs?: number;
+    costUsd?: number;
+  };
+}
+
+export interface ConfirmationView {
+  token: string;
+  provider: string;
+  purpose: string;
+  estimatedCostUsd?: number;
+}
+
+export interface SessionView {
+  sessionId: string;
+  title: string;
+  rootNodeId: string;
+  currentNodeId: string;
+  updatedAt: number;
+  nodeCount: number;
+}
+
+export interface SessionDelta {
+  sessionId: string;
+  revision: string;
+  addedNodeId?: string;
+  updatedCurrentNodeId?: string;
+}
+
+export interface CapabilityView {
+  id: string;
+  name: string;
+  provider: string;
+  available: boolean;
+  unavailableReason?: string;
+}
+
+export type ClientCommand =
+  | { type: 'client.ready'; lastSequence?: number }
+  | { type: 'copilot.submit'; sessionId: string; nodeId: string; revision?: string; text: string }
+  | { type: 'tool.execute'; sessionId: string; nodeId: string; toolName: string; args?: Record<string, unknown> }
+  | { type: 'run.cancel'; runId: string }
+  | { type: 'confirmation.respond'; token: string; approved: boolean }
+  | { type: 'session.select_node'; sessionId: string; nodeId: string }
+  | { type: 'session.sync'; sessionId: string; afterSequence?: number };
+
+export type ClientMessage = Envelope & ClientCommand;
+
+export type HostEvent =
+  | { type: 'request.accepted'; runId?: string }
+  | { type: 'request.rejected'; error: ProtocolError }
+  | { type: 'run.status'; runId: string; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'; summary: string }
+  | { type: 'confirmation.required'; confirmation: ConfirmationView }
+  | { type: 'step.progress'; runId: string; stage: string; percentage?: number }
+  | { type: 'tool.result'; runId: string; result: ToolResultView }
+  | { type: 'run.completed'; runId: string; outcome: 'succeeded' | 'partial' | 'no_change' }
+  | { type: 'run.failed'; runId: string; error: ProtocolError }
+  | { type: 'run.cancelled'; runId: string }
+  | { type: 'session.snapshot'; session: SessionView }
+  | { type: 'session.delta'; delta: SessionDelta }
+  | { type: 'capabilities.updated'; catalog: CapabilityView[] };
+
+export type HostMessage = Envelope & { eventId: string; sequence: number } & HostEvent;
+
+export function parseClientMessage(raw: unknown): { ok: true; value: ClientMessage } | { ok: false; error: ProtocolError } {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, error: { code: 'invalid_message', message: 'Client message must be an object.' } };
+  }
+  const msg = raw as Record<string, unknown>;
+  if (msg.protocolVersion !== PROTOCOL_VERSION) {
+    return { ok: false, error: { code: 'unsupported_version', message: `Unsupported protocol version: ${String(msg.protocolVersion)}` } };
+  }
+  if (typeof msg.requestId !== 'string' || !msg.requestId.trim()) {
+    return { ok: false, error: { code: 'invalid_message', message: 'requestId is required.' } };
+  }
+  if (typeof msg.type !== 'string' || !msg.type.trim()) {
+    return { ok: false, error: { code: 'invalid_message', message: 'type is required.' } };
+  }
+  return { ok: true, value: raw as ClientMessage };
 }

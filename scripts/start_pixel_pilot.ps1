@@ -116,23 +116,31 @@ if (-not $invokeOnline -and -not $NoMock) {
 $comfyOnline = Test-HttpEndpoint 'http://127.0.0.1:8188/system_stats'
 if ($comfyOnline) {
     Write-Host '[OK] ComfyUI is online at http://127.0.0.1:8188' -ForegroundColor Green
-} elseif ($StartComfyUI) {
-    Write-Step 'Starting ComfyUI Local GPU'
+} else {
+    Write-Step 'Checking for ComfyUI Local GPU installation...'
     $comfyCandidates = @(
         $env:PIXELPILOT_COMFYUI_LAUNCHER,
-        (Join-Path $projectRoot 'scripts\start_comfyui_local.cmd'),
         'D:\Start_ComfyUI_PixelPilot.bat',
-        'D:\ComfyUI_windows_portable\run_nvidia_gpu.bat'
+        'D:\ComfyUI_windows_portable\run_nvidia_gpu.bat',
+        (Join-Path $projectRoot 'scripts\start_comfyui_local.cmd')
     ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
     $comfyLauncher = $comfyCandidates | Select-Object -First 1
     if ($comfyLauncher) {
+        Write-Step "Starting ComfyUI Local GPU server: $comfyLauncher"
         Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', "`"$comfyLauncher`"") -WorkingDirectory (Split-Path -Parent $comfyLauncher) -WindowStyle Hidden
-        Write-Host "[OK] ComfyUI start command sent: $comfyLauncher" -ForegroundColor Green
+        Write-Host "[OK] ComfyUI start command sent. Waiting for server to become ready..." -ForegroundColor Green
+        for ($attempt = 0; $attempt -lt 40; $attempt++) {
+            if (Test-HttpEndpoint 'http://127.0.0.1:8188/system_stats') { $comfyOnline = $true; break }
+            Start-Sleep -Seconds 1
+        }
+        if ($comfyOnline) {
+            Write-Host '[OK] ComfyUI is ready at http://127.0.0.1:8188' -ForegroundColor Green
+        } else {
+            Write-Warning 'ComfyUI is starting in background.'
+        }
     } else {
-        Write-Warning 'ComfyUI was not found. Run scripts\setup_comfyui.bat first.'
+        Write-Host '[--] ComfyUI was not found.' -ForegroundColor Yellow
     }
-} else {
-    Write-Host '[--] ComfyUI is offline (optional). Use npm run start:gpu to start it.' -ForegroundColor Yellow
 }
 
 if (-not $NoLaunch) {

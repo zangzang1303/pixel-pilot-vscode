@@ -19,7 +19,30 @@ jobs:
         run: npm ci
       - name: Install webview dependencies
         run: npm --prefix webview-ui ci
+      - name: Run source-policy lint and type-check
+        run: npm run lint
       - name: Build and run regression suite
         run: npm run check
       - name: Verify package manifest
         run: npm run package:smoke
+
+  package-windows:
+    name: Windows VSIX structural smoke
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install host dependencies
+        run: npm ci
+      - name: Install webview dependencies
+        run: npm --prefix webview-ui ci
+      - name: Build extension bundle
+        run: npm run build
+      - name: Create and inspect VSIX
+        run: npm run package:vsix
+      - name: Run Extension Development Host E2E
+        run: npm run test:e2e

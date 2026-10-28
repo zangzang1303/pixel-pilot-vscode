@@ -1,0 +1,8 @@
+{
+  "timestamp": "2026-10-28T09:20:45.359Z",
+  "metrics": {
+    "avgPlannerLatencyMs": 0.248,
+    "reducerThroughput1000EventsMs": 1.553,
+    "artifactDedupeStoreMs": 14.257
+  }
+}

@@ -22,3 +22,9 @@ yarn-error.log*
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Test & Packaging
+.vscode-test/
+scratch/
+*.vsix
+

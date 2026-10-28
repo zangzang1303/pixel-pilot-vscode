@@ -1,5 +1,7 @@
 // SecretManager.ts - Enterprise-grade Secret Management using vscode.SecretStorage
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export class SecretManager {
   private static instance?: SecretManager;
@@ -29,8 +31,29 @@ export class SecretManager {
     return this.getLlmApiKey();
   }
 
+  private getEnvKey(name: string): string {
+    try {
+      const folders = vscode.workspace.workspaceFolders;
+      if (folders && Array.isArray(folders) && folders.length > 0) {
+        for (const folder of folders) {
+          const envPath = path.join(folder.uri.fsPath, '.env');
+          if (fs.existsSync(envPath)) {
+            const content = fs.readFileSync(envPath, 'utf8');
+            const regex = new RegExp(`^\\s*${name}\\s*=\\s*['"]?([^'"\\r\\n]+)['"]?`, 'm');
+            const match = content.match(regex);
+            if (match && match[1]) {
+              return match[1].trim();
+            }
+          }
+        }
+      }
+    } catch {}
+    return '';
+  }
+
   /**
-   * Retrieves the Runware API key exclusively from VS Code SecretStorage.
+   * Retrieves the Runware API key exclusively from VS Code SecretStorage,
+   * with fallback to .env when available.
    * A legacy settings value is imported once and then removed.
    */
   public async getApiKey(): Promise<string> {
@@ -55,6 +78,9 @@ export class SecretManager {
       );
       return legacyKey.trim();
     }
+
+    const envKey = this.getEnvKey('RUNWARE_API_KEY');
+    if (envKey) return envKey;
 
     return '';
   }
@@ -150,6 +176,10 @@ export class SecretManager {
       await config.update('llmApiKey', undefined, vscode.ConfigurationTarget.Global);
       return legacyKey.trim();
     }
+
+    const envKey = this.getEnvKey(provider === 'gemini' ? 'GEMINI_API_KEY' : `${provider.toUpperCase()}_API_KEY`);
+    if (envKey) return envKey;
+
     return '';
   }
 

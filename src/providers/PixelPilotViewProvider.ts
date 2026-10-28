@@ -11,6 +11,7 @@ import { ContextBuilder } from '../services/copilot/ContextBuilder';
 import { CopilotOrchestrator } from '../services/copilot/CopilotOrchestrator';
 import { RunLifecycleService } from '../services/copilot/RunLifecycleService';
 import { WebviewBridge } from '../services/copilot/WebviewBridge';
+import { RulePlanner } from '../services/planner/RulePlanner';
 import { splitSequentialPrompt } from '../services/copilot/SequentialPlan';
 import { SafeTelemetry } from '../services/copilot/SafeTelemetry';
 import { ConfirmationBroker } from '../services/copilot/ConfirmationBroker';
@@ -64,6 +65,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   private uriToPathMap: Map<string, string> = new Map();
   private readonly sessionStateEmitter = new vscode.EventEmitter<any>();
   public readonly onDidUpdateSession = this.sessionStateEmitter.event;
+  private readonly postMessageEmitter = new vscode.EventEmitter<any>();
+  public readonly onDidPostMessage = this.postMessageEmitter.event;
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
@@ -179,12 +182,17 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       : undefined;
     const saved = await FileSystemUtils.saveImageToWorkspace(exportBuffer, fileName);
     const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
-    const node = await this.canvasCommit.commit(target, action, dataUrl, {
-      ...options,
-      exportPath: saved.relativePath
-    }, maskUri);
-    this.broadcastSessionState();
-    return { ...saved, dataUrl, sessionId: target.sessionId, nodeId: node.nodeId };
+    try {
+      const node = await this.canvasCommit.commit(target, action, dataUrl, {
+        ...options,
+        exportPath: saved.relativePath
+      }, maskUri);
+      this.broadcastSessionState();
+      return { ...saved, dataUrl, sessionId: target.sessionId, nodeId: node.nodeId };
+    } catch (commitError) {
+      await FileSystemUtils.deleteWorkspaceFile(saved.uri);
+      throw commitError;
+    }
   }
 
   private requestWebviewConfirmation(provider: string, purpose: string): Promise<boolean | undefined> {
@@ -356,7 +364,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           const savedResult = await this.saveCanvasAction(target, 'upscale',
             upscaledBuf,
             `pixel_pilot_upscaled_${targetFactor}x_${Date.now()}.png`,
-            { factor: targetFactor }
+            { factor: targetFactor, provider: 'sharp' }
           );
 
           if (this.isCanvasTargetCurrent({ sessionId: target.sessionId, parentId: savedResult.nodeId })) {
@@ -402,6 +410,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
           if (action === 'removeBackground') {
             let outBuf: Buffer;
+            let provider = 'sharp';
             const comfy = new ComfyUIAdapter();
             const comfyOnline = await comfy.ping();
             if (comfyOnline) {
@@ -410,6 +419,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
                 if (res.outputImageUri) {
                   const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
                   outBuf = Buffer.from(b64, 'base64');
+                  provider = 'comfyui';
                 } else {
                   outBuf = await imageProc.removeBackground(buffer);
                 }
@@ -426,6 +436,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
                   if (res.outputImageUri) {
                     const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
                     outBuf = Buffer.from(b64, 'base64');
+                    provider = 'runware';
                   } else {
                     outBuf = await imageProc.removeBackground(buffer);
                   }
@@ -437,7 +448,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               }
             }
 
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_cutout_${Date.now()}.png`, options);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_cutout_${Date.now()}.png`, { ...options, provider });
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -449,6 +460,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           } else if (action === 'upscale') {
             const factor = (options?.factor as 2 | 4) || 2;
             let outBuf: Buffer;
+            let provider = 'sharp';
             const comfy = new ComfyUIAdapter();
             const comfyOnline = await comfy.ping();
             if (comfyOnline) {
@@ -457,6 +469,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
                 if (res.outputImageUri) {
                   const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
                   outBuf = Buffer.from(b64, 'base64');
+                  provider = 'comfyui';
                 } else {
                   outBuf = await imageProc.upscale(buffer, factor);
                 }
@@ -473,6 +486,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
                   if (res.outputImageUri) {
                     const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
                     outBuf = Buffer.from(b64, 'base64');
+                    provider = 'runware';
                   } else {
                     outBuf = await imageProc.upscale(buffer, factor);
                   }
@@ -483,7 +497,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
                 outBuf = await imageProc.upscale(buffer, factor);
               }
             }
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`, options);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`, { ...options, provider });
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -495,6 +509,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           } else if (action === 'enhance') {
             const type = options?.type || 'clarity';
             let outBuf: Buffer;
+            let provider = 'sharp';
             const runwareKey = await this.secretManager.getApiKey();
             if (runwareKey && runwareKey.trim().length > 10) {
               await this.policy.requireCloudConsent('Runware', `Enhance ${type}`);
@@ -504,6 +519,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
                 if (res.outputImageUri) {
                   const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
                   outBuf = Buffer.from(b64, 'base64');
+                  provider = 'runware';
                 } else {
                   outBuf = await imageProc.enhance(buffer, type);
                 }
@@ -513,7 +529,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             } else {
               outBuf = await imageProc.enhance(buffer, type);
             }
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_enhanced_${Date.now()}.png`, options);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_enhanced_${Date.now()}.png`, { ...options, provider });
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -524,10 +540,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`✨ Khử mờ & Làm nét HDR thành công: ${savedResult.relativePath}`);
           } else if (action === 'mask') {
             const maskResult = await new ComfyUIAdapter().extractMask(dataUrl);
+            const provider = maskResult.outputImageUri ? 'comfyui' : 'sharp';
             const outBuf = maskResult.outputImageUri
               ? Buffer.from(maskResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
               : await imageProc.extractMask(buffer);
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_mask_${Date.now()}.png`, options);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_mask_${Date.now()}.png`, { ...options, provider });
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -538,10 +555,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`✨ Trích xuất Mask thành công: ${savedResult.relativePath}`);
           } else if (action === 'canny' || action === 'edgeDetection') {
             const cannyResult = await new ComfyUIAdapter().detectEdges(dataUrl, 'canny');
+            const provider = cannyResult.outputImageUri ? 'comfyui' : 'sharp';
             const outBuf = cannyResult.outputImageUri
               ? Buffer.from(cannyResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
               : await imageProc.detectEdges(buffer, 'canny');
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_canny_${Date.now()}.png`, options);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_canny_${Date.now()}.png`, { ...options, provider });
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -552,7 +570,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`✨ Dò biên Canny thành công: ${savedResult.relativePath}`);
           } else if (action === 'lineart' || action === 'lineExtraction') {
             const outBuf = await imageProc.detectEdges(buffer, 'lineart');
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_lineart_${Date.now()}.png`, options);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_lineart_${Date.now()}.png`, { ...options, provider: 'sharp' });
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -563,10 +581,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`✨ Trích xuất Lineart thành công: ${savedResult.relativePath}`);
           } else if (action === 'depth') {
             const depthResult = await new ComfyUIAdapter().detectEdges(dataUrl, 'depth');
+            const provider = depthResult.outputImageUri ? 'comfyui' : 'sharp';
             const outBuf = depthResult.outputImageUri
               ? Buffer.from(depthResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
               : await imageProc.detectEdges(buffer, 'depth');
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_depth_${Date.now()}.png`, options);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_depth_${Date.now()}.png`, { ...options, provider });
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -578,10 +597,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           } else if (action === 'extend') {
             const direction = options?.direction || 'all';
             const extendResult = await new ComfyUIAdapter().extendCanvas(dataUrl, direction);
+            const provider = extendResult.outputImageUri ? 'comfyui' : 'sharp';
             const outBuf = extendResult.outputImageUri
               ? Buffer.from(extendResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
               : await imageProc.extendCanvas(buffer, direction);
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_extended_${Date.now()}.png`, options);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_extended_${Date.now()}.png`, { ...options, provider });
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -600,7 +620,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const subject = options?.subject || 'hair';
             const color = options?.color || 'cyan';
             const outBuf = await imageProc.recolor(buffer, subject, color);
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_recolor_${Date.now()}.png`, options);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_recolor_${Date.now()}.png`, { ...options, provider: 'sharp' });
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -612,10 +632,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           } else if (action === 'styleTransfer') {
             const style = options?.style || 'anime';
             const styleResult = await new ComfyUIAdapter().styleTransfer(dataUrl, style);
+            const provider = styleResult.outputImageUri ? 'comfyui' : 'sharp';
             const outBuf = styleResult.outputImageUri
               ? Buffer.from(styleResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
               : await imageProc.styleTransfer(buffer, style);
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_style_${style}_${Date.now()}.png`, options);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_style_${style}_${Date.now()}.png`, { ...options, provider });
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -626,7 +647,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`✨ Chuyển phong cách ${style} thành công: ${savedResult.relativePath}`);
           } else if (action === 'vectorize') {
             const { svgString, previewBuffer } = await imageProc.vectorize(buffer);
-            const savedResult = await this.saveCanvasAction(target, action, Buffer.from(svgString, 'utf-8'), `pixel_pilot_vector_${Date.now()}.svg`, options, previewBuffer);
+            const savedResult = await this.saveCanvasAction(target, action, Buffer.from(svgString, 'utf-8'), `pixel_pilot_vector_${Date.now()}.svg`, { ...options, provider: 'sharp' }, previewBuffer);
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -644,10 +665,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const inpaintResult = maskBuffer
               ? await new ComfyUIAdapter().inpaint(dataUrl, options.maskDataUrl, options?.prompt || 'natural detailed restoration matching the surrounding image')
               : undefined;
+            const provider = inpaintResult?.outputImageUri ? 'comfyui' : 'sharp';
             const outBuf = inpaintResult?.outputImageUri
               ? Buffer.from(inpaintResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
               : await imageProc.inpaint(buffer, maskBuffer);
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_inpaint_${Date.now()}.png`, options);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_inpaint_${Date.now()}.png`, { ...options, provider });
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -810,12 +832,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             await this.webviewBridge.dispatch(request.requestId, async () => {
               this.runLifecycle.start(request.requestId);
               try {
-                await this.handleCopilotChat({ text: request.text, sessionId: request.sessionId });
+                await this.handleCopilotChat({ text: request.text, sessionId: request.sessionId, requestId: request.requestId });
               } finally {
                 this.runLifecycle.finish(request.requestId);
               }
             });
-            this.postToWebview({ type: 'copilotCompleted', requestId: request.requestId });
+            this.postToWebview({ type: 'copilotCompleted', requestId: request.requestId, metrics: { latencyMs: Date.now() - startedAt } });
             this.telemetry.record({ requestId: request.requestId, command: request.command, outcome: 'succeeded', latencyMs: Date.now() - startedAt });
             break;
           }
@@ -844,7 +866,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             this.postToWebview({ type: 'copilotCancelled', requestId: request.targetRequestId });
             this.telemetry.record({ requestId: request.targetRequestId!, command: 'cancel', outcome: 'cancelled', latencyMs: Date.now() - startedAt });
           } else {
-            this.postToWebview({ type: 'copilotError', requestId: request.requestId, error: { code: 'cancelled', message: 'No cancellable run is active for this request.' } });
+            this.postToWebview({ type: 'copilotCancelled', requestId: request.targetRequestId || request.requestId });
           }
         } catch (error: any) {
           if (/^Operation cancelled\.?$/i.test(error?.message || '')) {
@@ -1371,7 +1393,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       if (chosen) {
-        await this.runCopilotOperation(sessionId, image, chosen.intent.operation, chosen.intent, text, undefined, nodeId);
+        await this.runCopilotOperation(sessionId, image, chosen.intent.operation, chosen.intent, text, message.requestId, nodeId);
         return;
       }
       if (/^(?:\/analyze|\/analyse)\b|phan tich|danh gia|nhan xet|nen (?:chinh|sua|lam) gi|can (?:chinh|sua) gi|goi y (?:chinh|sua)|tu van (?:chinh|sua)|anh nay (?:the nao|dep khong)|analy[sz]e (?:this |the )?image|what should i (?:edit|fix)/.test(normalized)) {
@@ -1387,7 +1409,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         this.broadcastSessionState();
         return;
       }
-      const intent = this.getCopilotIntent(text, normalized);
+      let intent = this.getCopilotIntent(text, normalized);
       const sequentialSteps = splitSequentialPrompt(text);
       if (sequentialSteps.length > 1) {
         const intents = sequentialSteps.map((step) => this.getCopilotIntent(step, step.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')));
@@ -1407,12 +1429,38 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       if (!intent) {
-        if (/ban (la ai|lam duoc gi)|co the (lam|giup) gi|huong dan|cach dung|^help\??$/.test(normalized)) {
-          reply('Mình là Pixel Pilot Copilot. Bạn có thể hỏi về ảnh đang mở hoặc ra lệnh: “tạo ảnh a cat in a garden”, “tách nền”, “phóng to 2x”, “đổi áo sang xanh”, “tạo Depth”, “mở rộng ảnh”, “chuyển sang anime”, “xuất SVG”. Mỗi kết quả ảnh được lưu trong phiên chat để mở lại hoặc tiếp tục chỉnh sửa.');
+        // 1. Try RulePlanner for structured single-step or multi-step edit intents
+        try {
+          const rulePlan = RulePlanner.plan(text, { currentImageId: image });
+          if (rulePlan.intent === 'edit' && rulePlan.steps.length > 0) {
+            const firstStep = rulePlan.steps[0];
+            if (firstStep.toolName === 'image.remove_background') {
+              intent = { operation: 'remove_background', label: 'Tách nền' };
+            } else if (firstStep.toolName === 'image.recolor') {
+              intent = {
+                operation: 'recolor',
+                label: 'Đổi màu',
+                colorTarget: firstStep.args?.target || 'clothes',
+                targetColor: firstStep.args?.color || 'blue'
+              };
+            } else if (firstStep.toolName === 'upscale_image') {
+              intent = { operation: 'upscale', factor: firstStep.args?.factor || 2, label: 'Phóng to ảnh' };
+            } else if (firstStep.toolName === 'image.generate') {
+              intent = { operation: 'generate', label: 'Sinh ảnh mới', promptText: firstStep.args?.prompt || text };
+            }
+          }
+        } catch {}
+      }
+
+      if (!intent) {
+        if (/^(?:xin\s+chao|chao|hello|hi|hey|good\s+morning|help|huong\s+dan|cach\s+dung)$/i.test(normalized) ||
+            /ban\s+(?:la\s+ai|lam\s+duoc\s+gi)|co\s+the\s+(?:lam|giup)\s+gi/.test(normalized)) {
+          reply('Mình là Pixel Pilot Copilot. Bạn có thể ra lệnh trực tiếp: “thêm nền hoàng hôn”, “tách nền”, “phóng to 2x”, “đổi áo sang đỏ”, “tăng nét ảnh”, “mở rộng ảnh”, “chuyển sang anime”, “xuất SVG”. Mình sẽ lập tức thực hiện và cập nhật ảnh kết quả ngay.');
           return;
         }
-        const aboutImage = Boolean(image) && /anh (nay|do|hien tai)|trong anh|nhin thay|what.*(image|picture)|mau sac|bo cuc|do sang/.test(normalized);
-        if (aboutImage) {
+
+        const isPureQuestion = /\?$/.test(normalized) && /(?:trong\s+anh|anh\s+(?:nay|do)\s+co\s+gi|nhin\s+thay\s+gi)/.test(normalized);
+        if (isPureQuestion && Boolean(image)) {
           const visualContext = ImageAnalysisService.context(await ImageAnalysisService.analyze(image));
           let answer: string | null = null;
           try { answer = await LocalChatService.reply(text, current.messages.slice(0, -1), visualContext); } catch (error) {
@@ -1421,40 +1469,40 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           reply(answer || visualContext);
           return;
         }
-        const llmKey = await this.secretManager.getLlmApiKey();
-        if (llmKey) {
-          const provider = await this.secretManager.getLlmProvider();
-          if (provider !== 'local' && provider !== 'ollama') {
-            await this.policy.requireCloudConsent(provider, 'Cloud planning');
+
+        // Action-First Engine: When an image is loaded, ALWAYS execute an action and produce the final edited image
+        if (image) {
+          if (/nen|background|phong|troi|sky|canh|scene|bien|hoang hon|rung|studio|sunset/i.test(normalized)) {
+            intent = { operation: 'replace_bg', label: 'Đổi/Thêm nền', promptText: text.replace(/^.*?(?:nen|background|phong)\s*/i, '').trim() || text };
+          } else if (/toc|hair/i.test(normalized)) {
+            const color = /do|red/.test(normalized) ? 'red' : /xanh la|green/.test(normalized) ? 'green' : /vang|yellow|blond/.test(normalized) ? 'yellow' : /tim|purple/.test(normalized) ? 'purple' : /hong|pink/.test(normalized) ? 'pink' : /trang|white/.test(normalized) ? 'white' : /den|black/.test(normalized) ? 'black' : 'cyan';
+            intent = { operation: 'recolor', label: 'Đổi màu tóc', colorTarget: 'hair', targetColor: color };
+          } else if (/ao|quan|vay|trang phuc|clothes|shirt/i.test(normalized)) {
+            const color = /do|red/.test(normalized) ? 'red' : /xanh la|green/.test(normalized) ? 'green' : /vang|yellow/.test(normalized) ? 'yellow' : /tim|purple/.test(normalized) ? 'purple' : /hong|pink/.test(normalized) ? 'pink' : /trang|white/.test(normalized) ? 'white' : /den|black/.test(normalized) ? 'black' : 'blue';
+            intent = { operation: 'recolor', label: 'Đổi màu trang phục', colorTarget: 'clothes', targetColor: color };
+          } else if (/to|lon|scale|4k|2x|4x|phong|tang net|net hon/i.test(normalized)) {
+            intent = { operation: 'upscale', factor: /4k|4x/.test(normalized) ? 4 : 2, label: 'Phóng to ảnh' };
+          } else if (/anime|pixar|3d|cyberpunk|pixel|ve|hoa|tranh|style|phong cach/i.test(normalized)) {
+            intent = { operation: 'style_transfer', label: 'Chuyển phong cách', style: /3d|pixar/.test(normalized) ? 'pixar' : /cyberpunk/.test(normalized) ? 'cyberpunk' : 'anime' };
+          } else if (/vector|svg/i.test(normalized)) {
+            intent = { operation: 'vectorize', label: 'Xuất SVG' };
+          } else if (/mo rong|outpaint|extend/i.test(normalized)) {
+            intent = { operation: 'extend', label: 'Mở rộng ảnh', direction: 'all' };
+          } else {
+            // General / Ambiguous requests ("làm cho đẹp hơn", "chỉnh ảnh", "tối quá", etc.) -> Auto-enhance HDR Clarity
+            intent = { operation: 'enhance', label: 'Tối ưu độ nét & ánh sáng', enhanceType: 'clarity' };
           }
-          const context = this.contextBuilder.build(current, current.currentNodeId);
-          const decision = await this.copilotOrchestrator.plan(text, context, { apiKey: llmKey, provider });
-          if (decision.type === 'chat' || !decision.intent) {
-            reply(decision.replyText || 'Bạn có thể mô tả cụ thể điều muốn chỉnh trên ảnh.');
-            return;
-          }
-          if (!image && decision.intent.operation !== 'generate') {
-            reply('Hãy mở một ảnh bằng nút “Mở ảnh”, rồi gửi lại yêu cầu chỉnh sửa.');
-            return;
-          }
-          await this.runCopilotOperation(sessionId, image, decision.intent.operation, decision.intent, text, undefined, nodeId);
-          return;
         }
-        let localAnswer: string | null = null;
-        try { localAnswer = await LocalChatService.reply(text, current.messages.slice(0, -1)); } catch (error) {
-          console.warn('[PixelPilot] Local chat unavailable:', error);
-        }
-        reply(localAnswer || 'Mình có thể phân tích ảnh và đề xuất chỉnh sửa, hoặc thực hiện tách nền, phóng to, đổi màu, tạo Canny, Lineart, Depth, Mask, mở rộng ảnh và xuất SVG.');
-        return;
       }
 
       if (!image && intent.operation !== 'generate') {
         reply('Hãy mở một ảnh bằng nút “Mở ảnh”, rồi gửi lại yêu cầu chỉnh sửa.');
         return;
       }
-      await this.runCopilotOperation(sessionId, image, intent.operation, intent, text, undefined, nodeId);
+      await this.runCopilotOperation(sessionId, image, intent.operation, intent, text, message.requestId, nodeId);
     } catch (error: any) {
       reply(`Không thực hiện được yêu cầu: ${error?.message || String(error)}`);
+      throw error;
     }
   }
 
@@ -1493,14 +1541,41 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     if (/^\/(remove-bg|nobg|tach-nen|replace-bg|bg|doi-nen|upscale|upscale-4x|canny|lineart|mask|caption|alt|extend|outpaint|anime|pixar|pixel|cyberpunk|sketch|style|vectorize|svg|hdr|enhance|vintage|inpaint)/.test(normalized)) {
       return IntentRouter.parsePrompt(text);
     }
-    if (/doi nen|thay nen|ghep nen|doi phong nen|thay phong nen|replace (the )?background/.test(normalized)) {
-      return { operation: 'replace_bg', label: 'Đổi nền', promptText: text.replace(/^.*?(?:nen|background)\s*(?:thanh|sang|bang|to)?\s*/i, '').trim() || text };
+    if (/(?:thay|doi|ghep|them|dat|tao|chen|long|cai)\s+(?:phong\s+)?nen|(?:replace|change|add|insert|set)\s+(?:the\s+)?background|nen\s+(?:hoang\s+hon|bien|rung|studio|thanh|sang)|cho\s+nen\s+thanh/.test(normalized)) {
+      const promptText = text
+        .replace(/^.*?(?:nen|background|phong)\s*(?:thanh|sang|bang|to|la|cho)?\s*/i, '')
+        .replace(/\s*cho\s+(?:anh|buc\s+anh|hinh)(?:\s+nay)?\s*$/i, '')
+        .trim() || text;
+      return { operation: 'replace_bg', label: 'Đổi/Thêm nền', promptText };
     }
-    if (/tach nen|xoa nen|remove (the )?(background|bg)/.test(normalized)) return { operation: 'remove_background', label: 'Tách nền' };
-    if (/phong to|upscale|tang do phan giai/.test(normalized)) return { operation: 'upscale', factor: /4x|4k/.test(normalized) ? 4 : 2, label: 'Phóng to ảnh' };
-    if (/doi mau|nhuom|chuyen mau/.test(normalized) && /toc|ao|quan|vay|trang phuc|hair|shirt|clothes/.test(normalized)) {
-      const color = /cyan|xanh da troi/.test(normalized) ? 'cyan' : /xanh la|green/.test(normalized) ? 'green' : /xanh|blue/.test(normalized) ? 'blue' : /do|red/.test(normalized) ? 'red' : /vang|yellow/.test(normalized) ? 'yellow' : /tim|purple/.test(normalized) ? 'purple' : /hong|pink/.test(normalized) ? 'pink' : /trang|white/.test(normalized) ? 'white' : /den|black/.test(normalized) ? 'black' : 'cyan';
-      return { operation: 'recolor', label: 'Đổi màu chọn lọc', colorTarget: /toc|hair/.test(normalized) ? 'hair' : 'clothes', targetColor: color };
+    if (/tach nen|xoa nen|xoa phong|tach phong|remove (the )?(background|bg)|cutout/.test(normalized)) return { operation: 'remove_background', label: 'Tách nền' };
+    if (/phong to|upscale|tang do phan giai|tang net|tang do net|tang chi tiet|lam net anh/.test(normalized)) return { operation: 'upscale', factor: /4x|4k/.test(normalized) ? 4 : 2, label: 'Phóng to ảnh' };
+    const isHair = /\b(?:toc|hair)\b/.test(normalized);
+    const isClothes = /\b(?:ao|quan|vay|trang\s*phuc|shirt|clothes|dress|pants)\b/.test(normalized);
+    const hasColorWord = /\b(?:mau|nhuom|doi\s+mau|thay\s+mau)\b/.test(normalized);
+    const matchedColor = /cam|orange/.test(normalized) ? 'orange' :
+      /vang|yellow|blonde/.test(normalized) ? 'yellow' :
+      /do|red/.test(normalized) ? 'red' :
+      /cyan|xanh\s+da\s+troi/.test(normalized) ? 'cyan' :
+      /xanh\s+la|green/.test(normalized) ? 'green' :
+      /xanh|blue/.test(normalized) ? 'blue' :
+      /tim|purple/.test(normalized) ? 'purple' :
+      /hong|pink/.test(normalized) ? 'pink' :
+      /trang|white|bach\s+kim/.test(normalized) ? 'white' :
+      /den|black/.test(normalized) ? 'black' :
+      /nau|brown/.test(normalized) ? 'brown' : null;
+
+    if ((isHair || isClothes || hasColorWord) && matchedColor) {
+      const subject = isHair ? 'hair' : isClothes ? 'clothes' : 'hair';
+      return {
+        operation: 'recolor',
+        label: isHair ? 'Đổi màu tóc' : 'Đổi màu trang phục',
+        colorTarget: subject,
+        targetColor: matchedColor
+      };
+    }
+    if (/(?:doi|thay|chuyen|nhuom|bien)\s+(?:mau\s+)?(?:toc|ao|quan|vay|trang\s+phuc|hair|shirt|clothes)|doi mau|nhuom/.test(normalized)) {
+      return { operation: 'recolor', label: 'Đổi màu chọn lọc', colorTarget: /toc|hair/.test(normalized) ? 'hair' : 'clothes', targetColor: matchedColor || 'cyan' };
     }
     if (/canny|do bien|duong vien|edge detection/.test(normalized)) return { operation: 'canny', label: 'Dò biên Canny' };
     if (/lineart|line art|net ve/.test(normalized)) return { operation: 'lineart', label: 'Nét vẽ Lineart' };
@@ -1524,10 +1599,81 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     const input = operation === 'generate' ? Buffer.alloc(0) : decodeImageInput(this.uriToPathMap.get(image) || image).buffer;
     let result: AIResult;
     const localResult = (buffer: Buffer, model: string): AIResult => ({ success: true, outputImageUri: `data:image/png;base64,${buffer.toString('base64')}`, metrics: { model, latencyMs: 0, costUsd: 0 } });
+    if (requestId) {
+      this.postToWebview({
+        type: 'step.progress',
+        requestId,
+        stage: `Đang thực hiện ${intent?.label || operation}...`,
+        fraction: 0.25,
+        provider: 'ai'
+      });
+    }
     switch (operation) {
       case 'generate': result = await adapter.generateImage(intent.promptText || prompt); break;
-      case 'remove_background': result = await adapter.removeBackground(image); break;
-      case 'replace_bg': result = await adapter.replaceBackground(image, intent.promptText || prompt); break;
+      case 'remove_background': {
+        const apiKey = await this.secretManager.getApiKey();
+        if (apiKey && apiKey.trim().length > 10) {
+          try {
+            await this.policy.requireCloudConsent('Runware', 'Background removal');
+            if (requestId) {
+              this.postToWebview({
+                type: 'step.progress',
+                requestId,
+                stage: 'Đang gửi yêu cầu Cloud AI...',
+                fraction: 0.5,
+                provider: 'runware'
+              });
+            }
+            result = await this.runwareAdapter.removeBackground(image);
+            if (result.success && result.outputImageUri) break;
+          } catch (cloudErr) {
+            console.warn('[PixelPilot] Cloud removeBackground failed, falling back to local adapter:', cloudErr);
+          }
+        }
+        if (requestId) {
+          this.postToWebview({
+            type: 'step.progress',
+            requestId,
+            stage: 'Đang tách nền cục bộ...',
+            fraction: 0.6,
+            provider: 'sharp'
+          });
+        }
+        result = await adapter.removeBackground(image);
+        break;
+      }
+      case 'replace_bg': {
+        const apiKey = await this.secretManager.getApiKey();
+        if (apiKey && apiKey.trim().length > 10) {
+          try {
+            await this.policy.requireCloudConsent('Runware', 'Replace background');
+            if (requestId) {
+              this.postToWebview({
+                type: 'step.progress',
+                requestId,
+                stage: 'Đang gửi yêu cầu Cloud AI...',
+                fraction: 0.5,
+                provider: 'runware'
+              });
+            }
+            result = await this.runwareAdapter.replaceBackground(image, intent.promptText || prompt);
+            if (result.success && result.outputImageUri) break;
+          } catch (cloudErr) {
+            console.warn('[PixelPilot] Cloud replaceBackground failed, falling back to local adapter:', cloudErr);
+          }
+        }
+        if (requestId) {
+          this.postToWebview({
+            type: 'step.progress',
+            requestId,
+            stage: 'Đang tách chủ thể và tạo nền mới...',
+            fraction: 0.5,
+            provider: 'ai'
+          });
+        }
+        result = await adapter.replaceBackground(image, intent.promptText || prompt);
+        break;
+      }
       case 'upscale': result = await adapter.upscale(image, intent.factor === 4 ? 4 : 2); break;
       case 'mask': result = await adapter.extractMask(image); break;
       case 'canny': result = await adapter.detectEdges(image, 'canny'); break;
@@ -1569,6 +1715,15 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     if (operation === 'vectorize' && result.textResult) {
       const svgPath = await this.assetStorage.saveToCache(Buffer.from(result.textResult), 'svg');
       this.sessionManager.addMessage(sessionId, { sender: 'assistant', text: `Đã lưu SVG: ${svgPath}`, nodeId: committedNode.nodeId });
+    }
+    if (requestId) {
+      this.postToWebview({
+        type: 'step.progress',
+        requestId,
+        stage: 'Đã hoàn tất thao tác ảnh.',
+        fraction: 1.0,
+        provider: 'ai'
+      });
     }
     this.broadcastSessionState();
     return committedNode.nodeId;
@@ -2026,6 +2181,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     if (this._view) {
       this._view.webview.postMessage(message);
     }
+    this.postMessageEmitter.fire(message);
   }
 
   /**

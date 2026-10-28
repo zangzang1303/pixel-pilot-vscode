@@ -105,3 +105,14 @@ test('canvas edit and export path survive reopening the session store', async ()
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('canvas edit records provider provenance in node metrics', async () => {
+  const sessions = new SessionManager();
+  sessions.createSession('source.png');
+  const service = new CanvasActionCommitService(sessions, new SessionCommitService(sessions, {
+    saveToCache: async () => 'cached-result.png'
+  }));
+  const result = await service.commit(service.capture(), 'removeBackground', image, { provider: 'comfyui' });
+  assert.equal(result.metrics.model, 'Canvas action (comfyui)');
+});
+

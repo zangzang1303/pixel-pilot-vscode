@@ -9,6 +9,8 @@ import {
 import { PromptInput } from './components/PromptInput';
 import { Canvas } from './components/Canvas';
 import { CopilotChat } from './components/CopilotChat';
+import { ConfirmationDialog, ConfirmationDetails } from './components/copilot/ConfirmationDialog';
+import { CompareView } from './components/copilot/CompareView';
 import { vscode } from './utils/vscode';
 import { initialRunState, runReducer } from './state/runReducer';
 
@@ -27,10 +29,12 @@ interface ToastState {
   message: string;
 }
 
-interface ConfirmationState {
+interface ConfirmationState extends ConfirmationDetails {
   token: string;
   provider: string;
   purpose: string;
+  costEstimate?: string;
+  isCloud?: boolean;
 }
 
 interface ChatSessionSummary {
@@ -109,6 +113,12 @@ export const App: React.FC = () => {
   const [apiKeyMasked, setApiKeyMasked] = useState<string>('');
   const [toast, setToast] = useState<ToastState | null>(null);
   const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
+  const [previewState, setPreviewState] = useState<{
+    previewUrl: string;
+    originalUrl: string;
+    operationLabel?: string;
+    planId?: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!toast) return;
@@ -262,8 +272,35 @@ export const App: React.FC = () => {
           setIsChatThinking(false);
           break;
 
+        case 'copilotProgress':
+        case 'step.progress':
+          dispatchChatRun({
+            type: 'progress',
+            requestId: message.requestId,
+            stage: message.stage || message.status || 'Đang xử lý...',
+            fraction: typeof message.fraction === 'number' ? message.fraction : undefined,
+            provider: message.provider
+          });
+          break;
+
+        case 'previewReady':
+        case 'plan.preview_ready':
+          if (message.previewUrl || message.result?.outputImageUri) {
+            setPreviewState({
+              previewUrl: message.previewUrl || message.result?.outputImageUri,
+              originalUrl: currentImageUrl || message.originalUrl || '',
+              operationLabel: message.operationLabel || message.toolName || 'Chỉnh sửa ảnh',
+              planId: message.planId
+            });
+          }
+          break;
+
         case 'copilotCompleted':
-          dispatchChatRun({ type: 'succeed', requestId: message.requestId });
+          dispatchChatRun({
+            type: 'succeed',
+            requestId: message.requestId,
+            metrics: message.metrics
+          });
           setIsChatThinking(false);
           break;
 
@@ -428,7 +465,30 @@ export const App: React.FC = () => {
     }
   };
 
-  const canvasView = (
+  const canvasView = previewState ? (
+    <CompareView
+      originalUrl={previewState.originalUrl}
+      previewUrl={previewState.previewUrl}
+      operationLabel={previewState.operationLabel}
+      onApply={() => {
+        setCurrentImageUrl(previewState.previewUrl);
+        vscode.postMessage({
+          command: 'plan.apply',
+          planId: previewState.planId,
+          previewUrl: previewState.previewUrl
+        });
+        setPreviewState(null);
+        setToast({ kind: 'success', message: 'Đã áp dụng kết quả chỉnh sửa vào Canvas.' });
+      }}
+      onDiscard={() => {
+        vscode.postMessage({
+          command: 'plan.discard',
+          planId: previewState.planId
+        });
+        setPreviewState(null);
+      }}
+    />
+  ) : (
     <Canvas
       imageUrl={currentImageUrl}
       isGenerating={isGenerating || isProcessingAction}
@@ -485,7 +545,7 @@ export const App: React.FC = () => {
           <div className={`grid h-full min-h-0 min-w-0 grid-cols-1 overflow-hidden ${currentImageUrl ? 'xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.85fr)]' : ''}`}>
             <CopilotChat
               messages={chatMessages}
-              isThinking={isChatThinking || chatRun.phase === 'running'}
+              isThinking={isChatThinking || chatRun.phase === 'executing' || chatRun.phase === 'processing'}
               runState={chatRun}
               hasImage={Boolean(currentImageUrl)}
               currentImageUrl={currentImageUrl}
@@ -501,6 +561,12 @@ export const App: React.FC = () => {
               onNavigate={setActiveTab}
               hasApiKey={hasApiKey}
               onConfigureApiKey={() => vscode.postMessage({ command: 'openApiKeyPrompt' })}
+              onCancelRun={(requestId) =>
+                vscode.postMessage({
+                  command: 'copilotRequest',
+                  request: { command: 'cancel', targetRequestId: requestId }
+                })
+              }
             />
             {currentImageUrl && <div className="hidden min-w-0 border-l border-slate-800 xl:flex">{canvasView}</div>}
           </div>
@@ -527,14 +593,13 @@ export const App: React.FC = () => {
         </div>
       )}
       {confirmation && (
-        <div role="dialog" aria-modal="true" aria-labelledby="cloud-confirmation-title" className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-violet-400/30 bg-slate-900 p-5 shadow-2xl">
-            <h2 id="cloud-confirmation-title" className="text-base font-semibold text-white">Confirm cloud operation</h2>
-            <p className="mt-3 text-sm leading-6 text-slate-300"><strong>{confirmation.purpose}</strong> will send the selected image or prompt to <strong>{confirmation.provider}</strong>.</p>
-            <p className="mt-2 text-xs leading-5 text-slate-400">The request is one-time. Declining keeps the image and prompt on this machine.</p>
-            <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => { vscode.postMessage({ command: 'confirmationResponse', token: confirmation.token, approved: false }); setConfirmation(null); }} className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800">Cancel</button><button type="button" autoFocus onClick={() => { vscode.postMessage({ command: 'confirmationResponse', token: confirmation.token, approved: true }); setConfirmation(null); }} className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white hover:bg-violet-500">Continue</button></div>
-          </div>
-        </div>
+        <ConfirmationDialog
+          details={confirmation}
+          onRespond={(approved) => {
+            vscode.postMessage({ command: 'confirmationResponse', token: confirmation.token, approved });
+            setConfirmation(null);
+          }}
+        />
       )}
     </div>
   );

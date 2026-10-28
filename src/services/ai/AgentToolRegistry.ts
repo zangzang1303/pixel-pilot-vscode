@@ -19,6 +19,9 @@ export interface ToolDefinition {
     required?: string[];
   };
   mapToIntent: (args: Record<string, any>) => ParsedIntent;
+  executor?: (context: any, args: Record<string, any>) => Promise<any>;
+  capability?: 'sharp' | 'comfyui' | 'invokeai' | 'runware';
+  unavailableReason?: string;
 }
 
 export interface ValidatedToolCall {
@@ -363,10 +366,144 @@ export class AgentToolRegistry {
         };
       }
     });
+
+    // 10. Tool Image Analyze (Contract 1)
+    this.registerInternal({
+      name: 'image.analyze',
+      displayName: 'Phân tích đo lường hình ảnh',
+      category: 'core',
+      description: 'Phân tích số đo độ sáng, tương phản và đề xuất cải thiện hình ảnh.',
+      parameters: {
+        type: 'object',
+        properties: {
+          imageId: { type: 'string', description: 'ID hoặc URI ảnh cần phân tích' },
+          includeCaption: { type: 'boolean', description: 'Có sinh caption mô tả không' }
+        },
+        required: ['imageId']
+      },
+      mapToIntent: () => ({
+        operation: 'preprocess',
+        label: 'Phân tích số đo ảnh'
+      })
+    });
+
+    // 11. Tool Image Generate (Contract 5)
+    this.registerInternal({
+      name: 'image.generate',
+      displayName: 'Sinh ảnh từ văn bản',
+      category: 'core',
+      description: 'Sinh hình ảnh mới từ prompt mô tả.',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: { type: 'string', description: 'Mô tả hình ảnh' },
+          width: { type: 'number', description: 'Chiều rộng ảnh' },
+          height: { type: 'number', description: 'Chiều cao ảnh' },
+          negativePrompt: { type: 'string', description: 'Prompt loại trừ' }
+        },
+        required: ['prompt']
+      },
+      mapToIntent: (args) => ({
+        operation: 'generate',
+        label: `Sinh ảnh: "${args.prompt}"`,
+        promptText: args.prompt
+      })
+    });
+
+    // 12. Tool Image Remove Background (Contract 2)
+    this.registerInternal({
+      name: 'image.remove_background',
+      displayName: 'Tách nền hình ảnh',
+      category: 'core',
+      description: 'Tách nền đối tượng chính với chất lượng model hoặc basic.',
+      parameters: {
+        type: 'object',
+        properties: {
+          imageId: { type: 'string', description: 'ID hoặc URI ảnh nguồn' },
+          quality: { type: 'string', enum: ['model', 'basic'], description: 'Chất lượng tách nền' },
+          preserveDetails: { type: 'boolean', description: 'Bảo toàn chi tiết viền' }
+        },
+        required: ['imageId']
+      },
+      mapToIntent: (args) => ({
+        operation: 'remove_background',
+        label: `Tách nền ảnh (${args.quality || 'basic'})`
+      })
+    });
+
+    // 13. Tool Image Recolor (Contract 3)
+    this.registerInternal({
+      name: 'image.recolor',
+      displayName: 'Đổi màu đối tượng',
+      category: 'core',
+      description: 'Đổi màu tóc, trang phục hoặc nền với bảo toàn chi tiết.',
+      parameters: {
+        type: 'object',
+        properties: {
+          imageId: { type: 'string', description: 'ID hoặc URI ảnh nguồn' },
+          target: { type: 'string', enum: ['hair', 'clothes', 'background'], description: 'Đối tượng cần đổi màu' },
+          color: { type: 'string', description: 'Màu mục tiêu' }
+        },
+        required: ['imageId', 'target', 'color']
+      },
+      mapToIntent: (args) => ({
+        operation: 'recolor',
+        label: `Đổi màu ${args.target} sang ${args.color}`,
+        colorTarget: args.target,
+        targetColor: args.color
+      })
+    });
+
+    // 14. Tool Image Inpaint (Contract 4)
+    this.registerInternal({
+      name: 'image.inpaint',
+      displayName: 'Vẽ chèn / Chỉnh sửa theo vùng mask',
+      category: 'core',
+      description: 'Chỉnh sửa chi tiết trong vùng mask theo prompt mô tả.',
+      parameters: {
+        type: 'object',
+        properties: {
+          imageId: { type: 'string', description: 'ID hoặc URI ảnh nguồn' },
+          maskId: { type: 'string', description: 'ID hoặc URI mask đánh dấu' },
+          prompt: { type: 'string', description: 'Mô tả nội dung cần sửa' },
+          seed: { type: 'number', description: 'Seed ngẫu nhiên' }
+        },
+        required: ['imageId', 'maskId', 'prompt']
+      },
+      mapToIntent: (args) => ({
+        operation: 'inpaint',
+        label: `Chỉnh sửa vùng chọn: "${args.prompt}"`,
+        promptText: args.prompt
+      })
+    });
+  }
+
+  private static registerInternal(tool: ToolDefinition): void {
+    this.tools.set(tool.name, tool);
   }
 
   public static register(tool: ToolDefinition): void {
+    if (this.tools.has(tool.name)) {
+      throw new Error(`Tool "${tool.name}" is already registered. Duplicate tool names are not permitted.`);
+    }
     this.tools.set(tool.name, tool);
+  }
+
+  public static registerExecutor(name: string, executor: (context: any, args: Record<string, any>) => Promise<any>): void {
+    const tool = this.tools.get(name);
+    if (!tool) throw new Error(`Cannot register executor for unknown tool: ${name}`);
+    tool.executor = executor;
+  }
+
+  public static async execute(name: string, rawArgs: unknown, context?: any): Promise<any> {
+    const validated = this.validateToolCall(name, rawArgs);
+    if (validated.tool.executor) {
+      return await validated.tool.executor(context, validated.args);
+    }
+    if (validated.tool.unavailableReason) {
+      throw new Error(`Tool ${name} is unavailable: ${validated.tool.unavailableReason}`);
+    }
+    throw new Error(`Tool ${name} has no registered executor.`);
   }
 
   public static getTool(name: string): ToolDefinition | undefined {

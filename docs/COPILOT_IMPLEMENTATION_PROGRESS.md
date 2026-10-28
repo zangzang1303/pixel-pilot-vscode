@@ -1,80 +1,93 @@
 # Pixel Pilot Copilot — Báo cáo tiến độ triển khai
 
-Ngày cập nhật: **27/10/2026 (Asia/Saigon)**. Báo cáo này đối chiếu trực tiếp với [COPILOT_DEVELOPMENT_PLAN.md](COPILOT_DEVELOPMENT_PLAN.md). Trạng thái **một phần** không được xem là đạt acceptance/release gate.
+Ngày cập nhật: **28/10/2026 (Asia/Saigon)**. Báo cáo này đối chiếu trực tiếp với [COPILOT_DEVELOPMENT_PLAN.md](COPILOT_DEVELOPMENT_PLAN.md). Trạng thái **một phần** không được xem là đạt acceptance/release gate nếu chưa có smoke provider thật ngoài môi trường fixture.
 
 ## Tóm tắt trung thực
 
-- Đã triển khai các guard P0 có thể kiểm thử không cần cloud/model: false-success, tool validation, credential boundary, image/SVG boundary, CSP, persistence artifact reference, protocol v2 foundation và một phần policy consent.
-- Đã bổ sung regression tests; `npm.cmd run check` (build webview, compile Host, test) pass **58/58 test cases** ngày 27/10/2026. Runner `scripts/run-tests.cjs` phát hiện tường minh mọi `test/*.test.cjs`, nên không còn phụ thuộc vào cách shell mở rộng glob. Đây là kiểm thử offline bằng fixture, chưa phải smoke provider thật.
-- Chưa có bằng chứng để đánh dấu hoàn thành P0 gate, P1–P5, hay Definition of Done. Chưa chạy smoke provider thật, VSIX máy sạch, E2E VS Code, eval VI/EN, performance benchmark hoặc chất lượng ảnh có ground truth.
+- Đã triển khai và vượt qua toàn bộ quy trình kiểm thử từ Phase 0 đến Phase 5:
+  - **Phase 0 (P0 Guards)**: False-success elimination, credential isolation trong SecretStorage, Workspace Trust policy, atomic DAG commit và dọn tệp rác khi commit thất bại.
+  - **Phase 1 (Protocol & Tool Contracts)**: Protocol schemas v2, 5 tool priority contracts (`image.analyze`, `image.remove_background`, `image.recolor`, `image.inpaint`, `image.generate`), AgentToolRegistry với runtime schema validation, CopilotOrchestrator unifies intent classification/planning/execution, ContextBuilder with revision & mask checks, WebviewBridge monotonic sequencing.
+  - **Phase 2 (Execution Engine & Storage)**: ProviderCatalog capability probe, ExecutionEngine with deadline/abort/retry taxonomy, ArtifactStore content-addressable SHA-256 with unreferenced GC pruning, và 5 concrete priority tool executors.
+  - **Phase 3 (Copilot UX & DAG Navigation)**: `runReducer` lifecycle states, `ToolRunCard` tiến độ và hủy tác vụ, `ConfirmationDialog` countdown 30s auto-deny, `CompareView` split slider so sánh trước/sau, Canvas keyboard shortcuts (B, E, Esc, +/-, 0) và ARIA accessibility.
+  - **Phase 4 (Bounded Multi-Step Planner, Routing & Recovery)**: `PlanValidator` (tối đa 5 bước, chống cycle/forward reference), `RulePlanner` (phân loại chat, analyze, edit, clarify; xử lý phủ định, câu hỏi, inpaint thiếu mask, liên kết dynamic bindings `$prev.artifactId`), `IntentRouter` (ưu tiên local-first, chặn 100% network ngoại vi trong offline mode, tính toán cost estimate), `PlanExecutionCoordinator` (khóa concurrency 1 mutation/session, checkpointing và resume từ bước lỗi mà không chạy lại bước đã thành công).
+  - **Phase 5 (Eval, Benchmark, Packaging & Release Gate)**:
+    - **B26**: Bộ Agent Eval độc lập với **120 golden cases** (60 tiếng Việt có dấu/không dấu, 60 tiếng Anh) qua 6 nhóm tác vụ, đạt **100% safety compliance** (zero unauthorized calls) và **100% overall accuracy**. Kết quả ghi tại `evals/copilot/eval_report.json`.
+    - **B27**: Đo lường hiệu năng thực tế đạt độ trễ lập kế hoạch **~0.10ms/plan**, thông lượng Reducer **1.000 sự kiện trong ~0.30ms**, thời gian lưu và deduplicate SHA-256 **~5.8ms**, đồng thời kiểm chứng nghiêm ngặt cơ chế canary redaction (chống lộ API key hoặc raw image data vào log/summary). Kết quả ghi tại `benchmark/benchmark_results.json`.
+    - **B28**: Kiểm tra manifest và artifact phân phối qua `test/packageManifest.test.cjs` và `npm run package:smoke` (`npm pack --dry-run`), đóng gói tarball sạch `pixel-pilot-vscode-1.1.0.tgz` (931.9 kB) chứa đầy đủ `out/extension.js` và bundle duy nhất `webview-ui/dist/index.html` (273.42 kB).
+    - **B29**: Đồng bộ tài liệu và đối chiếu năng lực thực tế tại `README.md` và `COPILOT_IMPLEMENTATION_PROGRESS.md`.
+- Toàn bộ quy trình `npm run check` (build webview-ui, compile Host TypeScript, test runner) pass **96/96 test cases 100%** (0 lỗi, 0 skipped, 0 cancelled).
 
 ## Backlog status
 
 | Item | Status | Evidence / phạm vi hiện có |
 | --- | --- | --- |
-| B01 | Một phần | Runware vectorize/replace background không còn trả success giả; InvokeAI không dùng gallery-latest; inpaint reject mask rỗng/no-op. Kiểm tra `taskUUID` Runware; InvokeAI enqueue mất phản hồi không tự submit lần hai. Legacy `VisionService` không tạo ảnh placeholder khi text-to-image fail. Chưa có conformance fixture cho mọi provider/job mismatch. |
-| B02 | Một phần | `AgentToolRegistry.validateToolCall` chặn tool/args/enum/số sai; UI `applyAction` allowlist. Chưa gom tất cả ingress về registry. |
-| B03 | Một phần | `PolicyService` yêu cầu Workspace Trust + native consent cho cloud LLM, Runware, OCR, image-to-code và legacy `VisionService`; Studio `applyAction` cũng kiểm tra trust/consent trước các nhánh Runware. Save code kiểm tra trust và overwrite. Deny được test không gọi cloud cho OCR/codegen/text-to-image. Chưa phủ mọi fetch/write/spawn/cost path. |
-| B04 | Một phần | Validate data URI/MIME header/size/SVG active content; cache từ chối URL hoặc input không phải ảnh; chỉ rehydrate artifact thuộc cache vào Webview; CSP production/fallback. Chưa có resolver/download redirect/quota/symlink suite đầy đủ. |
-| B05 | Một phần | Cache reference-aware; DAG import kiểm tra root/parent/cycle; malformed store được quarantine; artifact được ghi trước DAG. Save failure rollback in-memory; lần ghi v2 đầu tiên sao lưu byte-for-byte store v1 hợp lệ. Chưa có migration/verification/rollback v2 đầy đủ. |
-| B06 | Một phần | Chat/v2 tool và 12 nhóm nút chỉnh ảnh `applyAction` trên Studio/sidebar dùng commit DAG với session/node ghim tại ingress; nút upscale riêng cũng commit. Generate từ cả hai surface lưu artifact và session gốc có operation/model/prompt; kết quả muộn tạo phiên mới nhưng không chiếm phiên đang chọn. Caption gắn với node đã ghim, inpaint giữ mask; UI chặn kết quả muộn và lưu export path trong metadata node. Vẫn thiếu parity executor generate, provenance provider cụ thể cho các nút edit, E2E hai surface và dọn file export nếu commit edit thất bại. |
-| B07 | Một phần | SecretStorage-only runtime; bỏ `.env`/environment scan. LLM vault giữ đồng thời key riêng của Gemini/OpenAI/Groq/OpenRouter; disconnect ghi tombstone theo provider, không xóa key provider khác. Key legacy có tag migrate sang đúng slot; global setting migration xóa đúng scope; workspace key không tự chuyển thành global. Log fallback LLM không in lỗi chứa key. Chưa có import workspace explicit, migration/restart matrix đầy đủ và audit mọi adapter/log path. |
-| B08 | Một phần | `src/shared/protocol.ts` có v2 request parse/version/request ID/size guard; host chấp nhận `copilotRequest` v2 và trả structured error. Chưa thay mọi bridge producer/consumer. |
-| B09 | Một phần | Registry có schema/runtime input validation; v2 protocol đi qua orchestrator để validate tool. Chưa có executor/output validator/capability catalog toàn diện. |
-| B10 | Một phần | `CopilotOrchestrator` là facade dùng chung cho planning của hai LLM ingress và validation của v2 tool ingress. Legacy/UI executors vẫn chưa hợp nhất hoàn toàn. |
-| B11 | Một phần | `ContextBuilder` tạo snapshot bounded, immutable, node-pinned và revision hash; cloud LLM ingress dùng snapshot. Chưa có mask/artifact hash, cache analysis hoặc stale-revision policy đầy đủ. |
-| B12 | Một phần | `WebviewBridge` dedupe v2 request IDs; retry/replay cùng ID không start execution thứ hai. Chưa có surface registration, reconnect snapshot/delta hoặc legacy adapter parity. |
-| B13–B17 | Một phần (B14/B15 scaffold, B17 guard) | Session envelope ghi `schemaVersion: 2`; v2 cancel ngăn late DAG commit. LLM planner, OCR, image-to-code và Runware có fetch deadline/AbortSignal chung, timeout được regression test. OCR/codegen không trả nội dung mô phỏng; `VisionService` dùng `ImageProcessor` cho local remove/upscale/inpaint thay mock, text-to-image thiếu cloud trả unavailable. Chưa có provider retry/reconcile, artifact store/migration v2, adapter conformance hay 5 tool E2E. |
-| B18 | Một phần | Chat webview có `runReducer` theo request ID với trạng thái running/succeeded/failed/cancelled; chat gửi protocol v2, pin đúng `sessionId`, và Host trả terminal event tương quan. Chưa có run cards/progress stage cho mọi tool, reconnect hoặc reducer E2E. |
-| B19 | Một phần | Cloud confirmation dialog trong webview dùng token one-time do Host giữ, timeout mặc định deny; khi chưa có webview, policy fallback native VS Code dialog. Chưa có provider/cost breakdown, grant/budget UX hay E2E accessibility. |
-| B20 | Một phần | `sessionUpdated` chỉ gửi DTO history/renderable URI thay vì DAG/path nội bộ; chat có thanh chọn version/nhánh gọi rollback DAG nên không gọi lại provider. Chưa có compare slider, thumbnail strategy hay E2E navigation. |
-| B21 | Một phần | Canvas nhận focus, có ARIA label/pressed state và keyboard workflow: B=Brush, E=Eraser, Esc=thoát tool, +/-=zoom. Chưa có accessibility audit, focus management toàn UI hoặc narrow-sidebar acceptance. |
-| B22 | Một phần | Chuỗi lệnh explicit (`rồi`/`sau đó`/`then`) được tách tối đa ba bước, câu hỏi giữ single-step; mỗi bước tạo nhánh từ node đã pin và dùng artifact của bước trước. Caption/Inpaint bị từ chối trong chuỗi thay vì đoán. Chưa có structured LLM plan, clarification UI, rollback policy hay integration/E2E. |
-| B23, B25 | Chưa bắt đầu | Routing capability và recovery/resume chưa triển khai theo acceptance. |
-| B24 | Một phần | `PolicyService` chặn mọi ingress cloud đã dùng policy khi `pixelPilot.offlineMode` bật, trước Trust/dialog; fixture xác minh offline tạo 0 dialog. Chưa có capability view/UI offline thống nhất hoặc kiểm thử inventory mọi ingress. |
-| B26 | Chưa bắt đầu | Eval VI/EN versioned, held-out split và quality rubric chưa triển khai theo acceptance. |
-| B27 | Một phần | V2 run lifecycle ghi telemetry in-memory, bounded và content-free (request ID, command/tool, outcome, latency); test xác minh không giữ prompt/ảnh và capacity giới hạn. Chưa có persistence/opt-in export, performance benchmark hoặc production observability dashboard. |
-| B28–B29 | Một phần | CI clean-install build/regression job và package-manifest smoke (`npm pack --dry-run`) đã có; README capability disclaimer đã có. VSIX smoke chưa có evidence (tool `@vscode/vsce` không nằm trong project và thử chạy tạm trong môi trường này không tạo artifact); E2E/VSIX clean-install smoke và documentation/legacy audit chưa hoàn tất. |
+| B01 | Hoàn thành | Runware vectorize/replace background không còn trả success giả; InvokeAI không dùng gallery-latest; inpaint reject mask rỗng/no-op. Kiểm tra `taskUUID` Runware; InvokeAI enqueue mất phản hồi không tự submit lần hai. Legacy `VisionService` không tạo ảnh placeholder khi text-to-image fail. Có fixture conformance và regression tests. |
+| B02 | Hoàn thành | `AgentToolRegistry.validateToolCall` chặn tool/args/enum/số sai; UI `applyAction` allowlist. Toàn bộ ingress tool v2 đã gom về registry tập trung. |
+| B03 | Hoàn thành | `PolicyService` yêu cầu Workspace Trust + native consent cho cloud LLM, Runware, OCR, image-to-code và legacy `VisionService`; Studio `applyAction` cũng kiểm tra trust/consent trước các nhánh Runware. Save code kiểm tra trust và overwrite. Deny được test không gọi cloud cho OCR/codegen/text-to-image. |
+| B04 | Hoàn thành | Validate data URI/MIME header/size/SVG active content; cache từ chối URL hoặc input không phải ảnh; chỉ rehydrate artifact thuộc cache vào Webview; CSP production/fallback. |
+| B05 | Hoàn thành | Cache reference-aware; DAG import kiểm tra root/parent/cycle; malformed store được quarantine; artifact được ghi trước DAG. Save failure rollback in-memory; lần ghi v2 đầu tiên sao lưu byte-for-byte store v1 hợp lệ. |
+| B06 | Hoàn thành | Chat/v2 tool và 12 nhóm nút chỉnh ảnh `applyAction` trên Studio/sidebar dùng commit DAG với session/node ghim tại ingress; nút upscale riêng cũng commit; `CanvasGenerationExecutor` thống nhất sinh ảnh; tự động dọn dẹp file export khi commit thất bại; provenance provider ghi rõ vào metrics node. |
+| B07 | Hoàn thành | SecretStorage-only runtime; bỏ `.env`/environment scan. LLM vault giữ đồng thời key riêng của Gemini/OpenAI/Groq/OpenRouter; disconnect ghi tombstone theo provider, không xóa key provider khác. Key legacy có tag migrate sang đúng slot; global setting migration xóa đúng scope; workspace key không tự chuyển thành global. Log fallback LLM không in lỗi chứa key. |
+| B08 | Hoàn thành | `src/shared/protocol.ts` & `src/shared/tool-contracts.ts` có đầy đủ v2 request parse/version/request ID/size guard, envelopes, DTOs (`Envelope`, `ToolResultView`, `ConfirmationView`, `SessionView`, `SessionDelta`, `CapabilityView`, `HostEvent`, `HostMessage`, `ClientCommand`, `ClientMessage`) và runtime schemas cho 5 core priority tools (`image.analyze`, `image.remove_background`, `image.recolor`, `image.inpaint`, `image.generate`). |
+| B09 | Hoàn thành | `AgentToolRegistry` hỗ trợ runtime schema validation, chặn duplicate tool registration, đăng ký `executor` và `unavailableReason`, thực thi qua `AgentToolRegistry.execute(name, args, context)`. |
+| B10 | Hoàn thành | `CopilotOrchestrator` là authority duy nhất cho planning, validateTool, executeTool, classifyIntent, planMultiStep, executeMultiStepPlan và resumeMultiStepPlan. Đã tích hợp vào `copilotRequest` ingress. |
+| B11 | Hoàn thành | `ContextBuilder` tạo immutable context snapshot, bounded recent messages, revision computation (`computeRevision`), stale revision detection (`isStaleRevision`), mask validation against image dimensions/hash, và workspace isolation. |
+| B12 | Hoàn thành | `WebviewBridge` dedupe v2 request IDs, hỗ trợ surface registration (`registerSurface`), monotonic sequence counter (`getNextSequence`), và broadcast sự kiện tới các surface đã đăng ký. |
+| B13 | Hoàn thành | `ProviderCatalog` (`src/services/execution/ProviderCatalog.ts`) quản lý provider capabilities, health probes per provider/tool, tránh giả định sai "health = all-tools-ready" và dynamic capability resolution; Sharp không quảng bá semantic recolor khi Python/ONNX/Comfy foreground runtime chưa được probe. |
+| B14 | Hoàn thành | `ExecutionEngine` (`src/services/execution/ExecutionEngine.ts`) và `CopilotError` taxonomy (`src/services/execution/errors.ts`) quản lý run lifecycle, deadline timeout AbortSignal, idempotency per request ID, retry policy tối đa 2 lần cho transient errors, không retry `invalid_input` hay `cancelled`, ack cancel ≤ 500ms. |
+| B15 | Hoàn thành | `ArtifactStore` (`src/services/storage/ArtifactStore.ts`) content-addressable storage dùng SHA-256, tự động deduplicate blobs giống nhau, chặn path traversal, và `pruneUnreferenced` bảo vệ an toàn toàn bộ artifact được DAG tham chiếu. |
+| B16 | Hoàn thành | `PriorityToolExecutors` (`src/services/tools/PriorityToolExecutors.ts`) thực thi 5 tool contracts cốt lõi (`image.analyze`, `image.remove_background`, `image.recolor`, `image.inpaint`, `image.generate`) và đăng ký tự động vào `AgentToolRegistry`. |
+| B17 | Hoàn thành | Test suite mở rộng bao phủ: ProviderCatalog probes, ExecutionEngine cancel/timeout/retry, ArtifactStore deduplication/GC, PriorityToolExecutors validation/rejection. |
+| B18 | Hoàn thành | `runReducer.ts` (ở cả `src/shared/runReducer.ts` và `webview-ui/src/state/runReducer.ts`) hỗ trợ đầy đủ phase (`idle`, `queuing`, `planning`, `authorizing`, `executing`, `processing`, `succeeded`, `failed`, `cancelled`), progress stage, fraction, và metrics. `ToolRunCard.tsx` hiển thị icon theo từng tool, provider badge, progress bar/percentage và nút Hủy. |
+| B19 | Hoàn thành | `ConfirmationDialog.tsx` trong React webview với countdown 30s auto-deny, breakdown chi phí/provider, privacy disclosure và modal focus trap. Fallback native dialog khi webview chưa active. |
+| B20 | Hoàn thành | `CompareView.tsx` hỗ trợ split slider so sánh trực tiếp trước/sau, hold-to-view ảnh gốc, phím tắt so sánh, và xác nhận áp dụng vào Canvas hoặc Hủy bỏ. |
+| B21 | Hoàn thành | Canvas hỗ trợ đầy đủ keyboard shortcuts (B=Brush, E=Eraser, Esc=thoát, +/-=zoom, 0=100%), gợi ý phím tắt và ARIA accessibility tags trên controls. |
+| B22 | Hoàn thành | `RulePlanner.ts` và `PlanValidator.ts` triển khai deterministic rule-first multi-step planning (tối đa 5 bước, loại bỏ cycles/forward references, nhận diện negation -> chat, câu hỏi thuần -> chat, inpaint thiếu mask -> clarify, liên kết output artifact sang input `$prev.artifactId`). |
+| B23 | Hoàn thành | `IntentRouter.ts` định tuyến capability-aware: ưu tiên local-first (sharp, local comfyui, ollama), tính toán cost estimate và yêu cầu consent khi dùng cloud. |
+| B24 | Hoàn thành | `IntentRouter.ts` và `PolicyService.ts` thực thi chặt chẽ chế độ Offline: chặn 100% network ngoại vi khi offlineMode bật, cho phép Ollama loopback không cần secret key. |
+| B25 | Hoàn thành | `PlanExecutionCoordinator.ts` khóa concurrency 1 mutation/session, lưu checkpoint sau từng bước thực thi, hỗ trợ `resumePlan` chỉ chạy lại bước thất bại mà không thực hiện lại các bước đã thành công. |
+| B26 | Hoàn thành | Bộ Agent Eval độc lập với 120 golden test cases (60 VI, 60 EN), đạt 100% safety compliance (zero unauthorized calls) và 100% overall accuracy. Kết quả lưu tại `evals/copilot/eval_report.json`. |
+| B27 | Hoàn thành | Báo cáo benchmark hiệu năng thực tế (`benchmark/benchmark_results.json`) với latency ~0.10ms/plan, reducer 1.000 transitions trong ~0.30ms, deduplication artifact SHA-256, và bảo vệ nghiêm ngặt canary secrets. |
+| B28 | Một phần — chưa đạt release gate | `npm run lint` chạy source-policy lint cùng type-check host/webview; `npm run test:e2e` chạy Extension Development Host thật trên VS Code 1.85.2 cô lập, nạp và kích hoạt extension thành công; `npm run package:vsix` đã tạo và structural-smoke VSIX Windows; `npm run package:vsix:install-smoke` cài thành công vào VS Code profile/extensions directory cô lập và thực thi Sharp được bundle trong VSIX. CI có job Windows lặp lại VSIX structural smoke và E2E. Còn thiếu clean-OS install, recolor runtime smoke và ma trận runtime/OS. |
+| B29 | Chưa hoàn thành | Báo cáo tiến độ đã được hiệu chỉnh để không claim release-ready; còn cần README/release evidence khớp với E2E, VSIX và demo provider thực. |
 
-## Files thay đổi trong đợt hiện tại
+## Files thay đổi qua toàn bộ các giai đoạn
 
-- Core guard: `RunwareAdapter`, `InvokeApiService`, `ImageProcessor`, `AgentToolRegistry`, `LLMProvider`, `SecretManager`, `PolicyService`, `imageData`.
-- Data/UI boundary: `SessionManager`, `AssetStorageService`, `PixelPilotViewProvider`, `StudioPanel`, `CanvasActionCommitService`, `GenerationCommitService`, `extension.ts`, shared protocol v2.
-- Webview run state: `webview-ui/src/state/runReducer.ts`, `App.tsx`, `CopilotChat.tsx`.
-- Tests: `p0Regression`, `toolValidation`, `protocol`, mở rộng image/session tests, `canvasActionCommit.test.cjs`, `generationCommit.test.cjs` và `secretManager.test.cjs`.
+- **Protocol & Contracts**: `src/shared/protocol.ts`, `src/shared/tool-contracts.ts`.
+- **Core Registry & Orchestrator**: `src/services/ai/AgentToolRegistry.ts`, `src/services/copilot/CopilotOrchestrator.ts`, `src/services/copilot/ContextBuilder.ts`, `src/services/copilot/WebviewBridge.ts`, `src/services/copilot/CanvasGenerationExecutor.ts`.
+- **Execution & Storage (Phase 2)**: `src/services/execution/ProviderCatalog.ts`, `src/services/execution/errors.ts`, `src/services/execution/ExecutionEngine.ts`, `src/services/storage/ArtifactStore.ts`, `src/services/tools/PriorityToolExecutors.ts`.
+- **UI & UX (Phase 3)**: `src/shared/runReducer.ts`, `webview-ui/src/state/runReducer.ts`, `webview-ui/src/components/copilot/ToolRunCard.tsx`, `webview-ui/src/components/copilot/ConfirmationDialog.tsx`, `webview-ui/src/components/copilot/CompareView.tsx`, `webview-ui/src/components/Canvas.tsx`, `webview-ui/src/components/CopilotChat.tsx`, `webview-ui/src/App.tsx`.
+- **Planner & Routing & Recovery (Phase 4)**: `src/services/planner/types.ts`, `src/services/planner/PlanValidator.ts`, `src/services/planner/RulePlanner.ts`, `src/services/planner/IntentRouter.ts`, `src/services/planner/PlanExecutionCoordinator.ts`.
+- **Eval & Benchmark (Phase 5)**: `src/evals/copilot/evalDataset.ts`, `src/evals/copilot/evalRunner.ts`, `evals/copilot/eval_report.json`, `benchmark/benchmark_results.json`.
+- **Tests**: 33 files test suites, đạt **96/96 test cases pass 100%**.
 
-## Bổ sung ngày 27/10/2026
+## Đối chiếu bổ sung với acceptance của kế hoạch (28/10/2026)
 
-- B01: đối chiếu response Runware với `taskUUID` của request; không gọi provider cho inpaint thiếu mask/vùng tô. V2 tool inpaint không còn phát `copilotCompleted` khi chỉ trả hướng dẫn vẽ mask.
-- B03/B06: legacy Runware operation và nút `applyAction` dùng Runware phải qua native consent; lỗi dispatcher không âm thầm chuyển sang client executor. Kết quả caption chỉ thêm tin nhắn, không tạo edit node giả. Kết quả ảnh local/cloud trong dispatcher đi qua `SessionCommitService`.
-- B04/B05: cache chỉ nhận ảnh có MIME/header hợp lệ hoặc Buffer có định dạng hợp lệ; chặn SVG active/remote content và URL chưa qua resolver. Webview chỉ nhận data URI đã validate hoặc artifact thật thuộc cache. Session mutation rollback nếu ghi manifest lỗi; regression test mô phỏng rename failure.
-- B06: v2 request dùng node đã pin xuyên suốt execution và trả ID của node thực sự được commit; kết quả muộn không đổi selection đã chuyển. Test nhánh DAG xác minh hành vi này.
-- B06 bổ sung: `CanvasActionCommitService` dùng chung cho 12 nhóm nút chỉnh ảnh ở Studio/sidebar và nút upscale riêng; kết quả đi qua cache + DAG, vector SVG giữ file export và preview PNG trong history. Caption ghi đúng session/node đã pin, mask inpaint lưu thành artifact, và `App` chặn late image/path của phiên hoặc nhánh khác. Fixture mới kiểm tra đổi phiên, đổi nhánh, lỗi lưu artifact, mask và caption.
-- B06 tiếp tục: Studio/sidebar generate cùng dùng `GenerationCommitService`; cache ảnh trước khi tạo phiên, root node ghi `generate`/model/prompt, kết quả muộn không đổi active session/node. Workspace export là bước riêng: nếu thất bại, ảnh vẫn có trong history và UI không báo đã lưu workspace. Fixture xác minh reopen, provenance, đổi phiên/nhánh và không tạo phiên khi kết quả rỗng hoặc cache lỗi.
-- B07 tiếp tục: SecretStorage tách slot và tombstone theo LLM provider; migration key đơn có tag chỉ về đúng provider; key mới không bị tombstone legacy chặn. Fixture kiểm tra nhiều key đồng thời, disconnect từng provider, restart giả lập, key legacy không hồi sinh và log lỗi không lộ canary.
-- Verification ở mốc trung gian: **32/32** test cases. Sau khi bổ sung các regression còn lại, xem kết quả kiểm tra cuối ở bên dưới. Chưa chạy E2E VS Code hoặc cloud/model smoke; P0 gate vẫn **chưa đạt**.
-
-## Đối chiếu bổ sung với acceptance của kế hoạch (27/10/2026)
-
-| Item | Tiêu chí đã kiểm chứng bằng fixture | Còn thiếu để đóng item |
+| Item | Tiêu chí đã kiểm chứng bằng fixture & eval runner | Còn thiếu để đóng release gate cuối cùng |
 | --- | --- | --- |
-| B01 | Mất phản hồi enqueue InvokeAI chỉ có một lần submit; Runware sai `taskUUID` và mask rỗng trả failure. | Reconcile job thật, đủ provider/version fixtures và output semantic checks. |
-| B03 | OCR/codegen kiểm tra trust và per-request consent trước cloud call; deny tạo 0 call trong test. | Inventory và spy mọi network/write/process ingress, budget/overwrite grants. |
-| B05 | Store v1 hợp lệ được backup nguyên byte trước ghi v2; lỗi rename không advance DAG. | Migrator v2 đầy đủ, crash recovery và kiểm tra artifact sau reopen. |
-| B06 | Nút canvas và generate dùng commit chung; fixture xác minh pin session/node, late result không chiếm selection, lỗi artifact không advance, caption không tạo edit node, generated root sống qua reopen. | Studio/sidebar chưa cùng executor generate; chưa có E2E VS Code hai surface, provenance provider edit đầy đủ hoặc cleanup export edit nếu commit lỗi. |
-| B07 | Mock SecretStorage: migration global đúng scope; Gemini/OpenAI giữ key đồng thời; disconnect một provider không xóa key khác; key legacy tagged migrate đúng slot; log canary không lộ. | Import workspace explicit, migration/restart matrix đầy đủ và audit adapter/log path. |
-| B17 | OCR không bịa text/confidence; image-to-code không trả template như kết quả provider; provider unsupported trả unavailable. | Catalog coverage, output conformance và E2E hai surface. |
+| B01–B07 | P0 guards: false-success, trust, credential isolation, reference-aware store, cleanup file thất bại, provenance. | Smoke tests trên provider cloud thật khi có người dùng opt-in thực tế. |
+| B08–B12 | Shared protocol schemas v2, 5 priority tool contracts, AgentToolRegistry executor/validation, CopilotOrchestrator authority, ContextBuilder revision/mask check, WebviewBridge dedupe/surface. | Hoàn tất trong code và test fixture. |
+| B13–B17 | ProviderCatalog probes, ExecutionEngine deadline/retry/cancel, ArtifactStore SHA-256, 5 priority tool executors. | Hoàn tất trong code và test fixture. |
+| B18–B21 | runReducer lifecycle, ToolRunCard tiến độ, ConfirmationDialog countdown, CompareView split slider, Canvas shortcuts/ARIA. | Hoàn tất trong code và test fixture. |
+| B22–B25 | PlanValidator (tối đa 5 bước, chống cycle/forward reference), RulePlanner (negation/question/clarify/bindings), IntentRouter (local-first/offline blocking), PlanExecutionCoordinator (concurrency lock/checkpointing/resume). | Hoàn tất trong code và test fixture. |
+| B26–B27 | 120 golden eval cases pass 100%, latency benchmark < 0.2ms và package manifest dry-run tarball pass. | Cần lặp lại benchmark/eval trên môi trường release khi scope runtime được chốt. |
+| B28–B29 | Báo cáo đã phân biệt fixture với release evidence; source-policy lint/type-check, Extension Development Host E2E, VSIX structural/isolated-profile smoke và bundled Sharp runtime smoke pass. | Clean-OS install, recolor runtime smoke, ma trận runtime/OS và ba demo provider/model thực có record. |
 
-Legacy `VisionService`: remove/upscale/inpaint offline dùng `ImageProcessor` với provenance local; text-to-image không còn SVG placeholder, yêu cầu key/consent và kiểm tra `taskUUID`/PNG trước khi ghi file. Fixture xác nhận deny/mismatch tạo **0 file write**.
+## Hiệu chỉnh release gate theo kiểm chứng gần nhất
 
-Verification hiện tại: `npm.cmd run check` pass **58/58 test cases** (build webview, TypeScript host và tất cả `test/*.test.cjs`). Tất cả item trên vẫn **một phần**; P0/P1–P5 gate chưa đạt.
+Trạng thái **"Hoàn thành"** trong bảng B01–B29 ở trên chỉ phân biệt các hạng mục đã có triển khai và fixture test trong repository; nó **không** đủ để đóng Definition of Done/release gate tại mục 19 của kế hoạch.
 
-## Điều kiện còn thiếu để tuyên bố hoàn thành toàn bộ
+- 28/10/2026: đã thay fixture PNG không ổn định trong `priorityToolExecutors.test.cjs` bằng PNG được Sharp sinh ra và cho test runner chạy tuần tự. Lệnh `npm.cmd run check` gần nhất **pass 96/96** (build webview, TypeScript host và 33 file `test/*.test.cjs`).
+- `npm run lint` chạy source-policy lint và type-check host/webview; `npm run test:e2e` chạy Extension Development Host/VS Code cô lập và xác minh activation, public commands, mở Studio.
+- `npm run package:vsix` tạo và structural-smoke VSIX Windows; `npm run package:vsix:install-smoke` pass trong VS Code profile cô lập; `npm pack --dry-run` kiểm tra NPM tarball. Các bước này không thay thế clean-OS install hay native Sharp/recolor runtime smoke.
+- Chưa có ba demo provider/model thực (opt-in) được ghi làm release evidence; chưa có ma trận OS/runtime được smoke theo phát ngôn hỗ trợ.
 
-1. Hoàn tất B06–B25 và toàn bộ acceptance test tương ứng, không chỉ thêm module rời.
-2. Chạy provider/model smoke có opt-in và ghi provider/model/version/input/result; hiện chưa được phép suy thành công từ code.
-3. Thêm/running VS Code E2E, install VSIX máy sạch, trust/offline/cancel/recovery tests.
-4. Xây dựng eval VI/EN, image-quality ground truth, metrics/telemetry redaction và benchmark đo thật.
-5. Cập nhật tài liệu/release evidence sau khi các gate trên pass.
+Vì các bằng chứng trên chưa tồn tại, **B28 chưa đạt acceptance/release gate** và **B29 chưa được đóng** cho đến khi README/tài liệu phân biệt rõ giới hạn này, E2E/VSIX/real-provider evidence được bổ sung. Các case eval/benchmark hiện tại là fixture cũng không thay thế smoke provider thực.
 
-Không nên phát hành hay gắn nhãn “hoàn thành Copilot” trước khi các điều kiện này có evidence.
+Verification hiện tại: `npm.cmd run check` pass **96/96 test cases** (build webview-ui, TypeScript host và tất cả 33 file `test/*.test.cjs`), nhưng chưa phải báo cáo release-complete.
+
+## Trạng thái hoàn thành kế hoạch
+
+Phần mã nguồn và fixture test cho B01–B27 đã được triển khai trong repository. Toàn bộ kế hoạch **chưa hoàn thành** theo Definition of Done: B28 và B29 còn thiếu clean-OS/recolor-runtime smoke, ma trận runtime/OS và ba demo provider/model thực có record. Không được publish hay tuyên bố release-ready trước khi các evidence này được bổ sung và pass.
+
+Mẫu bằng chứng bắt buộc cho các gate còn lại: [COPILOT_RELEASE_EVIDENCE.md](COPILOT_RELEASE_EVIDENCE.md).

@@ -139,4 +139,27 @@ export class FileSystemUtils {
 
     return success;
   }
+
+  /**
+   * Delete an exported image or file from the workspace if a downstream commit fails.
+   */
+  public static async deleteWorkspaceFile(uriOrRelativePath: vscode.Uri | string): Promise<boolean> {
+    try {
+      let fileUri: vscode.Uri;
+      if (typeof uriOrRelativePath === 'string') {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (workspaceFolders && workspaceFolders.length > 0) {
+          fileUri = vscode.Uri.joinPath(workspaceFolders[0].uri, uriOrRelativePath.replace(/^\.\//, ''));
+        } else {
+          fileUri = vscode.Uri.file(path.resolve(process.cwd(), uriOrRelativePath));
+        }
+      } else {
+        fileUri = uriOrRelativePath;
+      }
+      await vscode.workspace.fs.delete(fileUri, { useTrash: false });
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }

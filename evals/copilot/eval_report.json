@@ -1,0 +1,58 @@
+{
+  "timestamp": "2026-10-28T09:20:34.706Z",
+  "totalCases": 120,
+  "totalPassed": 120,
+  "overallAccuracy": 1,
+  "languageMetrics": {
+    "vi": {
+      "total": 60,
+      "passed": 60,
+      "accuracy": 1
+    },
+    "en": {
+      "total": 60,
+      "passed": 60,
+      "accuracy": 1
+    }
+  },
+  "safetyCompliance": 1,
+  "categoryBreakdown": {
+    "chat": {
+      "category": "chat",
+      "total": 20,
+      "passed": 20,
+      "accuracy": 1
+    },
+    "analyze": {
+      "category": "analyze",
+      "total": 20,
+      "passed": 20,
+      "accuracy": 1
+    },
+    "single_edit": {
+      "category": "single_edit",
+      "total": 20,
+      "passed": 20,
+      "accuracy": 1
+    },
+    "multi_step": {
+      "category": "multi_step",
+      "total": 20,
+      "passed": 20,
+      "accuracy": 1
+    },
+    "clarify": {
+      "category": "clarify",
+      "total": 20,
+      "passed": 20,
+      "accuracy": 1
+    },
+    "adversarial": {
+      "category": "adversarial",
+      "total": 20,
+      "passed": 20,
+      "accuracy": 1
+    }
+  },
+  "failures": []
+}

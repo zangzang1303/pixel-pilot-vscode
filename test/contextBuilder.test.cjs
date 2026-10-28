@@ -15,3 +15,15 @@ test('context builder pins a node and bounds copied history', () => {
   assert.equal(snapshot.conversationHistory.length, 16);
   assert.throws(() => snapshot.ancestry.push('mutate'), /object is not extensible|read only/i);
 });
+
+test('context builder detects stale revisions and validates mask bounds', () => {
+  const manager = new SessionManager();
+  const session = manager.createSession('original.png', 'context');
+  const builder = new ContextBuilder();
+  const snapshot = builder.build(manager.getSession(session.sessionId), session.rootNodeId, { maskUri: 'mask.png' });
+  assert.equal(snapshot.maskUri, 'mask.png');
+  assert.equal(snapshot.maskValidForImage, true);
+  assert.equal(builder.isStaleRevision(manager.getSession(session.sessionId), session.rootNodeId, snapshot.revision), false);
+  assert.equal(builder.isStaleRevision(manager.getSession(session.sessionId), session.rootNodeId, 'old_rev_123'), true);
+});
+

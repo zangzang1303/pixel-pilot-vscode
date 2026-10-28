@@ -10,9 +10,13 @@ import { InvokeApiService } from './services/InvokeApiService';
 import { FileSystemUtils } from './utils/fileSystem';
 import { ImageProcessor } from './services/image/ImageProcessor';
 import { ComfyUIAdapter } from './services/ai/ComfyUIAdapter';
+import { PriorityToolExecutors } from './services/tools/PriorityToolExecutors';
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('✨ Pixel Pilot Enterprise Vision Studio is now active!');
+
+  // Register the 5 priority tool executors (B16)
+  PriorityToolExecutors.registerAll();
 
   const invokeApi = new InvokeApiService();
 

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Bot, ChevronDown, Cloud, CloudOff, Code2, ImagePlus, Loader2, MessageSquarePlus, MoreHorizontal, Send, Sparkles, Wand2 } from 'lucide-react';
 import type { StudioTab } from './SettingsSidebar';
 import type { RunState } from '../state/runReducer';
+import { ToolRunCard } from './copilot/ToolRunCard';
 
 export interface CopilotMessage {
   id?: string;
@@ -21,6 +22,7 @@ interface CopilotChatProps {
   history: HistoryNodeSummary[]; currentNodeId: string; onSelectNode: (nodeId: string) => void;
   onNavigate: (tab: StudioTab) => void;
   hasApiKey: boolean; onConfigureApiKey: () => void;
+  onCancelRun?: (requestId: string) => void;
 }
 
 const QUICK_PROMPTS = [
@@ -36,7 +38,7 @@ function formatMessage(text: string): React.ReactNode {
     : <React.Fragment key={index}>{part}</React.Fragment>);
 }
 
-export const CopilotChat: React.FC<CopilotChatProps> = ({ messages, isThinking, runState, hasImage, currentImageUrl, sessions, activeSessionId, onSend, onOpenImage, onNewSession, onSwitchSession, history, currentNodeId, onSelectNode, onNavigate, hasApiKey, onConfigureApiKey }) => {
+export const CopilotChat: React.FC<CopilotChatProps> = ({ messages, isThinking, runState, hasImage, currentImageUrl, sessions, activeSessionId, onSend, onOpenImage, onNewSession, onSwitchSession, history, currentNodeId, onSelectNode, onNavigate, hasApiKey, onConfigureApiKey, onCancelRun }) => {
   const [draft, setDraft] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const activeSession = sessions.find((session) => session.sessionId === activeSessionId);
@@ -83,9 +85,16 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ messages, isThinking, 
             {item.suggestions && item.suggestions.length > 0 && index === messages.length - 1 && <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-700/70 pt-3">{item.suggestions.map((suggestion, suggestionIndex) => <button key={suggestionIndex} type="button" disabled={isThinking} title={suggestion.reason} onClick={() => onSend(`/apply ${suggestionIndex + 1}`)} className="rounded-lg border border-cyan-400/25 bg-cyan-400/10 px-2.5 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-400/20 disabled:opacity-40">{suggestion.label}</button>)}</div>}
           </div>
         </article>)}
-        {runState.phase === 'failed' && <div role="alert" className="self-start rounded-xl border border-rose-400/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">{runState.error || 'Agent could not complete the request.'}</div>}
-        {runState.phase === 'cancelled' && <div role="status" className="self-start rounded-xl border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">Operation cancelled.</div>}
-        {isThinking && <div className="flex items-center gap-3 self-start rounded-2xl rounded-tl-md border border-violet-400/20 bg-violet-500/[0.08] px-4 py-3 text-sm text-violet-200"><Loader2 className="h-4 w-4 animate-spin" /> Agent đang phân tích và chuẩn bị thao tác...</div>}<div ref={bottomRef} />
+        {runState.phase !== 'idle' && (
+          <ToolRunCard runState={runState} onCancel={onCancelRun} />
+        )}
+        {isThinking && runState.phase === 'idle' && (
+          <div className="flex items-center gap-3 self-start rounded-2xl rounded-tl-md border border-violet-400/20 bg-violet-500/[0.08] px-4 py-3 text-sm text-violet-200">
+            <Loader2 className="h-4 w-4 animate-spin text-cyan-400" />
+            <span>Agent đang phân tích và chuẩn bị thao tác...</span>
+          </div>
+        )}
+        <div ref={bottomRef} />
       </div></div>
 
       <div className="shrink-0 border-t border-slate-800/90 bg-slate-950/40 px-4 py-4 sm:px-8"><div className="mx-auto max-w-4xl">

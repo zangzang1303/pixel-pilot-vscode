@@ -1,9 +1,11 @@
 /**
- * Deduplicates request IDs at the host boundary. Terminal promises are retained
- * for a bounded window so webview retry/replay cannot start a second paid run.
+ * Deduplicates request IDs at the host boundary, tracks connected surfaces,
+ * and maintains sequence ordering for broadcast events.
  */
 export class WebviewBridge {
   private readonly requests = new Map<string, Promise<unknown>>();
+  private readonly surfaces = new Set<(message: unknown) => void>();
+  private sequence = 0;
 
   constructor(private readonly maxRememberedRequests = 256) {}
 
@@ -15,6 +17,34 @@ export class WebviewBridge {
     this.requests.set(requestId, promise);
     this.trim();
     return promise;
+  }
+
+  public registerSurface(send: (message: unknown) => void): () => void {
+    this.surfaces.add(send);
+    return () => {
+      this.surfaces.delete(send);
+    };
+  }
+
+  public getSurfaceCount(): number {
+    return this.surfaces.size;
+  }
+
+  public getNextSequence(): number {
+    return ++this.sequence;
+  }
+
+  public broadcast(event: Record<string, unknown>): number {
+    const seq = ++this.sequence;
+    const message = { ...event, sequence: seq };
+    for (const send of this.surfaces) {
+      try {
+        send(message);
+      } catch {
+        // Surface might be disposed
+      }
+    }
+    return seq;
   }
 
   private trim(): void {

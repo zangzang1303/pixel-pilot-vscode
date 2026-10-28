@@ -80,6 +80,7 @@ export class StudioPanel {
     this._invokeApi = new InvokeApiService();
     this._copilot = copilot;
     this._disposables.push(copilot.onDidUpdateSession(update => this.sendMessage(update)));
+    this._disposables.push(copilot.onDidPostMessage(msg => this.sendMessage(msg)));
 
     // Set panel icon
     this._panel.iconPath = {
@@ -300,7 +301,7 @@ export class StudioPanel {
           const savedResult = await this._copilot.saveCanvasAction(target, 'upscale',
             upscaledBuf,
             `pixel_pilot_upscaled_${targetFactor}x_${Date.now()}.png`,
-            { factor: targetFactor }
+            { factor: targetFactor, provider: 'sharp' }
           );
 
           if (this._copilot.isCanvasTargetCurrent({ sessionId: target.sessionId, parentId: savedResult.nodeId })) {
@@ -395,6 +396,7 @@ export class StudioPanel {
 
           if (action === 'removeBackground') {
             let outBuf: Buffer;
+            let provider = 'sharp';
             const comfy = new ComfyUIAdapter();
             const comfyOnline = await comfy.ping();
             if (comfyOnline) {
@@ -403,6 +405,7 @@ export class StudioPanel {
                 if (res.outputImageUri) {
                   const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
                   outBuf = Buffer.from(b64, 'base64');
+                  provider = 'comfyui';
                 } else {
                   outBuf = await imageProc.removeBackground(buffer);
                 }
@@ -419,6 +422,7 @@ export class StudioPanel {
                   if (res.outputImageUri) {
                     const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
                     outBuf = Buffer.from(b64, 'base64');
+                    provider = 'runware';
                   } else {
                     outBuf = await imageProc.removeBackground(buffer);
                   }
@@ -430,7 +434,7 @@ export class StudioPanel {
               }
             }
 
-            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_cutout_${Date.now()}.png`, options);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_cutout_${Date.now()}.png`, { ...options, provider });
             this.sendMessage({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -442,6 +446,7 @@ export class StudioPanel {
           } else if (action === 'upscale') {
             const factor = (options?.factor as 2 | 4) || 2;
             let outBuf: Buffer;
+            let provider = 'sharp';
             const comfy = new ComfyUIAdapter();
             const comfyOnline = await comfy.ping();
             if (comfyOnline) {
@@ -450,6 +455,7 @@ export class StudioPanel {
                 if (res.outputImageUri) {
                   const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
                   outBuf = Buffer.from(b64, 'base64');
+                  provider = 'comfyui';
                 } else {
                   outBuf = await imageProc.upscale(buffer, factor);
                 }
@@ -466,6 +472,7 @@ export class StudioPanel {
                   if (res.outputImageUri) {
                     const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
                     outBuf = Buffer.from(b64, 'base64');
+                    provider = 'runware';
                   } else {
                     outBuf = await imageProc.upscale(buffer, factor);
                   }
@@ -476,7 +483,7 @@ export class StudioPanel {
                 outBuf = await imageProc.upscale(buffer, factor);
               }
             }
-            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`, options);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`, { ...options, provider });
             this.sendMessage({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -488,6 +495,7 @@ export class StudioPanel {
           } else if (action === 'enhance') {
             const type = options?.type || 'clarity';
             let outBuf: Buffer;
+            let provider = 'sharp';
             const runwareKey = await SecretManager.getInstance().getApiKey();
             if (runwareKey && runwareKey.trim().length > 10) {
               await this._copilot.requireCanvasCloudConsent('Runware', `Enhance ${type}`);
@@ -497,6 +505,7 @@ export class StudioPanel {
                 if (res.outputImageUri) {
                   const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
                   outBuf = Buffer.from(b64, 'base64');
+                  provider = 'runware';
                 } else {
                   outBuf = await imageProc.enhance(buffer, type);
                 }
@@ -506,7 +515,7 @@ export class StudioPanel {
             } else {
               outBuf = await imageProc.enhance(buffer, type);
             }
-            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_enhanced_${Date.now()}.png`, options);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_enhanced_${Date.now()}.png`, { ...options, provider });
             this.sendMessage({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -517,7 +526,7 @@ export class StudioPanel {
             vscode.window.showInformationMessage(`✨ Khử mờ & Làm nét HDR thành công: ${savedResult.relativePath}`);
           } else if (action === 'mask') {
             const outBuf = await imageProc.extractMask(buffer);
-            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_mask_${Date.now()}.png`, options);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_mask_${Date.now()}.png`, { ...options, provider: 'sharp' });
             this.sendMessage({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -528,7 +537,7 @@ export class StudioPanel {
             vscode.window.showInformationMessage(`✨ Trích xuất Mask thành công: ${savedResult.relativePath}`);
           } else if (action === 'canny' || action === 'edgeDetection') {
             const outBuf = await imageProc.detectEdges(buffer, 'canny');
-            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_canny_${Date.now()}.png`, options);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_canny_${Date.now()}.png`, { ...options, provider: 'sharp' });
             this.sendMessage({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -539,7 +548,7 @@ export class StudioPanel {
             vscode.window.showInformationMessage(`✨ Dò biên Canny thành công: ${savedResult.relativePath}`);
           } else if (action === 'lineart' || action === 'lineExtraction') {
             const outBuf = await imageProc.detectEdges(buffer, 'lineart');
-            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_lineart_${Date.now()}.png`, options);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_lineart_${Date.now()}.png`, { ...options, provider: 'sharp' });
             this.sendMessage({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -550,7 +559,7 @@ export class StudioPanel {
             vscode.window.showInformationMessage(`✨ Trích xuất Lineart thành công: ${savedResult.relativePath}`);
           } else if (action === 'depth') {
             const outBuf = await imageProc.detectEdges(buffer, 'depth');
-            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_depth_${Date.now()}.png`, options);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_depth_${Date.now()}.png`, { ...options, provider: 'sharp' });
             this.sendMessage({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -562,7 +571,7 @@ export class StudioPanel {
           } else if (action === 'extend') {
             const direction = options?.direction || 'all';
             const outBuf = await imageProc.extendCanvas(buffer, direction);
-            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_extended_${Date.now()}.png`, options);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_extended_${Date.now()}.png`, { ...options, provider: 'sharp' });
             this.sendMessage({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -580,7 +589,7 @@ export class StudioPanel {
             const subject = options?.subject || 'hair';
             const color = options?.color || 'cyan';
             const outBuf = await imageProc.recolor(buffer, subject, color);
-            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_recolor_${Date.now()}.png`, options);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_recolor_${Date.now()}.png`, { ...options, provider: 'sharp' });
             this.sendMessage({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -592,7 +601,7 @@ export class StudioPanel {
           } else if (action === 'styleTransfer') {
             const style = options?.style || 'anime';
             const outBuf = await imageProc.styleTransfer(buffer, style);
-            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_style_${style}_${Date.now()}.png`, options);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_style_${style}_${Date.now()}.png`, { ...options, provider: 'sharp' });
             this.sendMessage({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -603,7 +612,7 @@ export class StudioPanel {
             vscode.window.showInformationMessage(`✨ Chuyển phong cách ${style} thành công: ${savedResult.relativePath}`);
           } else if (action === 'vectorize') {
             const { svgString, previewBuffer } = await imageProc.vectorize(buffer);
-            const savedResult = await this._copilot.saveCanvasAction(target, action, Buffer.from(svgString, 'utf-8'), `pixel_pilot_vector_${Date.now()}.svg`, options, previewBuffer);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, Buffer.from(svgString, 'utf-8'), `pixel_pilot_vector_${Date.now()}.svg`, { ...options, provider: 'sharp' }, previewBuffer);
             this.sendMessage({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -619,7 +628,7 @@ export class StudioPanel {
               maskBuffer = Buffer.from(maskB64, 'base64');
             }
             const outBuf = await imageProc.inpaint(buffer, maskBuffer);
-            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_inpaint_${Date.now()}.png`, options);
+            const savedResult = await this._copilot.saveCanvasAction(target, action, outBuf, `pixel_pilot_inpaint_${Date.now()}.png`, { ...options, provider: 'sharp' });
             this.sendMessage({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -677,7 +686,13 @@ export class StudioPanel {
       case 'newSession':
       case 'switchSession':
       case 'renameSession':
-      case 'deleteSession': {
+      case 'deleteSession':
+      case 'copilotRequest':
+      case 'cancelRun':
+      case 'confirmationResponse':
+      case 'openApiKeyPrompt':
+      case 'rollbackNode':
+      case 'insertSnippet': {
         await this._copilot.handleStudioMessage(message);
         break;
       }
@@ -694,6 +709,11 @@ export class StudioPanel {
 
       case 'showInfo': {
         vscode.window.showInformationMessage(message.message || '');
+        break;
+      }
+
+      default: {
+        await this._copilot.handleStudioMessage(message);
         break;
       }
     }
