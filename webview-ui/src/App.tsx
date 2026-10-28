@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useReducer } from 'react';
+import React, { useState, useEffect, useReducer, useRef } from 'react';
 import { AlertCircle, CheckCircle2, X } from 'lucide-react';
 import {
   SettingsSidebar,
@@ -101,6 +101,8 @@ export const App: React.FC = () => {
   const [activeSessionId, setActiveSessionId] = useState<string>('');
   const [history, setHistory] = useState<HistoryNodeSummary[]>([]);
   const [currentNodeId, setCurrentNodeId] = useState<string>('');
+  const activeSessionIdRef = useRef('');
+  const currentNodeIdRef = useRef('');
 
   // Cloud AI Key status
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
@@ -173,11 +175,17 @@ export const App: React.FC = () => {
 
         case 'generationComplete':
           setIsGenerating(false);
-          setCurrentImageUrl(message.dataUrl);
-          setSavedPath(message.savedPath);
-          setSnippetInserted(Boolean(message.snippetInserted));
+          const isCurrentGeneration = message.sessionId === activeSessionIdRef.current &&
+            message.nodeId === currentNodeIdRef.current;
+          if (isCurrentGeneration) {
+            setCurrentImageUrl(message.dataUrl);
+            setSavedPath(message.savedPath);
+          }
+          setSnippetInserted(isCurrentGeneration && Boolean(message.snippetInserted));
           setProgressPercentage(100);
-          setToast({ kind: 'success', message: 'Đã tạo và lưu ảnh thành công.' });
+          setToast({ kind: 'success', message: isCurrentGeneration
+            ? (message.savedPath ? 'Đã tạo và lưu ảnh vào workspace.' : 'Đã tạo ảnh trong lịch sử Pixel Pilot.')
+            : 'Ảnh mới đã được lưu ở một phiên khác trong danh sách.' });
           break;
 
         case 'generationError':
@@ -200,8 +208,10 @@ export const App: React.FC = () => {
 
         case 'upscaleComplete':
           setIsUpscaling(false);
-          setCurrentImageUrl(message.dataUrl);
-          setSavedPath(message.savedPath);
+          if (message.sessionId === activeSessionIdRef.current && message.nodeId === currentNodeIdRef.current) {
+            setCurrentImageUrl(message.dataUrl);
+            setSavedPath(message.savedPath);
+          }
           setToast({ kind: 'success', message: 'Đã phóng to và lưu ảnh thành công.' });
           break;
 
@@ -219,13 +229,19 @@ export const App: React.FC = () => {
         case 'actionComplete':
         case 'AI_ACTION_SUCCESS':
           setIsProcessingAction(false);
-          if (message.dataUrl || message.payload?.outputUri) {
+          const isCurrentResult = !message.sessionId || (
+            message.sessionId === activeSessionIdRef.current &&
+            (!message.nodeId || message.nodeId === currentNodeIdRef.current)
+          );
+          if (isCurrentResult && (message.dataUrl || message.payload?.outputUri)) {
             setCurrentImageUrl(message.dataUrl || message.payload?.outputUri);
           }
-          if (message.savedPath) {
+          if (isCurrentResult && message.savedPath) {
             setSavedPath(message.savedPath);
           }
-          setToast({ kind: 'success', message: message.message || 'Đã hoàn tất thao tác ảnh.' });
+          setToast({ kind: 'success', message: isCurrentResult
+            ? (message.message || 'Đã hoàn tất thao tác ảnh.')
+            : 'Kết quả đã lưu vào phiên hoặc nhánh ảnh trước đó.' });
           break;
 
         case 'actionError':
@@ -275,6 +291,8 @@ export const App: React.FC = () => {
 
         case 'sessionUpdated': {
           setSessions(Array.isArray(message.sessionsList) ? message.sessionsList : []);
+          activeSessionIdRef.current = message.session?.sessionId || '';
+          currentNodeIdRef.current = message.session?.currentNodeId || '';
           setActiveSessionId(message.session?.sessionId || '');
           setHistory(Array.isArray(message.history) ? message.history : []);
           setCurrentNodeId(message.session?.currentNodeId || '');
@@ -288,7 +306,7 @@ export const App: React.FC = () => {
             suggestions: item.suggestions
           })));
           setCurrentImageUrl(message.currentImage || null);
-          setSavedPath(message.currentImage ? message.session?.title : undefined);
+          setSavedPath(message.savedPath || undefined);
           break;
         }
       }
@@ -317,6 +335,8 @@ export const App: React.FC = () => {
       command: 'generate',
       prompt: prompt.trim(),
       model: chosenModel,
+      sessionId: activeSessionId,
+      nodeId: currentNodeId,
       options: {
         negativePrompt: negativePrompt.trim(),
         width: settings.width,
@@ -335,6 +355,8 @@ export const App: React.FC = () => {
     vscode.postMessage({
       command: 'upscale',
       dataUrl: currentImageUrl,
+      sessionId: activeSessionId,
+      nodeId: currentNodeId,
       factor: 2
     });
   };
@@ -354,6 +376,8 @@ export const App: React.FC = () => {
       command: 'applyAction',
       action,
       dataUrl: currentImageUrl,
+      sessionId: activeSessionId,
+      nodeId: currentNodeId,
       options: options || {}
     });
   };

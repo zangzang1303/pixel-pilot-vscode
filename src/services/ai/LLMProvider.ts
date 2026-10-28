@@ -28,7 +28,7 @@ export class LLMProvider {
         return await this.callGeminiVision(prompt, context, apiKey, config?.model || 'gemini-1.5-flash');
       } catch (err: any) {
         if (err instanceof ToolValidationError) throw err;
-        console.warn('[PixelPilot LLM] Gemini call failed, falling back to smart local reasoning:', err?.message || err);
+        console.warn('[PixelPilot LLM] Gemini request failed; using local reasoning.');
       }
     }
 
@@ -38,7 +38,7 @@ export class LLMProvider {
         return await this.callOpenAICompatible(prompt, context, provider, apiKey, config?.model, config?.baseUrl);
       } catch (err: any) {
         if (err instanceof ToolValidationError) throw err;
-        console.warn(`[PixelPilot LLM] ${provider.toUpperCase()} call failed, falling back to smart local reasoning:`, err?.message || err);
+        console.warn(`[PixelPilot LLM] ${provider.toUpperCase()} request failed; using local reasoning.`);
       }
     }
 

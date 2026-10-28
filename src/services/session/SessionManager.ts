@@ -96,7 +96,13 @@ export class SessionManager {
   /**
    * Initializes a new session with an original root image node and welcome message
    */
-  public createSession(initialImageUri: string, title = 'Phiên làm việc mới'): ImageSession {
+  public createSession(initialImageUri: string, title = 'Phiên làm việc mới', options?: {
+    activate?: boolean;
+    operation?: 'original' | 'generate';
+    metrics?: NodeMetrics;
+    prompt?: string;
+    params?: Record<string, unknown>;
+  }): ImageSession {
     const sessionId = 'sess_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now();
     const rootNodeId = 'node_0_root';
 
@@ -105,11 +111,13 @@ export class SessionManager {
       parentId: null,
       childrenIds: [],
       timestamp: Date.now(),
-      operation: 'original',
-      operationLabel: 'Ảnh gốc (Original)',
-      inputImageUri: initialImageUri,
+      operation: options?.operation || 'original',
+      operationLabel: options?.operation === 'generate' ? 'Generated image' : 'Ảnh gốc (Original)',
+      inputImageUri: options?.operation === 'generate' ? '' : initialImageUri,
       outputImageUri: initialImageUri,
-      metrics: {
+      prompt: options?.prompt,
+      params: options?.params,
+      metrics: options?.metrics || {
         model: 'Input Source',
         latencyMs: 0,
         costUsd: 0
@@ -120,11 +128,13 @@ export class SessionManager {
       id: 'msg_' + Date.now(),
       sender: 'assistant',
       timestamp: Date.now(),
-      text: initialImageUri
+      text: options?.operation === 'generate'
+        ? `Đã tạo ảnh từ prompt "${title}".`
+        : initialImageUri
         ? `Đã nạp ảnh "${title}". Bạn muốn thực hiện tác vụ gì? Hãy gõ câu lệnh hoặc chọn một trong các thao tác bên dưới.`
         : 'Chào mừng bạn đến với AI Image Studio! Hãy nạp một ảnh từ máy tính hoặc kéo thả ảnh vào để bắt đầu.',
       nodeId: rootNodeId,
-      operation: 'original',
+      operation: options?.operation || 'original',
       outputImageUri: initialImageUri
     };
 
@@ -143,8 +153,19 @@ export class SessionManager {
 
     return this.persistMutation(() => {
       this.sessions.set(sessionId, session);
-      this.activeSessionId = sessionId;
+      if (options?.activate !== false) this.activeSessionId = sessionId;
       return session;
+    });
+  }
+
+  public setNodeExportPath(sessionId: string, nodeId: string, exportPath: string): void {
+    if (!/^\.\/assets\/[A-Za-z0-9_.\/-]+$/.test(exportPath) || exportPath.includes('..')) {
+      throw new Error('Invalid workspace export path.');
+    }
+    const node = this.sessions.get(sessionId)?.nodes[nodeId];
+    if (!node) throw new Error('The target image no longer exists.');
+    this.persistMutation(() => {
+      node.params = { ...node.params, exportPath };
     });
   }
 
