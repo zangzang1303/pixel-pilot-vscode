@@ -1,90 +1,41 @@
-# CẨM NANG VÀ KỊCH BẢN BẢO VỆ ĐỒ ÁN KHOA HỌC (DAKH DEFENSE GUIDE)
+# Hướng dẫn demo và bảo vệ Pixel Pilot
 
-> **Đề tài**: Nghiên cứu và phát triển công cụ hỗ trợ xử lý ảnh đa ngữ cảnh trên môi trường IDE tích hợp mô hình thị giác nhân tạo SOTA (*PixelPilot*)  
-> **Mục tiêu**: Đạt điểm tuyệt đối (10/10) trước Hội đồng chấm Đề tài / Đồ án Tốt nghiệp.
+Tài liệu này mô tả kịch bản demo **có điều kiện**. Không trình bày số liệu hoặc capability của provider như kết quả đã kiểm chứng nếu chưa có log, môi trường, model và artifact tương ứng trong [release evidence](COPILOT_RELEASE_EVIDENCE.md). Tiến độ kỹ thuật hiện tại ở [COPILOT_IMPLEMENTATION_PROGRESS.md](COPILOT_IMPLEMENTATION_PROGRESS.md).
 
----
+## Chuẩn bị trước buổi demo
 
-## 1. TỔNG QUAN VỀ KẾT QUẢ ĐÃ ĐẠT ĐƯỢC CỦA ĐỀ TÀI
+1. Cài VSIX vào VS Code profile cô lập, kiểm tra activation, Sidebar và Studio. Ghi phiên bản VS Code, OS, VSIX SHA-256 và extension ID.
+2. Chọn một ảnh fixture được phép sử dụng. Ghi kích thước, format và hash; không dùng ảnh nhạy cảm.
+3. Chạy `npm.cmd run check` và `npm.cmd run package:vsix:install-smoke`. Kiểm tra từng provider/model thực tế sẽ dùng, gồm capability theo tool.
+4. Nếu demo cloud, chủ sở hữu key tự cấu hình trong SecretStorage và chấp thuận gửi dữ liệu/chi phí. Không ghi key lên màn hình, slide hoặc log.
+5. Chuẩn bị một lượt offline/no-model để cho thấy trạng thái *unavailable* có lý do. Fixture/mock chỉ được giới thiệu là mô phỏng.
 
-| Hạng mục | Kết quả hoàn thành | Minh chứng cụ thể |
-| :--- | :--- | :--- |
-| **Trụ cột 1: Học thuật** | Bản Thuyết minh NCKH chuẩn 8 chương học thuật | `docs/ACADEMIC_RESEARCH_PROPOSAL.md` |
-| **Trụ cột 2: Thực nghiệm** | Bộ công cụ Benchmark tự động tính $mIoU$, $Boundary\ F$, $SSIM$, $Latency$, $Cost$ trên 5 test cases | Thư mục `benchmark/`, File `BENCHMARK_RESULTS.md`, `benchmark_summary.json` |
-| **Trụ cột 3: Sản phẩm** | Extension VS Code hoàn chỉnh với mô hình **Context DAG**, Before/After Slider, Inpaint Canvas, Toolbelt đa chức năng | Thư mục `src/`, chạy trực tiếp bằng F5 hoặc cài file `.vsix` |
-| **Hệ thống AI Đa tác vụ** | Hỗ trợ trọn vẹn 8+ tác vụ chuyển đổi ảnh chuyên biệt: Remove BG, Upscale, Vectorize SVG, Inpaint, Mask, Canny, Lineart, Caption | `RunwareAdapter.ts` & `LocalMockAdapter.ts` |
+## Kịch bản 3–5 phút
 
----
+| Bước | Thao tác | Điều cần quan sát |
+| --- | --- | --- |
+| 1. Mở ảnh | Mở Sidebar hoặc Studio, nạp PNG/JPEG fixture. | Ảnh hiển thị và session/node gắn đúng ảnh. |
+| 2. Phân tích và sửa | Chọn một tool đã probe sẵn. Nếu demo remove background bằng ComfyUI/Runware, ghi provider và model được dùng. | Tool run có tiến độ, kết quả khác ảnh gốc và provenance rõ. Nếu provider thiếu, UI báo unavailable. |
+| 3. So sánh | Mở before/after, xem ảnh gốc và preview; chọn áp dụng hoặc hủy. | Preview và apply là hai trạng thái khác nhau; hủy không thay đổi session. |
+| 4. Lịch sử | Chọn node trước đó, tạo một nhánh chỉnh sửa khác. | DAG quay về artifact đã lưu, không gọi lại provider chỉ để undo/branch. |
+| 5. Giới hạn | Bật offline mode hoặc ngắt provider. | Cloud không được gọi; tool thiếu model báo lỗi rõ, không trả placeholder như thành công. |
 
-## 2. KỊCH BẢN LIVE DEMO GÂY ẤN TƯỢNG TRƯỚC HỘI ĐỒNG (3 - 5 PHÚT)
+Inpaint chỉ nên demo khi mask và provider hỗ trợ thật. Recolor chọn lọc cần Python/ONNX/ComfyUI foreground model và chưa có bằng chứng chất lượng bảo vệ da trên tập đại diện. Vectorize cần kiểm tra SVG đầu ra với fixture cụ thể; không khẳng định mọi ảnh bitmap đều thành vector chính xác.
 
-### Bước 1: Giới thiệu Vấn đề thực tế (30 giây)
-- *Thuyết trình*: "Kính thưa Thầy/Cô, khi lập trình viên Frontend, Game hoặc Mobile cần chuẩn bị assets hình ảnh, họ phải liên tục chuyển đổi qua lại giữa VS Code và Photoshop/Figma hoặc các trang web tách nền bên ngoài. Điều này gây đứt đoạn luồng tư duy, tiềm ẩn nguy cơ rò rỉ tài nguyên bí mật của dự án. PixelPilot giải quyết triệt để vấn đề này ngay trong thanh Sidebar của VS Code."
+## Cách nói về số liệu
 
-### Bước 2: Nạp ảnh & Tách nền 1-Click với BiRefNet SOTA (60 giây)
-- *Thao tác*:
-  1. Mở Sidebar **Pixel Pilot** trong VS Code.
-  2. Bấm nút **"Chọn ảnh từ Workspace"** hoặc kéo thả file `TC1.jpg` (ảnh tóc bay ngược sáng) vào Dropzone.
-  3. Bấm **"Tách nền 1-Click (BiRefNet)"**.
-- *Quan sát & Thuyết minh*:
-  - Hiệu ứng Scanner chạy dọc thân ảnh trong đúng **~380ms**.
-  - Kết quả hiện ra ngay lập tức: Kéo thanh trượt **Before/After Split Slider** từ trái qua phải để Hội đồng thấy rõ từng sợi tóc tơ bay lơ lửng được bóc tách hoàn hảo, không bị quầng viền đen (Halo) như các mô hình nhị phân thông thường.
-  - Chỉ vào dải **Telemetry Metrics**: Latency đạt **380 ms**, Chi phí chỉ **$0.0006/ảnh**.
+- Chỉ đọc latency/chi phí từ run đã ghi record; phân biệt thời gian đo thật, dự toán và giá trị chưa biết.
+- [Báo cáo benchmark](../benchmark/BENCHMARK_RESULTS.md) và các số liệu trong báo cáo học thuật là tài liệu nghiên cứu/lịch sử. Chúng không thay thế phép đo trên VSIX/provider/model hiện tại. Nếu đưa vào slide, ghi rõ nguồn, phương pháp, ngày chạy và giới hạn.
+- Không cam kết “SOTA”, “100%”, “không bao giờ lỗi”, tốc độ 380 ms hay chi phí $0.0006/ảnh khi chưa có bằng chứng tái lập cho đúng cấu hình demo.
 
-### Bước 3: Trình diễn Vectorize sang SVG (45 giây)
-- *Thuyết trình*: "Một điểm đặc biệt hữu ích cho kỹ sư phần mềm là khả năng biến ảnh bitmap thành file vector."
-- *Thao tác*: Chuyển sang Tab **"Upscale & Vector"** $\to$ Bấm **"Vectorize sang SVG"**.
-- *Kết quả*: Ảnh được chuyển thành vector sắc nét vô hạn phân giải, mã XML `<svg>` xuất hiện trong khung Code Inspector và có thể bấm nút **"Lưu SVG"** để lưu thẳng vào thư mục dự án.
+## Câu hỏi phản biện thường gặp
 
-### Bước 4: Trình diễn Inpaint Brush & Generative Fill (45 giây)
-- *Thao tác*:
-  1. Chuyển sang Tab **"Inpaint"** $\to$ Bấm **"Bật Cọ vẽ Mask"**.
-  2. Dùng chuột tô màu đỏ lên một chi tiết trên ảnh trong Canvas.
-  3. Nhập Prompt: *"remove background reflections, studio lighting"* $\to$ Bấm **"Thực thi Inpaint Fill"**.
-- *Thuyết minh*: Thao tác tương tác trực quan ngay trên Canvas IDE, không cần phần mềm đồ họa bên ngoài.
+**Mất Internet có dùng được không?** Các thao tác Sharp cục bộ và provider chạy trên máy có thể tiếp tục nếu dependency sẵn sàng. Tool chỉ có cloud hoặc thiếu model sẽ báo không khả dụng. Offline mode chặn cloud; không tự động đổi sang kết quả mô phỏng.
 
-### Bước 5: Trình diễn Mô hình Đồ thị Lịch sử Context DAG (60 giây)
-- *Thuyết minh*: "Thay vì chuỗi hội thoại văn bản tuần tự như ChatGPT/Copilot, PixelPilot áp dụng mô hình **Context-Aware DAG**."
-- *Thao tác*:
-  - Chỉ vào thanh **Lịch sử Ngữ cảnh Đồ thị**: Đang hiển thị cây gồm 4 nodes: `Ảnh gốc` $\to$ `Tách nền BiRefNet` $\to$ `Vectorize SVG` $\to$ `Inpaint Fill`.
-  - Click vào node `Tách nền BiRefNet`: Toàn bộ trạng thái giao diện, ảnh trước/sau và thông số lập tức **Rollback** về thời điểm đó mà không cần gọi lại API!
-  - Từ node này, bấm thử một thao tác khác (ví dụ: `Canny Edge Detection`): Hệ thống tự động tạo một **nhánh mới (Branching)** song song trong đồ thị DAG.
-  - Bấm nút **"Export DAG"** để xuất toàn bộ cây trạng thái ra file JSON.
+**DAG khác undo tuyến tính thế nào?** Một node lưu quan hệ với node cha và artifact; sau khi quay về node cũ, thao tác mới tạo nhánh. Cần mở lại session để kiểm tra persistence, và không gọi provider lại chỉ vì điều hướng lịch sử.
 
----
+**Alpha matting có bảo đảm giữ tóc/vật trong suốt không?** Không. Kết quả phụ thuộc ảnh, model và provider. Đánh giá chất lượng cần ground truth, metric và tập thử riêng; không suy ra từ một ảnh demo.
 
-## 3. BẢN THỐNG KÊ KHOA HỌC DÀNH CHO BÁO CÁO & SLIDE
+**Chi phí cloud là bao nhiêu?** Phụ thuộc provider, model và chính sách giá tại thời điểm chạy. UI phải trình bày ước lượng hoặc chưa biết trước khi chấp thuận, và ghi chi phí thực khi provider trả về.
 
-Nhóm sử dụng bảng số liệu định lượng chuẩn sau đây để đưa trực tiếp vào Slide thuyết trình:
-
-```
-+-----------------------------------------------------------------------------------------+
-|                  BẢNG ĐỐI ĐẦU ĐỊNH LƯỢNG: ADOBE FIREFLY VS RUNWARE BIREFNET            |
-+-----------------------------------------------------------------------------------------+
-| Test Case            | Độ phân giải | Firefly Matting | BiRefNet Matting | Tốc độ       |
-+----------------------+--------------+-----------------+------------------+--------------+
-| TC1 (Tóc bay)        | 452 x 678    | 22.53%          | 78.07% (Gấp 3.5x)| 10.1x nhanh  |
-| TC2 (Mèo lông 2K)    | 2048 x 1639  | 4.54%           | 20.80% (Gấp 4.6x)| 8.1x nhanh   |
-| TC3 (Cốc thủy tinh)  | 730 x 485    | 2.14%           | 35.29% (Gấp 16x) | 8.8x nhanh   |
-| TC4 (Tương phản thấp)| 768 x 1152   | 1.22%           | 12.35% (Gấp 10x) | 9.5x nhanh   |
-| TC5 (Nan xe đạp)     | 500 x 333    | 15.42%          | 39.47% (Gấp 2.5x)| 9.9x nhanh   |
-+-----------------------------------------------------------------------------------------+
-| TRUNG BÌNH           |              | 9.17%           | 37.20% (Gấp 4.1x)| 9.3x nhanh   |
-+-----------------------------------------------------------------------------------------+
-```
-
----
-
-## 4. BỘ CÂU HỎI PHẢN BIỆN THƯỜNG GẶP CỦA HỘI ĐỒNG (FAQ) & CÁCH TRẢ LỜI
-
-### Câu hỏi 1: "Điểm khác biệt bản chất giữa Alpha Matting và Phân đoạn nhị phân (Binary Segmentation) là gì?"
-- **Trả lời**: "Dạ thưa Thầy/Cô, trong phân đoạn nhị phân (như SAM hoặc U-Net), mỗi pixel chỉ nhận giá trị nhị phân $\{0, 1\}$ (thuộc về vật thể hoặc nền). Điều này dẫn đến hiện tượng răng cưa thô bạo ở các sợi tóc mảnh và hoàn toàn không thể xử lý vật thể trong suốt. Trong khi đó, **Alpha Matting giải phương trình Porter-Duff: $I = \alpha F + (1-\alpha)B$** với $\alpha \in [0, 1]$ liên tục. BiRefNet mà đề tài sử dụng ước lượng chính xác độ mờ đục mềm (Soft Alpha), giúp giữ nguyên độ trong suốt của ly thủy tinh và từng sợi tóc tơ."
-
-### Câu hỏi 2: "Tại sao nhóm lại đề xuất mô hình Context DAG thay vì dùng mảng Stack Undo/Redo truyền thống?"
-- **Trả lời**: "Dạ thưa Thầy/Cô, mảng Stack truyền thống chỉ cho phép Undo/Redo theo một đường thẳng duy nhất. Khi người dùng Undo lại bước 2 và thử nghiệm một tác vụ mới, toàn bộ các bước sau bước 2 sẽ bị xóa vĩnh viễn (mất mát dữ liệu). **Mô hình Directed Acyclic Graph (DAG)** của chúng em cho phép người dùng **rẽ nhánh (Branching)**: từ 1 ảnh gốc có thể tạo ra nhánh A (tách nền), nhánh B (vectorize SVG), nhánh C (upscale) song song, và có thể kế thừa lại mặt nạ (Mask Inheritance) giữa các nút mà không cần tính toán lại từ đầu."
-
-### Câu hỏi 3: "Hệ thống có hoạt động được khi mất kết nối Internet hoặc hội đồng chấm thi offline không?"
-- **Trả lời**: "Dạ thưa Thầy/Cô, hệ thống được thiết kế theo kiến trúc **Hybrid Adaptive Provider**. Khi có mạng và API Key, hệ thống kết nối Cloud Inference của Runware với tốc độ cận giây (~380ms). Khi offline, hệ thống tự động chuyển sang **Local Mock Engine** với các thuật toán xử lý biên cục bộ, đảm bảo mọi chức năng trên giao diện vẫn hoạt động trơn tru 100% không bị gián đoạn."
-
-### Câu hỏi 4: "Chi phí vận hành của hệ thống có khả thi cho sinh viên và lập trình viên không?"
-- **Trả lời**: "Dạ thưa Thầy/Cô, qua đo đạc thực nghiệm trên Runware, chi phí chỉ là **$0.0006 USD** (tương đương khoảng 15 đồng Việt Nam) cho mỗi lần tách nền BiRefNet. So với gói Adobe Creative Cloud có giá từ 30$ - 60$/tháng, giải pháp của PixelPilot tiết kiệm chi phí hơn hàng ngàn lần và tích hợp trực tiếp vào quy trình làm việc của lập trình viên."
+**Khi nào có thể gọi là hoàn thành?** Khi các mục Definition of Done trong [kế hoạch](COPILOT_DEVELOPMENT_PLAN.md) và bảng bằng chứng phát hành đều có kết quả kiểm tra, gồm cài sạch, E2E quan trọng, OS/runtime và ba demo provider/model thật.

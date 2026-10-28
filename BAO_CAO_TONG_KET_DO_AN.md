@@ -1,5 +1,7 @@
 # 🎓 BÁO CÁO TỔNG KẾT ĐỒ ÁN TỐT NGHIỆP / NGHIÊN CỨU KHOA HỌC
 
+> **Lưu ý lịch sử (28/10/2026):** Các khẳng định về chất lượng, bảo vệ da 100%, tốc độ và chi phí trong báo cáo này phản ánh nội dung nghiên cứu tại thời điểm soạn; chưa được xác minh lại cho bản VSIX hiện tại. Đối chiếu [tiến độ triển khai](docs/COPILOT_IMPLEMENTATION_PROGRESS.md) và [release evidence](docs/COPILOT_RELEASE_EVIDENCE.md) trước khi trình bày như tính năng đã nghiệm thu.
+
 ---
 
 ## 📌 THÔNG TIN ĐỀ TÀI
@@ -163,7 +165,7 @@ Qua phân tích phổ màu trực tiếp trên dữ liệu điểm ảnh thực 
    Hiệu số $G - B > 25$ tạo nên sắc vàng hổ phách rất đậm đặc.
 
 ### 3.3. Giải thuật phân tách toán học và hòa trộn viền sợi tóc
-Thuật toán được xây dựng trong [`app.js`](file:///d:/CODE/DAKH/pixel-pilot-vscode/src/webview/app.js) gồm 2 hàm cốt lõi:
+Thuật toán được xây dựng trong [`app.js`](src/webview/app.js) gồm 2 hàm cốt lõi:
 
 ```javascript
 // 1. Bộ lọc nhận diện và bảo vệ tuyệt đối da mặt (100% Skin Protection)

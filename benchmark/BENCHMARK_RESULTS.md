@@ -1,5 +1,7 @@
 # BÁO CÁO KẾT QUẢ ĐO LƯỜNG THỰC NGHIỆM ĐỊNH LƯỢNG (EMPIRICAL BENCHMARK REPORT)
 
+> **Lưu ý lịch sử (28/10/2026):** Bảng bên dưới là bản ghi benchmark cũ, không phải telemetry live, giá hiện hành hay phép đo trên VSIX hiện tại. Cần lặp lại với provider/model, fixture, phương pháp và môi trường được ghi trong [release evidence](../docs/COPILOT_RELEASE_EVIDENCE.md).
+
 > **Hệ thống**: PixelPilot Benchmark Evaluation Suite  
 > **Thời gian tạo**: 2026-09-22T08:15:25.840Z  
 > **Mục tiêu**: Đánh giá định lượng mô hình SOTA Alpha Matting (Runware BiRefNet) đối đầu Adobe Firefly.

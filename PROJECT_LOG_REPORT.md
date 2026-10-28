@@ -1,5 +1,7 @@
 # 📋 BÁO CÁO TIẾN ĐỘ ĐỒ ÁN (PROJECT PROGRESS LOG)
 
+> **Lưu ý lịch sử (28/10/2026):** Báo cáo này ghi lại mục tiêu/kết quả tại thời điểm viết, chưa phải bằng chứng release của bản hiện tại. Xem [tiến độ triển khai](docs/COPILOT_IMPLEMENTATION_PROGRESS.md) và [release evidence](docs/COPILOT_RELEASE_EVIDENCE.md) trước khi trích dẫn capability hoặc số liệu.
+
 > **Tên đề tài**: *Nghiên cứu & Xây dựng Trợ lý Thị giác AI Đa phương thức trên VS Code (Pixel Pilot - Visual AI Studio & Agentic Vision Engine)*  
 > **Sinh viên thực hiện**: [Họ và Tên Sinh Viên] - MSSV: [Mã Số Sinh Viên]  
 > **Giáo viên hướng dẫn**: [Học Hàm / Học Vị - Họ và Tên Giảng Viên Hướng Dẫn]  
@@ -88,7 +90,7 @@
 * **Hiện tượng**: Khi thao tác với ảnh 2K/4K (như `TC2.png` 17.9MB), chuỗi Base64 dài hơn 24 triệu ký tự khiến kênh `postMessage` bị nghẽn, RAM VS Code tăng vọt lên ~280MB và Webview bị giật lag.
 * **Nguyên nhân**: Dữ liệu ảnh lớn bị sao chép nhiều lần trong bộ nhớ heap của tiến trình Extension Host.
 * **Giải pháp đã xử lý**: 
-  - Chuyển sang cơ chế **Zero-IPC Disk Cache** qua [`AssetStorageService.ts`](file:///d:/CODE/DAKH/pixel-pilot-vscode/src/services/storage/AssetStorageService.ts).
+  - Chuyển sang cơ chế **Zero-IPC Disk Cache** qua [`AssetStorageService.ts`](src/services/storage/AssetStorageService.ts).
   - Ảnh được lưu trực tiếp vào ổ cứng (`globalStorageUri`), Webview chỉ nhận URI `vscode-webview-resource:` và hiển thị qua GPU acceleration.
   - RAM giảm từ **~280MB** xuống chỉ còn **~48MB** (giảm 85%).
 * **Trạng thái**: ✅ **ĐÃ KHẮC PHỤC TRIỆT ĐỂ**.
@@ -99,7 +101,7 @@
 * **Hiện tượng**: API Key được lưu trực tiếp trong `settings.json` dạng plain text, có nguy cơ bị rò rỉ khi lập trình viên commit mã nguồn lên Git.
 * **Nguyên nhân**: Thiết kế ban đầu sử dụng `vscode.workspace.getConfiguration()`.
 * **Giải pháp đã xử lý**: 
-  - Xây dựng [`SecretManager.ts`](file:///d:/CODE/DAKH/pixel-pilot-vscode/src/services/security/SecretManager.ts) sử dụng `vscode.SecretStorage` (mã hóa cấp hệ điều hành).
+  - Xây dựng [`SecretManager.ts`](src/services/security/SecretManager.ts) sử dụng `vscode.SecretStorage` (mã hóa cấp hệ điều hành).
   - Tự động phát hiện, di chuyển key cũ và xóa trắng trường văn bản rõ trong `settings.json`.
 * **Trạng thái**: ✅ **ĐÃ KHẮC PHỤC TRIỆT ĐỂ**.
 
@@ -125,23 +127,23 @@
   - `a124652`: *feat(ai-agent): implement visual tool registry, vision agent orchestrator, and skin chrominance protection*
 
 ### 📄 Tài Liệu Báo Cáo Học Thuật
-- **Báo cáo Tổng kết Đồ án chính thức**: [`BAO_CAO_TONG_KET_DO_AN.md`](file:///d:/CODE/DAKH/pixel-pilot-vscode/BAO_CAO_TONG_KET_DO_AN.md)
-- **Báo cáo Thực nghiệm Đối đầu Benchmark**: [`TEST_PLAN_AND_REPORT.md`](file:///d:/CODE/DAKH/pixel-pilot-vscode/TEST_PLAN_AND_REPORT.md)
-- **Thuyết minh Đề cương Nghiên cứu (Proposal)**: [`docs/ACADEMIC_RESEARCH_PROPOSAL.md`](file:///d:/CODE/DAKH/pixel-pilot-vscode/docs/ACADEMIC_RESEARCH_PROPOSAL.md)
-- **Cẩm nang Bảo vệ Đồ án (Defense Guide)**: [`docs/DEFENSE_GUIDE.md`](file:///d:/CODE/DAKH/pixel-pilot-vscode/docs/DEFENSE_GUIDE.md)
-- **Nhật ký tuần 01**: [`weekly_logs/WEEK_01.md`](file:///d:/CODE/DAKH/pixel-pilot-vscode/weekly_logs/WEEK_01.md)
-- **Nhật ký tuần 02**: [`weekly_logs/WEEK_02.md`](file:///d:/CODE/DAKH/pixel-pilot-vscode/weekly_logs/WEEK_02.md)
+- **Báo cáo Tổng kết Đồ án chính thức**: [`BAO_CAO_TONG_KET_DO_AN.md`](BAO_CAO_TONG_KET_DO_AN.md)
+- **Báo cáo Thực nghiệm Đối đầu Benchmark**: [`TEST_PLAN_AND_REPORT.md`](TEST_PLAN_AND_REPORT.md)
+- **Thuyết minh Đề cương Nghiên cứu (Proposal)**: [`docs/ACADEMIC_RESEARCH_PROPOSAL.md`](docs/ACADEMIC_RESEARCH_PROPOSAL.md)
+- **Cẩm nang Bảo vệ Đồ án (Defense Guide)**: [`docs/DEFENSE_GUIDE.md`](docs/DEFENSE_GUIDE.md)
+- **Nhật ký tuần 01**: [`weekly_logs/WEEK_01.md`](weekly_logs/WEEK_01.md)
+- **Nhật ký tuần 02**: [`weekly_logs/WEEK_02.md`](weekly_logs/WEEK_02.md)
 
 ### 💻 Mã Nguồn Cốt Lõi (Core Source Code)
-- **Bộ Công Cụ Thị Giác (9 Tools)**: [`src/services/ai/AgentToolRegistry.ts`](file:///d:/CODE/DAKH/pixel-pilot-vscode/src/services/ai/AgentToolRegistry.ts)
-- **Bộ Não LLM Agent (Gemini / OpenAI / Local)**: [`src/services/ai/LLMProvider.ts`](file:///d:/CODE/DAKH/pixel-pilot-vscode/src/services/ai/LLMProvider.ts)
-- **Điều Phối Thị Giác (Vision Orchestrator)**: [`src/services/ai/VisionAgentOrchestrator.ts`](file:///d:/CODE/DAKH/pixel-pilot-vscode/src/services/ai/VisionAgentOrchestrator.ts)
-- **Giao Diện & Giải Thuật Bảo Vệ Da**: [`src/webview/app.js`](file:///d:/CODE/DAKH/pixel-pilot-vscode/src/webview/app.js)
-- **Cấu Trúc Giao Diện Webview Studio**: [`src/webview/index.html`](file:///d:/CODE/DAKH/pixel-pilot-vscode/src/webview/index.html)
-- **Bảo Mật Khóa Cấp HĐH**: [`src/services/security/SecretManager.ts`](file:///d:/CODE/DAKH/pixel-pilot-vscode/src/services/security/SecretManager.ts)
-- **Bộ Đệm Nhị Phân Zero-IPC**: [`src/services/storage/AssetStorageService.ts`](file:///d:/CODE/DAKH/pixel-pilot-vscode/src/services/storage/AssetStorageService.ts)
+- **Bộ Công Cụ Thị Giác (9 Tools)**: [`src/services/ai/AgentToolRegistry.ts`](src/services/ai/AgentToolRegistry.ts)
+- **Bộ Não LLM Agent (Gemini / OpenAI / Local)**: [`src/services/ai/LLMProvider.ts`](src/services/ai/LLMProvider.ts)
+- **Điều Phối Thị Giác (Vision Orchestrator)**: [`src/services/ai/VisionAgentOrchestrator.ts`](src/services/ai/VisionAgentOrchestrator.ts)
+- **Giao Diện & Giải Thuật Bảo Vệ Da**: [`src/webview/app.js`](src/webview/app.js)
+- **Cấu Trúc Giao Diện Webview Studio**: [`src/webview/index.html`](src/webview/index.html)
+- **Bảo Mật Khóa Cấp HĐH**: [`src/services/security/SecretManager.ts`](src/services/security/SecretManager.ts)
+- **Bộ Đệm Nhị Phân Zero-IPC**: [`src/services/storage/AssetStorageService.ts`](src/services/storage/AssetStorageService.ts)
 
 ### 🖼️ Thư Mục Ảnh Thực Nghiệm Đo Đạc
-- **Ảnh gốc 5 Test Cases**: [`test_images/01_original/`](file:///d:/CODE/DAKH/pixel-pilot-vscode/test_images/01_original/)
-- **Kết quả Adobe Firefly**: [`test_images/02_adobe_firefly/`](file:///d:/CODE/DAKH/pixel-pilot-vscode/test_images/02_adobe_firefly/)
-- **Kết quả Runware BiRefNet**: [`test_images/03_runware_birefnet/`](file:///d:/CODE/DAKH/pixel-pilot-vscode/test_images/03_runware_birefnet/)
+- **Ảnh gốc 5 Test Cases**: [`test_images/01_original/`](test_images/01_original/)
+- **Kết quả Adobe Firefly**: [`test_images/02_adobe_firefly/`](test_images/02_adobe_firefly/)
+- **Kết quả Runware BiRefNet**: [`test_images/03_runware_birefnet/`](test_images/03_runware_birefnet/)

@@ -1,5 +1,7 @@
 # 📋 BÁO CÁO TIẾN ĐỘ TUẦN 01 (WEEK 01 PROGRESS REPORT)
 
+> **Lưu ý lịch sử (28/10/2026):** Đây là nhật ký tại thời điểm tuần 01; các claim và số liệu chưa thay thế [release evidence hiện tại](../docs/COPILOT_RELEASE_EVIDENCE.md).
+
 > **Tên đề tài**: *Nghiên cứu và phát triển công cụ hỗ trợ xử lý ảnh đa ngữ cảnh trên môi trường IDE tích hợp mô hình thị giác nhân tạo SOTA*  
 > **Tên tiếng Anh**: *Research and Development of a Context-Aware Visual AI Assistant for IDE Environments using SOTA Vision Models (PixelPilot)*  
 > **Thời gian thực hiện**: Tuần 01  

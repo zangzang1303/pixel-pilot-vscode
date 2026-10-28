@@ -1,5 +1,7 @@
 # 📅 Nhật Ký Tiến Độ Đồ Án Khoa Học (Weekly Progress Logs)
 
+> **Lưu ý lịch sử (28/10/2026):** Các tỷ lệ “100%” trong nhật ký phản ánh đánh giá ở tuần tương ứng, không xác nhận Definition of Done của bản hiện tại. Xem [tiến độ triển khai](../docs/COPILOT_IMPLEMENTATION_PROGRESS.md) và [release evidence](../docs/COPILOT_RELEASE_EVIDENCE.md).
+
 > **Đề tài**: Nghiên cứu và phát triển công cụ hỗ trợ xử lý ảnh đa ngữ cảnh trên môi trường IDE tích hợp mô hình thị giác nhân tạo SOTA (*PixelPilot*)  
 > **Học phần**: Đồ án Khoa học / Khóa luận Tốt nghiệp  
 > **Mục đích**: Theo dõi tiến độ nghiên cứu, ghi nhận các mốc bàn giao (deliverables), các vấn đề kỹ thuật phát sinh và giải pháp thực thi hàng tuần.

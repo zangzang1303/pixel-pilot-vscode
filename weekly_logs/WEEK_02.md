@@ -1,5 +1,7 @@
 # 📋 BÁO CÁO TIẾN ĐỘ TUẦN 02 (WEEK 02 PROGRESS REPORT)
 
+> **Lưu ý lịch sử (28/10/2026):** Đây là nhật ký tại thời điểm tuần 02; các claim và số liệu chưa thay thế [release evidence hiện tại](../docs/COPILOT_RELEASE_EVIDENCE.md).
+
 > **Tên đề tài**: *Nghiên cứu và phát triển công cụ hỗ trợ xử lý ảnh đa ngữ cảnh trên môi trường IDE tích hợp mô hình thị giác nhân tạo SOTA*  
 > **Trọng tâm Tuần 02**: *Chuyển đổi kiến trúc sang Chuẩn Doanh nghiệp (Enterprise-Grade Transformation: SecretStorage, Zero-IPC Disk Cache, Batch Processor & Design System Tokens)*  
 > **Trạng thái**: Hoàn thành 100% mục tiêu Tuần 02
