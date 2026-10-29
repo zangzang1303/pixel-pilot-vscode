@@ -1,6 +1,6 @@
 # Pixel Pilot Copilot — Báo cáo tiến độ triển khai
 
-Ngày cập nhật: **28/10/2026 (Asia/Saigon)**. Báo cáo này đối chiếu trực tiếp với [COPILOT_DEVELOPMENT_PLAN.md](COPILOT_DEVELOPMENT_PLAN.md). Trạng thái **một phần** không được xem là đạt acceptance/release gate nếu chưa có smoke provider thật ngoài môi trường fixture.
+Ngày cập nhật: **29/10/2026 (Asia/Saigon)**. Báo cáo này đối chiếu trực tiếp với [COPILOT_DEVELOPMENT_PLAN.md](COPILOT_DEVELOPMENT_PLAN.md). Trạng thái **một phần** không được xem là đạt acceptance/release gate chỉ nhờ smoke provider thật từ Node trên một fixture; các gate UI và máy cài sạch vẫn cần bằng chứng riêng.
 
 ## Tóm tắt trung thực
 
@@ -15,7 +15,7 @@ Ngày cập nhật: **28/10/2026 (Asia/Saigon)**. Báo cáo này đối chiếu 
     - **B27**: Fixture benchmark đo planner, reducer và lưu/deduplicate SHA-256; giá trị phụ thuộc máy và lần chạy, xem `benchmark/benchmark_results.json`. Canary redaction có regression test. Các số này không phải latency provider hay telemetry live.
     - **B28**: Kiểm tra manifest và artifact phân phối qua `test/packageManifest.test.cjs` và `npm run package:smoke` (`npm pack --dry-run`), đóng gói tarball sạch `pixel-pilot-vscode-1.1.0.tgz` (931.9 kB) chứa đầy đủ `out/extension.js` và bundle duy nhất `webview-ui/dist/index.html` (273.42 kB).
     - **B29**: Đồng bộ tài liệu và đối chiếu năng lực thực tế tại `README.md` và `COPILOT_IMPLEMENTATION_PROGRESS.md`.
-- Toàn bộ quy trình `npm run check` (build webview-ui, compile Host TypeScript, test runner) pass **96/96 test cases 100%** (0 lỗi, 0 skipped, 0 cancelled).
+- Toàn bộ quy trình `npm run check` (build webview-ui, compile Host TypeScript, test runner) pass **98/98 test cases 100%** (0 lỗi, 0 skipped, 0 cancelled).
 
 ## Backlog status
 
@@ -48,7 +48,7 @@ Ngày cập nhật: **28/10/2026 (Asia/Saigon)**. Báo cáo này đối chiếu 
 | B25 | Hoàn thành | `PlanExecutionCoordinator.ts` khóa concurrency 1 mutation/session, lưu checkpoint sau từng bước thực thi, hỗ trợ `resumePlan` chỉ chạy lại bước thất bại mà không thực hiện lại các bước đã thành công. |
 | B26 | Hoàn thành | Bộ Agent Eval độc lập với 120 golden test cases (60 VI, 60 EN), đạt 100% safety compliance (zero unauthorized calls) và 100% overall accuracy. Kết quả lưu tại `evals/copilot/eval_report.json`. |
 | B27 | Hoàn thành ở mức fixture | `benchmark/benchmark_results.json` ghi số đo của từng lần chạy cho planner/reducer/artifact store và test canary secret; chưa phải benchmark provider thật hoặc nhiều OS/runtime. |
-| B28 | Một phần — chưa đạt release gate | `npm run lint` và `npm run check` pass; Extension Development Host E2E trên VS Code 1.143.1 xác minh activation/commands/Studio từ source và từ cây VSIX đã cài. Build xóa `out` cũ, VSIX không chứa module legacy; install smoke Sharp và recolor thiếu model pass. Đã có ma trận phạm vi kiểm tra trong `COPILOT_RELEASE_EVIDENCE.md`. Chưa có clean-OS install, recolor với model thật, E2E UI critical flows và ba demo provider/model thật. |
+| B28 | Một phần — chưa đạt release gate | `npm run lint` và `npm run check` pass 98/98; Extension Development Host E2E trên VS Code 1.143.1 xác minh activation/commands/Studio từ source và cây VSIX đã cài. Build xóa `out` cũ; install smoke Sharp và recolor thiếu model pass. Đã cài ONNX Runtime 1.23.2/model có hash ghim; ComfyUI 0.42.0 + BiRefNet chạy 3/3 lượt recolor tóc thật từ Node trên một fixture, đầu ra đổi pixel. Chưa có clean-OS install, E2E UI critical flows và ba demo qua UI/VSIX có record đầy đủ. |
 | B29 | Một phần — chưa đạt acceptance | `README.md`, `SETUP_GUIDE.md`, `DEFENSE_GUIDE.md`, `ONBOARDING.md` đã sửa hướng dẫn hiện tại; các báo cáo/benchmark/weekly log cũ được gắn nhãn lịch sử. Ba module panel/protocol legacy không còn consumer đã được gỡ sau usage search; VSIX xác nhận không còn JS cũ. Link nội bộ của các file tài liệu thay đổi đã kiểm tra. Còn cần setup walkthrough trên máy sạch và đối chiếu cuối cùng sau khi B28 có evidence. |
 
 ## Files thay đổi qua toàn bộ các giai đoạn
@@ -59,7 +59,7 @@ Ngày cập nhật: **28/10/2026 (Asia/Saigon)**. Báo cáo này đối chiếu 
 - **UI & UX (Phase 3)**: `src/shared/runReducer.ts`, `webview-ui/src/state/runReducer.ts`, `webview-ui/src/components/copilot/ToolRunCard.tsx`, `webview-ui/src/components/copilot/ConfirmationDialog.tsx`, `webview-ui/src/components/copilot/CompareView.tsx`, `webview-ui/src/components/Canvas.tsx`, `webview-ui/src/components/CopilotChat.tsx`, `webview-ui/src/App.tsx`.
 - **Planner & Routing & Recovery (Phase 4)**: `src/services/planner/types.ts`, `src/services/planner/PlanValidator.ts`, `src/services/planner/RulePlanner.ts`, `src/services/planner/IntentRouter.ts`, `src/services/planner/PlanExecutionCoordinator.ts`.
 - **Eval & Benchmark (Phase 5)**: `src/evals/copilot/evalDataset.ts`, `src/evals/copilot/evalRunner.ts`, `evals/copilot/eval_report.json`, `benchmark/benchmark_results.json`.
-- **Tests**: 33 files test suites, đạt **96/96 test cases pass 100%**.
+- **Tests**: 34 files test suites, đạt **98/98 test cases pass 100%**.
 
 ## Đối chiếu bổ sung với acceptance của kế hoạch (28/10/2026)
 
@@ -71,23 +71,25 @@ Ngày cập nhật: **28/10/2026 (Asia/Saigon)**. Báo cáo này đối chiếu 
 | B18–B21 | runReducer lifecycle, ToolRunCard tiến độ, ConfirmationDialog countdown, CompareView split slider, Canvas shortcuts/ARIA. | Hoàn tất trong code và test fixture. |
 | B22–B25 | PlanValidator (tối đa 5 bước, chống cycle/forward reference), RulePlanner (negation/question/clarify/bindings), IntentRouter (local-first/offline blocking), PlanExecutionCoordinator (concurrency lock/checkpointing/resume). | Hoàn tất trong code và test fixture. |
 | B26–B27 | 120 golden eval cases pass 100%; benchmark planner/reducer/artifact store có số đo theo lần chạy. | Cần lặp lại benchmark/eval trên môi trường release khi scope runtime được chốt; không dùng số fixture như telemetry live. |
-| B28–B29 | Source-policy lint/type-check, Extension Development Host activation E2E từ source và cây VSIX đã cài, Sharp runtime và recolor thiếu model pass. README/setup/defense/onboarding đã sửa; báo cáo cũ gắn nhãn lịch sử; panel/protocol legacy không consumer đã gỡ. | Clean-OS install, recolor runtime với model thật, UI E2E critical flows, ma trận OS/runtime được smoke và ba demo provider/model thực có record. |
+| B28–B29 | Source-policy lint/type-check, Extension Development Host activation E2E từ source và cây VSIX đã cài, Sharp runtime và recolor thiếu model pass. Recolor runtime với ComfyUI/BiRefNet + ONNX Runtime pass 3/3 lượt Node smoke trên một fixture. README/setup/defense/onboarding đã sửa; báo cáo cũ gắn nhãn lịch sử; panel/protocol legacy không consumer đã gỡ. | Clean-OS install, UI E2E critical flows, ma trận OS/runtime được smoke và ba demo qua UI/VSIX có record đầy đủ. |
 
 ## Hiệu chỉnh release gate theo kiểm chứng gần nhất
 
 Trạng thái **"Hoàn thành"** trong bảng B01–B29 ở trên chỉ phân biệt các hạng mục đã có triển khai và fixture test trong repository; nó **không** đủ để đóng Definition of Done/release gate tại mục 19 của kế hoạch.
 
-- 28/10/2026: đã thay fixture PNG không ổn định trong `priorityToolExecutors.test.cjs` bằng PNG được Sharp sinh ra và cho test runner chạy tuần tự. Lệnh `npm.cmd run check` gần nhất **pass 96/96** (build webview, TypeScript host và 33 file `test/*.test.cjs`).
+- 28/10/2026: đã thay fixture PNG không ổn định trong `priorityToolExecutors.test.cjs` bằng PNG được Sharp sinh ra và cho test runner chạy tuần tự. Lượt kiểm tra khi đó pass 96/96.
 - 28/10/2026: kiểm tra install smoke VSIX tại Windows 10.0.22621, VS Code 1.143.1: Sharp chạy được, recolor không có ONNX model báo unavailable. `npm.cmd run provider:smoke:local` chưa chạy được vì không có ComfyUI trên cổng 8188. Chi tiết/hash VSIX ở `COPILOT_RELEASE_EVIDENCE.md`.
 - 28/10/2026: `npm.cmd run test:e2e` pass trên VS Code 1.143.1 cài cục bộ sau khi runner bỏ `ELECTRON_RUN_AS_NODE` khi probe executable. Bằng chứng chỉ bao phủ activation/commands/mở Studio, chưa bao phủ UI critical flows.
 - 28/10/2026: `npm.cmd run test:e2e:vsix` pass từ cây extension đã cài bằng VSIX. `compile` dọn `out` trước khi biên dịch; archive cuối không chứa ba module panel/protocol cũ. Bằng chứng và hash VSIX cuối ở `COPILOT_RELEASE_EVIDENCE.md`.
+- 29/10/2026: `npm.cmd run check` pass 98/98, `npm.cmd run lint` pass và `npm.cmd run test:e2e:vsix` pass. Smoke recolor mới từ chối ảnh không đổi pixel, kiểm tra hash ONNX và ghi model ComfyUI được chọn. Chạy thử trên máy này dừng đúng tại thiếu ONNX model; Python C:\AI\ComfyUI có NumPy/Pillow nhưng thiếu ONNX Runtime, ComfyUI offline và không có custom node LoadBackgroundRemovalModel. Hash VSIX mới ở `COPILOT_RELEASE_EVIDENCE.md`.
+- 29/10/2026 (lượt tiếp): `scripts/setup_recolor.ps1` cài ONNX Runtime 1.23.2 vào workspace bằng Python hệ thống cùng ABI với ComfyUI venv, kiểm tra import bằng chính ComfyUI Python và SHA-256 model. ComfyUI 0.42.0 công bố sẵn `RemoveBackground` và `birefnet.safetensors` qua `/object_info` dù cây `custom_nodes` không có tên node đó. `npm.cmd run provider:smoke:local` pass 3/3 lượt trên `TC1.jpg`; chi tiết, hash và giới hạn bằng chứng tại `COPILOT_RELEASE_EVIDENCE.md` và `evals/release/local_provider_smoke.json`. Đây là runtime smoke từ Node, chưa phải UI E2E hay demo từ VSIX cài sạch.
 - `npm run lint` chạy source-policy lint và type-check host/webview; `npm run test:e2e` chạy Extension Development Host/VS Code cô lập và xác minh activation, public commands, mở Studio.
 - `npm run package:vsix` tạo và structural-smoke VSIX Windows; `npm run package:vsix:install-smoke` pass trong VS Code profile cô lập; `npm pack --dry-run` kiểm tra NPM tarball. Các bước này không thay thế clean-OS install hay recolor có model thật.
-- Chưa có ba demo provider/model thực (opt-in) được ghi làm release evidence; chưa có ma trận OS/runtime được smoke theo phát ngôn hỗ trợ.
+- Đã có ba lượt local provider smoke từ Node trên một fixture; chưa có ba demo qua UI/VSIX với session, consent và artifact ID được ghi làm release evidence; chưa có ma trận OS/runtime được smoke theo phát ngôn hỗ trợ.
 
 Vì bằng chứng clean-OS, UI E2E và provider thật chưa tồn tại, **B28 chưa đạt acceptance/release gate** và **B29 chưa được đóng** cho đến khi setup walkthrough và tài liệu cuối cùng khớp với evidence phát hành. Các case eval/benchmark hiện tại là fixture, không thay thế smoke provider thực.
 
-Verification hiện tại: `npm.cmd run check` pass **96/96 test cases** (build webview-ui, TypeScript host và tất cả 33 file `test/*.test.cjs`), nhưng chưa phải báo cáo release-complete.
+Verification hiện tại: `npm.cmd run check` pass **98/98 test cases** (build webview-ui, TypeScript host và tất cả 34 file `test/*.test.cjs`), nhưng chưa phải báo cáo release-complete.
 
 ## Trạng thái hoàn thành kế hoạch
 

@@ -356,8 +356,11 @@ export class ImageProcessor implements IImageProcessor {
     const root = path.resolve(__dirname, '../../..');
     const runtimeDir = path.join(root, '.pixelpilot_runtime');
     const script = path.join(root, 'scripts', 'recolor_mask.py');
-    const python = process.env.PIXEL_PILOT_PYTHON || 'D:\\ComfyUI_windows_portable\\python_embeded\\python.exe';
-    if (!fs.existsSync(python) || !fs.existsSync(script) || !fs.existsSync(path.join(runtimeDir, 'selfie_multiclass.onnx'))) {
+    const pythonCandidates = process.env.PIXEL_PILOT_PYTHON
+      ? [process.env.PIXEL_PILOT_PYTHON]
+      : ['C:\\AI\\ComfyUI\\.venv\\Scripts\\python.exe', 'D:\\ComfyUI_windows_portable\\python_embeded\\python.exe'];
+    const python = pythonCandidates.find(candidate => fs.existsSync(candidate));
+    if (!python || !fs.existsSync(script) || !fs.existsSync(path.join(runtimeDir, 'selfie_multiclass.onnx'))) {
       throw new Error('Thiếu mô hình đổi màu chọn lọc. Chạy scripts/setup_recolor.ps1 trong thư mục dự án.');
     }
     return await new Promise<Buffer>((resolve, reject) => {

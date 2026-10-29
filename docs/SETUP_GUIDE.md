@@ -39,7 +39,7 @@ Khởi động InvokeAI cục bộ, cấu hình `pixelPilot.invokeAIServerUrl` n
 
 ### Recolor chọn lọc
 
-Đường chạy semantic recolor cần Python với NumPy/Pillow/ONNX Runtime, `selfie_multiclass.onnx` và ComfyUI có foreground model phù hợp. Trên máy phát triển Windows, `scripts/setup_recolor.ps1` thiết lập model ONNX và xác minh SHA-256; script có thể tải/cài dependency, nên chỉ chạy khi bạn muốn thiết lập tính năng này. Đặt `PIXEL_PILOT_PYTHON` tới đúng `python.exe` trước khi chạy. VSIX không đóng gói model hay Python. Khi thiếu prerequisite, recolor phải báo không khả dụng, không trả ảnh gốc như kết quả thành công.
+Đường chạy semantic recolor cần Python với NumPy/Pillow/ONNX Runtime, `selfie_multiclass.onnx` và ComfyUI có `RemoveBackground` cùng foreground model phù hợp (kiểm tra qua `/object_info`). Trên máy phát triển Windows, `scripts/setup_recolor.ps1` thiết lập model ONNX và xác minh SHA-256; nếu ComfyUI venv thiếu pip, script dùng Python hệ thống khi cùng phiên bản ABI để cài wheel vào `.pixelpilot_runtime`, rồi xác minh import bằng ComfyUI Python. Script có thể tải/cài dependency, nên chỉ chạy khi bạn muốn thiết lập tính năng này. Đặt `PIXEL_PILOT_PYTHON` tới đúng `python.exe` trước khi chạy. VSIX không đóng gói model hay Python. Khi thiếu prerequisite, recolor phải báo không khả dụng, không trả ảnh gốc như kết quả thành công.
 
 ## 4. Kiểm thử package
 
@@ -49,7 +49,7 @@ npm.cmd run package:vsix
 npm.cmd run package:vsix:install-smoke
 ```
 
-Install smoke kiểm tra VSIX trong profile cô lập trên máy hiện tại, gồm Sharp và hành vi thiếu model của recolor. Muốn kết luận bản phát hành chạy trên máy mới, hãy dùng VM/Windows sạch và điền [bảng bằng chứng release](COPILOT_RELEASE_EVIDENCE.md), gồm kiến trúc, VS Code version, provider/model và kết quả từng luồng. Có thể chạy `npm.cmd run provider:smoke:local` sau khi ComfyUI/model thật đã sẵn sàng; script này chạy provider thật và không phải fixture test.
+Install smoke kiểm tra VSIX trong profile cô lập trên máy hiện tại, gồm Sharp và hành vi thiếu model của recolor. Muốn kết luận bản phát hành chạy trên máy mới, hãy dùng VM/Windows sạch và điền [bảng bằng chứng release](COPILOT_RELEASE_EVIDENCE.md), gồm kiến trúc, VS Code version, provider/model và kết quả từng luồng. Sau khi đặt `PIXEL_PILOT_PYTHON`, cài ONNX model đúng hash và khởi động ComfyUI với `RemoveBackground`/foreground model, có thể chạy `npm.cmd run provider:smoke:local`. Script dùng `test_images/01_original/TC1.jpg` mặc định hoặc nhận đường dẫn fixture trong workspace sau `--`; cả ba lượt phải tạo ảnh khác pixel đầu vào. Đây là smoke provider cục bộ, chưa phải E2E trên VSIX hay đánh giá chất lượng ảnh.
 
 ## 5. Khi tác vụ không chạy
 

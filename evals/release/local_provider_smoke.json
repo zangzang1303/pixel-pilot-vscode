@@ -1,107 +1,74 @@
 {
-  "schemaVersion": 1,
-  "generatedAt": "2026-10-28T09:25:45.001Z",
-  "provider": "ComfyUI local loopback",
-  "system": {
-    "os": "win32",
-    "comfySystem": {
-      "os": "win32",
-      "ram_total": 16781979648,
-      "ram_free": 1111666688,
-      "comfyui_version": "0.39.0",
-      "required_frontend_version": "1.53.10",
-      "installed_templates_version": "0.11.76",
-      "required_templates_version": "0.11.76",
-      "comfy_package_versions": [
-        {
-          "name": "comfyui-frontend-package",
-          "installed": "1.53.10",
-          "required": "1.53.10"
-        },
-        {
-          "name": "comfyui-workflow-templates",
-          "installed": "0.11.76",
-          "required": "0.11.76"
-        },
-        {
-          "name": "comfyui-embedded-docs",
-          "installed": "0.5.13",
-          "required": "0.5.13"
-        },
-        {
-          "name": "comfy-kitchen",
-          "installed": "0.2.37",
-          "required": "0.2.37"
-        },
-        {
-          "name": "comfy-aimdo",
-          "installed": "0.5.5",
-          "required": "0.5.5"
-        }
-      ],
-      "python_version": "3.13.14 (tags/v3.13.14:fd17997, Jun 10 2026, 13:03:48) [MSC v.1944 64 bit (AMD64)]",
-      "pytorch_version": "2.13.0+cu126",
-      "embedded_python": true,
-      "deploy_environment": "local-portable",
-      "argv": [
-        "ComfyUI\\main.py",
-        "--windows-standalone-build"
-      ]
-    },
-    "requiredNode": "LoadBackgroundRemovalModel"
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-29T14:22:51.268Z",
+  "environment": {
+    "platform": "win32",
+    "arch": "x64",
+    "nodeVersion": "v24.11.1",
+    "comfyVersion": "0.42.0"
   },
   "limitations": [
-    "This is a runtime smoke on a synthetic fixture, not an image-quality or skin-preservation evaluation.",
-    "No cloud provider, user image, prompt, or credential is used."
+    "Three local runtime runs on one fixture are not an image-quality or skin-preservation evaluation.",
+    "This Node smoke does not verify the installed VSIX webview, consent UI, or a clean OS.",
+    "No cloud provider or credential was used."
   ],
   "runs": [
     {
       "run": 1,
-      "startedAt": "2026-10-28T09:25:31.329Z",
-      "provider": "comfyui",
-      "model": "selfie_multiclass.onnx + ComfyUI foreground model (runtime-resolved)",
-      "fixture": "synthetic-64x64-solid-rgba",
-      "inputSha256": "cacc5e2d96e9b57df57ad2511f9afe1b1557efa4bc35a4d72efb3096b250154d",
-      "outputSha256": "cacc5e2d96e9b57df57ad2511f9afe1b1557efa4bc35a4d72efb3096b250154d",
+      "startedAt": "2026-10-29T14:22:24.647Z",
+      "provider": "ComfyUI local + ONNX Runtime",
+      "foregroundModel": "birefnet.safetensors",
+      "onnxSha256": "35ec1ecd9ee7f85073c99c00020b7f6751b69506eeacf683bc8665f6117f85b0",
+      "fixture": "test_images/01_original/TC1.jpg",
+      "inputSha256": "3763bea91321d200194374520626b75244ef79bc3a983a6546db0e359a265d51",
+      "outputSha256": "a9ae352e93ad671e65a802101c835c143b10bd4be71fcc0b39ccb71424e056e2",
       "output": {
         "format": "png",
-        "width": 64,
-        "height": 64,
-        "bytes": 266
+        "bytes": 606313,
+        "width": 452,
+        "height": 678,
+        "changedPixels": 224843,
+        "changedFraction": 0.7336877072075599
       },
-      "durationMs": 4778
+      "durationMs": 11380
     },
     {
       "run": 2,
-      "startedAt": "2026-10-28T09:25:36.110Z",
-      "provider": "comfyui",
-      "model": "selfie_multiclass.onnx + ComfyUI foreground model (runtime-resolved)",
-      "fixture": "synthetic-64x64-solid-rgba",
-      "inputSha256": "cacc5e2d96e9b57df57ad2511f9afe1b1557efa4bc35a4d72efb3096b250154d",
-      "outputSha256": "cacc5e2d96e9b57df57ad2511f9afe1b1557efa4bc35a4d72efb3096b250154d",
+      "startedAt": "2026-10-29T14:22:36.027Z",
+      "provider": "ComfyUI local + ONNX Runtime",
+      "foregroundModel": "birefnet.safetensors",
+      "onnxSha256": "35ec1ecd9ee7f85073c99c00020b7f6751b69506eeacf683bc8665f6117f85b0",
+      "fixture": "test_images/01_original/TC1.jpg",
+      "inputSha256": "3763bea91321d200194374520626b75244ef79bc3a983a6546db0e359a265d51",
+      "outputSha256": "a9ae352e93ad671e65a802101c835c143b10bd4be71fcc0b39ccb71424e056e2",
       "output": {
         "format": "png",
-        "width": 64,
-        "height": 64,
-        "bytes": 266
+        "bytes": 606313,
+        "width": 452,
+        "height": 678,
+        "changedPixels": 224843,
+        "changedFraction": 0.7336877072075599
       },
-      "durationMs": 4793
+      "durationMs": 7305
     },
     {
       "run": 3,
-      "startedAt": "2026-10-28T09:25:40.903Z",
-      "provider": "comfyui",
-      "model": "selfie_multiclass.onnx + ComfyUI foreground model (runtime-resolved)",
-      "fixture": "synthetic-64x64-solid-rgba",
-      "inputSha256": "cacc5e2d96e9b57df57ad2511f9afe1b1557efa4bc35a4d72efb3096b250154d",
-      "outputSha256": "cacc5e2d96e9b57df57ad2511f9afe1b1557efa4bc35a4d72efb3096b250154d",
+      "startedAt": "2026-10-29T14:22:43.332Z",
+      "provider": "ComfyUI local + ONNX Runtime",
+      "foregroundModel": "birefnet.safetensors",
+      "onnxSha256": "35ec1ecd9ee7f85073c99c00020b7f6751b69506eeacf683bc8665f6117f85b0",
+      "fixture": "test_images/01_original/TC1.jpg",
+      "inputSha256": "3763bea91321d200194374520626b75244ef79bc3a983a6546db0e359a265d51",
+      "outputSha256": "a9ae352e93ad671e65a802101c835c143b10bd4be71fcc0b39ccb71424e056e2",
       "output": {
         "format": "png",
-        "width": 64,
-        "height": 64,
-        "bytes": 266
+        "bytes": 606313,
+        "width": 452,
+        "height": 678,
+        "changedPixels": 224843,
+        "changedFraction": 0.7336877072075599
       },
-      "durationMs": 4097
+      "durationMs": 7937
     }
   ]
 }
