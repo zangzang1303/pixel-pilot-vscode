@@ -22,6 +22,15 @@ async function run() {
   // Opening the Studio exercises the contributed command and webview host
   // without calling an external model provider.
   await vscode.commands.executeCommand('pixel-pilot.openStudio');
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline && !vscode.window.tabGroups.all.some(group =>
+    group.tabs.some(tab => tab.label === 'Pixel Pilot - AI Studio'))) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.ok(
+    vscode.window.tabGroups.all.some(group => group.tabs.some(tab => tab.label === 'Pixel Pilot - AI Studio')),
+    'Studio command must create a visible Pixel Pilot editor tab.'
+  );
 }
 
 module.exports = { run };

@@ -1,5 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { AgentToolRegistry } = require('../out/services/ai/AgentToolRegistry');
 const { PriorityToolExecutors } = require('../out/services/tools/PriorityToolExecutors');
 const { PlanValidator, PlanValidationError } = require('../out/services/planner/PlanValidator');
@@ -273,4 +276,114 @@ test('PlanExecutionCoordinator prevents concurrent execution on same session', a
   coordinator.releaseSessionLock(sessionId);
   assert.doesNotThrow(() => coordinator.acquireSessionLock(sessionId));
   coordinator.releaseSessionLock(sessionId);
+});
+
+test('checkpoint survives restart and resumes only the failed local step', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-pilot-plan-'));
+  const plan = {
+    planId: 'restart-plan', intent: 'edit', prompt: 'fixture', summary: 'fixture',
+    steps: [
+      { stepId: 'cutout', toolName: 'image.remove_background', args: { imageId: 'fixture' } },
+      { stepId: 'recolor', toolName: 'image.recolor', args: { color: 'blue' }, inputBindings: { imageId: '$prev.artifactId' } }
+    ]
+  };
+  try {
+    const first = new PlanExecutionCoordinator(directory);
+    let cutoutCalls = 0;
+    await assert.rejects(() => first.executePlan(plan, 'session-a', async step => {
+      if (step.stepId === 'cutout') { cutoutCalls++; return { artifactId: 'art-cutout', value: { privatePrompt: 'do-not-persist' } }; }
+      throw new Error('local failure');
+    }), /local failure/);
+    const files = fs.readdirSync(directory);
+    assert.equal(files.length, 1);
+    assert.ok(!fs.readFileSync(path.join(directory, files[0]), 'utf8').includes('do-not-persist'));
+
+    const restarted = new PlanExecutionCoordinator(directory);
+    const result = await restarted.resumePlan(plan, 'session-a', async (step, args) => {
+      assert.equal(step.stepId, 'recolor');
+      assert.equal(args.imageId, 'art-cutout');
+      return { artifactId: 'art-recolor' };
+    });
+    assert.equal(cutoutCalls, 1);
+    assert.equal(result.isCompleted, true);
+    assert.equal(result.stepResults.recolor.artifactId, 'art-recolor');
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('unknown remote outcome and checkpoint disk failure never resubmit a step', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-pilot-plan-'));
+  const plan = {
+    planId: 'remote-plan', intent: 'edit', prompt: 'fixture', summary: 'fixture',
+    steps: [{ stepId: 'paid', toolName: 'image.generate', args: { prompt: 'fixture' }, route: { providerId: 'runware', isCloud: true } }]
+  };
+  try {
+    const first = new PlanExecutionCoordinator(directory);
+    await assert.rejects(() => first.executePlan(plan, 'session-a', async () => {
+      throw new Error('connection dropped after submit');
+    }), /connection dropped/);
+    let calls = 0;
+    const restarted = new PlanExecutionCoordinator(directory);
+    await assert.rejects(() => restarted.resumePlan(plan, 'session-a', async () => {
+      calls++;
+      return { artifactId: 'unexpected' };
+    }), /unknown outcome/);
+    assert.equal(calls, 0);
+
+    const blockedPath = path.join(directory, 'not-a-directory');
+    fs.writeFileSync(blockedPath, 'fixture');
+    const blocked = new PlanExecutionCoordinator(blockedPath);
+    await assert.rejects(() => blocked.executePlan({ ...plan, planId: 'disk-failure' }, 'session-a', async () => {
+      calls++;
+      return { artifactId: 'unexpected' };
+    }));
+    assert.equal(calls, 0);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('reused plan ID with another session or revised steps cannot reuse a checkpoint', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pixel-pilot-plan-'));
+  const plan = {
+    planId: 'same-id', intent: 'edit', prompt: 'fixture', summary: 'fixture',
+    steps: [{ stepId: 'first', toolName: 'image.remove_background', args: { imageId: 'fixture' } }]
+  };
+  try {
+    await new PlanExecutionCoordinator(directory).executePlan(plan, 'session-a', async () => ({ artifactId: 'art-original' }));
+    let calls = 0;
+    const restarted = new PlanExecutionCoordinator(directory);
+    const unexpected = async () => { calls++; return { artifactId: 'art-unexpected' }; };
+    await assert.rejects(() => restarted.executePlan(plan, 'session-b', unexpected), /different session or plan revision/);
+    await assert.rejects(() => restarted.executePlan({ ...plan, steps: [{ ...plan.steps[0], args: { imageId: 'another-image' } }] }, 'session-a', unexpected), /different session or plan revision/);
+    assert.equal(calls, 0);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('same plan ID cannot execute concurrently in two sessions', async () => {
+  const coordinator = new PlanExecutionCoordinator();
+  const plan = {
+    planId: 'concurrent-plan', intent: 'edit', prompt: 'fixture', summary: 'fixture',
+    steps: [{ stepId: 'first', toolName: 'image.remove_background', args: { imageId: 'fixture' } }]
+  };
+  let started;
+  const entered = new Promise(resolve => { started = resolve; });
+  let finish;
+  const held = new Promise(resolve => { finish = resolve; });
+  const first = coordinator.executePlan(plan, 'session-a', async () => {
+    started();
+    await held;
+    return { artifactId: 'art-first' };
+  });
+  await entered;
+  try {
+    await assert.rejects(() => coordinator.executePlan(plan, 'session-b', async () => ({ artifactId: 'art-duplicate' })),
+      err => err instanceof CopilotError && err.code === 'concurrency_limit');
+  } finally {
+    finish();
+  }
+  assert.equal((await first).stepResults.first.artifactId, 'art-first');
 });

@@ -96,3 +96,15 @@ Lệnh `$env:PIXEL_PILOT_PYTHON='C:\AI\ComfyUI\.venv\Scripts\python.exe'; npm.cm
 Ba lượt trên chạy trực tiếp từ Node và một fixture, không qua webview, consent hay cây VSIX cài trên máy sạch; do đó bảng demo ở mục 3 và UI E2E ở mục 4 vẫn để trống. B28/B29 vẫn **một phần**. Phiên ComfyUI tạm được dừng sau kiểm tra.
 
 Sau thay đổi script, `npm.cmd run check` pass 98/98 và `npm.cmd run lint` pass. `npm.cmd run test:e2e:vsix` pass ngoài sandbox Windows: build, đóng gói, install smoke Sharp/thiếu model và activation từ cây VSIX đã cài. VSIX cuối lượt: `dist/pixel-pilot-vscode-1.1.0.vsix`, SHA-256 `24C3A99F46E1B97391E1967ADD768816C1CC8D8A6027A661B4928DE43221193D`. Lượt chạy đầu trong sandbox đã dừng ở `EACCES` khi VS Code test runner kết nối cổng 443 để resolve version; lượt ngoài sandbox pass. Hash ở mục 6 là VSIX trước thay đổi script hiện tại.
+
+## 8. Rà soát ngày 01/11/2026
+
+Trên máy phát triển hiện tại, `npm.cmd run check` pass 98/98 và `npm.cmd run lint` pass. `npm.cmd run test:e2e:vsix` pass: VSIX được đóng gói/cài trong profile cô lập, Sharp load thành công, thiếu model recolor báo lỗi đúng, Extension Host kích hoạt và lệnh mở Studio tạo editor tab. VSIX của lượt này có SHA-256 `F67DBA822644B35155B3907C10CB7ACA5DDE934D73484034C0C2B4283A474F30`. CI Windows đã thêm cùng lệnh E2E cho cây VSIX, nhưng chưa có kết quả từ runner CI cho thay đổi này. Các bảng clean-OS, UI critical flows và ba demo qua UI/VSIX ở trên vẫn chưa có bằng chứng pass.
+
+Sau khi sửa guard của 5 priority executors, `npm.cmd run check` pass 100/100, `npm.cmd run lint` pass và `npm.cmd run test:e2e:vsix` pass lại trên máy phát triển. VSIX mới có SHA-256 `3E9D5E76BE74929705F8EF5FCD0878E1146EC9CA0F8EB4B2DA09A13AEC476773`. Kết quả này vẫn chỉ kiểm tra activation/Studio shell, Sharp và hành vi thiếu model; chưa chạy tool qua UI hay trên OS cài sạch.
+
+Sau khi bổ sung checkpoint B25, `npm.cmd run check` pass 102/102 và `npm.cmd run lint` pass. `npm.cmd run test:e2e:vsix` pass trên máy phát triển; VSIX SHA-256 `CB11F9B2D3000588E5A939839CBAA5BC874EA84134A52704A7B4577CCF81EF94`. Test mới chứng minh resume local sau restart và không tự gửi lại bước cloud có kết quả chưa rõ. Chưa có luồng UI resume/reconcile và chưa kiểm tra paid provider thật sau crash.
+
+Test bổ sung chống tái sử dụng cùng plan ID với session hoặc nội dung bước khác và chống hai session chạy cùng plan đồng thời đều pass; `npm.cmd run check` sau các test này pass 104/104, `npm.cmd run lint` pass. VSIX hash ở đoạn trước là artifact được đóng gói trước khi thêm khóa theo plan. Chưa có lượt CI trên runner sạch.
+
+VSIX E2E cuối lượt pass sau khóa theo plan: cài profile cô lập, Sharp load, trường hợp thiếu model recolor và activation/Studio tab. VSIX SHA-256 `8781BE14398F97C1FCCD204532A4655E52A69F3122852884E02A4CAFBF8C9B7C`. Đây vẫn chưa phải UI critical-flow E2E hay clean-OS acceptance.

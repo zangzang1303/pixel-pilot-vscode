@@ -53,6 +53,8 @@ export interface StepExecutionResult {
 export interface PlanCheckpoint {
   planId: string;
   sessionId: string;
+  planFingerprint?: string;
+  inFlightStepId?: string;
   stepResults: Record<string, StepExecutionResult>;
   currentStepIndex: number;
   isCompleted: boolean;

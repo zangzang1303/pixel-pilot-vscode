@@ -1,6 +1,9 @@
 import { MultiStepPlan, PlanCheckpoint, PlanStep, StepExecutionResult } from './types';
-import { AgentToolRegistry } from '../ai/AgentToolRegistry';
 import { CopilotError } from '../execution/errors';
+import fs from 'fs';
+import path from 'path';
+import { createHash } from 'crypto';
+import { PlanValidator } from './PlanValidator';
 
 export interface StepExecutorCallback {
   (step: PlanStep, resolvedArgs: Record<string, any>, signal?: AbortSignal): Promise<{
@@ -17,6 +20,60 @@ export interface StepExecutorCallback {
 export class PlanExecutionCoordinator {
   private checkpoints = new Map<string, PlanCheckpoint>();
   private activeSessionLocks = new Set<string>();
+  private activePlanLocks = new Set<string>();
+
+  constructor(private readonly checkpointDirectory?: string) {}
+
+  private checkpointPath(planId: string): string {
+    const fileName = createHash('sha256').update(planId).digest('hex') + '.json';
+    return path.join(this.checkpointDirectory!, fileName);
+  }
+
+  private fingerprint(plan: MultiStepPlan, sessionId: string): string {
+    return createHash('sha256').update(JSON.stringify({ sessionId, steps: plan.steps })).digest('hex');
+  }
+
+  private persist(checkpoint: PlanCheckpoint): void {
+    if (!this.checkpointDirectory) return;
+    fs.mkdirSync(this.checkpointDirectory, { recursive: true });
+    const target = this.checkpointPath(checkpoint.planId);
+    const temporary = `${target}.tmp`;
+    // Only persist references and status; executor values and errors can contain private content.
+    const safe: PlanCheckpoint = {
+      ...checkpoint,
+      stepResults: Object.fromEntries(Object.entries(checkpoint.stepResults).map(([id, result]) => [id, {
+        stepId: result.stepId,
+        toolName: result.toolName,
+        status: result.status,
+        artifactId: result.artifactId,
+        durationMs: result.durationMs
+      }]))
+    };
+    try {
+      fs.writeFileSync(temporary, JSON.stringify(safe), 'utf8');
+      fs.renameSync(temporary, target);
+    } catch (error) {
+      try { fs.unlinkSync(temporary); } catch { /* Keep the previous checkpoint. */ }
+      throw error;
+    }
+  }
+
+  private load(planId: string): PlanCheckpoint | undefined {
+    if (!this.checkpointDirectory) return undefined;
+    const target = this.checkpointPath(planId);
+    if (!fs.existsSync(target)) return undefined;
+    try {
+      const checkpoint = JSON.parse(fs.readFileSync(target, 'utf8')) as PlanCheckpoint;
+      if (checkpoint.planId !== planId || typeof checkpoint.sessionId !== 'string' ||
+          typeof checkpoint.planFingerprint !== 'string' || !checkpoint.stepResults ||
+          !Number.isInteger(checkpoint.currentStepIndex)) {
+        throw new Error('Invalid checkpoint format.');
+      }
+      return checkpoint;
+    } catch {
+      throw new CopilotError({ code: 'precondition_failed', message: 'Plan checkpoint is malformed; execution is paused for inspection.' });
+    }
+  }
 
   /**
    * Acquires execution lock for a session.
@@ -43,7 +100,12 @@ export class PlanExecutionCoordinator {
    * Retrieves an existing checkpoint for a plan.
    */
   public getCheckpoint(planId: string): PlanCheckpoint | undefined {
-    return this.checkpoints.get(planId);
+    let checkpoint = this.checkpoints.get(planId);
+    if (!checkpoint) {
+      checkpoint = this.load(planId);
+      if (checkpoint) this.checkpoints.set(planId, checkpoint);
+    }
+    return checkpoint;
   }
 
   /**
@@ -55,14 +117,29 @@ export class PlanExecutionCoordinator {
     executor: StepExecutorCallback,
     signal?: AbortSignal
   ): Promise<PlanCheckpoint> {
+    PlanValidator.validate(plan);
     this.acquireSessionLock(sessionId);
+    let planLockAcquired = false;
 
     try {
-      let checkpoint = this.checkpoints.get(plan.planId);
+      if (this.activePlanLocks.has(plan.planId)) {
+        throw new CopilotError({ code: 'concurrency_limit', message: `Plan '${plan.planId}' is already executing.` });
+      }
+      this.activePlanLocks.add(plan.planId);
+      planLockAcquired = true;
+      let checkpoint = this.getCheckpoint(plan.planId);
+      const fingerprint = this.fingerprint(plan, sessionId);
+      if (checkpoint && (checkpoint.sessionId !== sessionId || checkpoint.planFingerprint !== fingerprint)) {
+        throw new CopilotError({ code: 'precondition_failed', message: 'Plan ID belongs to a different session or plan revision.' });
+      }
+      if (checkpoint?.inFlightStepId) {
+        throw new CopilotError({ code: 'precondition_failed', message: `Step '${checkpoint.inFlightStepId}' has an unknown outcome; reconcile the provider job before resuming.` });
+      }
       if (!checkpoint) {
         checkpoint = {
           planId: plan.planId,
           sessionId,
+          planFingerprint: fingerprint,
           stepResults: {},
           currentStepIndex: 0,
           isCompleted: false,
@@ -70,6 +147,7 @@ export class PlanExecutionCoordinator {
           updatedAt: Date.now()
         };
         this.checkpoints.set(plan.planId, checkpoint);
+        this.persist(checkpoint);
       }
 
       for (let i = checkpoint.currentStepIndex; i < plan.steps.length; i++) {
@@ -90,6 +168,8 @@ export class PlanExecutionCoordinator {
         const resolvedArgs = this.resolveStepArgs(step, checkpoint.stepResults);
 
         const startTime = Date.now();
+        checkpoint.inFlightStepId = step.stepId;
+        this.persist(checkpoint);
         try {
           const outcome = await executor(step, resolvedArgs, signal);
           checkpoint.stepResults[step.stepId] = {
@@ -101,7 +181,15 @@ export class PlanExecutionCoordinator {
             durationMs: Date.now() - startTime
           };
           checkpoint.updatedAt = Date.now();
+          checkpoint.inFlightStepId = undefined;
+          try {
+            this.persist(checkpoint);
+          } catch (error) {
+            checkpoint.inFlightStepId = step.stepId;
+            throw error;
+          }
         } catch (err: any) {
+          if (checkpoint.inFlightStepId === step.stepId && checkpoint.stepResults[step.stepId]?.status === 'succeeded') throw err;
           checkpoint.stepResults[step.stepId] = {
             stepId: step.stepId,
             toolName: step.toolName,
@@ -110,14 +198,18 @@ export class PlanExecutionCoordinator {
             durationMs: Date.now() - startTime
           };
           checkpoint.updatedAt = Date.now();
+          if (!step.route?.isCloud) checkpoint.inFlightStepId = undefined;
+          this.persist(checkpoint);
           throw err;
         }
       }
 
       checkpoint.isCompleted = true;
       checkpoint.updatedAt = Date.now();
+      this.persist(checkpoint);
       return checkpoint;
     } finally {
+      if (planLockAcquired) this.activePlanLocks.delete(plan.planId);
       this.releaseSessionLock(sessionId);
     }
   }
@@ -131,7 +223,7 @@ export class PlanExecutionCoordinator {
     executor: StepExecutorCallback,
     signal?: AbortSignal
   ): Promise<PlanCheckpoint> {
-    const checkpoint = this.checkpoints.get(plan.planId);
+    const checkpoint = this.getCheckpoint(plan.planId);
     if (!checkpoint) {
       return this.executePlan(plan, sessionId, executor, signal);
     }
@@ -169,22 +261,18 @@ export class PlanExecutionCoordinator {
     for (const [argName, bindingRef] of Object.entries(step.inputBindings)) {
       if (bindingRef === '$prev.artifactId') {
         const lastResult = completedStepEntries[completedStepEntries.length - 1];
-        if (lastResult?.artifactId) {
-          resolved[argName] = lastResult.artifactId;
-        }
+        if (!lastResult?.artifactId) throw new CopilotError({ code: 'precondition_failed', message: `Missing prior artifact for ${step.stepId}.` });
+        resolved[argName] = lastResult.artifactId;
       } else if (bindingRef.startsWith('$')) {
         const match = bindingRef.match(/^\$([^.]+)\.(.+)$/);
         if (match) {
           const targetStepId = match[1];
           const field = match[2];
           const targetResult = priorResults[targetStepId];
-          if (targetResult && targetResult.status === 'succeeded') {
-            if (field === 'artifactId' && targetResult.artifactId) {
-              resolved[argName] = targetResult.artifactId;
-            } else if (targetResult.value && targetResult.value[field] !== undefined) {
-              resolved[argName] = targetResult.value[field];
-            }
+          if (field !== 'artifactId' || targetResult?.status !== 'succeeded' || !targetResult.artifactId) {
+            throw new CopilotError({ code: 'precondition_failed', message: `Missing bound artifact for ${step.stepId}.` });
           }
+          resolved[argName] = targetResult.artifactId;
         }
       }
     }

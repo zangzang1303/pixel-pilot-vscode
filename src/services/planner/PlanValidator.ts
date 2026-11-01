@@ -83,8 +83,11 @@ export class PlanValidator {
     // Validate bindings for acyclicity and forward-reference prevention
     if (step.inputBindings) {
       for (const [argName, bindingRef] of Object.entries(step.inputBindings)) {
-        if (!bindingRef.startsWith('$')) {
-          continue;
+        if (!/^\$(?:prev|[^.]+)\.artifactId$/.test(bindingRef)) {
+          throw new PlanValidationError(
+            `Unsupported binding '${bindingRef}' for '${argName}'; only persisted artifactId references are resumable.`,
+            index
+          );
         }
 
         if (bindingRef.startsWith('$prev.')) {

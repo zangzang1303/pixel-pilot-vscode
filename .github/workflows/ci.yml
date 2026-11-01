@@ -46,3 +46,5 @@ jobs:
         run: npm run package:vsix
       - name: Run Extension Development Host E2E
         run: npm run test:e2e
+      - name: Run installed VSIX Extension Host E2E
+        run: npm run test:e2e:vsix

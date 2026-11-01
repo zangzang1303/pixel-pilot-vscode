@@ -82,7 +82,7 @@ test('image.generate executor rejects invalid bounds or empty prompt', async () 
   );
 });
 
-test('image.recolor executor validates target and returns artifact with selectionMaskId', async () => {
+test('image.recolor rejects missing storage, failed model and unchanged pixels', async () => {
   // 1. Invalid target
   await assert.rejects(
     () => PriorityToolExecutors.executeRecolor(undefined, {
@@ -93,13 +93,73 @@ test('image.recolor executor validates target and returns artifact with selectio
     (err) => err instanceof CopilotError && err.code === 'invalid_input'
   );
 
-  // 2. Valid target
-  const result = await PriorityToolExecutors.executeRecolor(undefined, {
+  const input = {
     imageId: testPngDataUrl,
     target: 'clothes',
     color: 'blue'
-  });
+  };
+  await assert.rejects(() => PriorityToolExecutors.executeRecolor(undefined, input), /requires artifact storage/);
 
-  assert.ok(result.artifactId);
-  assert.ok(result.selectionMaskId);
+  let stores = 0;
+  const storeArtifact = async () => { stores++; return 'artifact-1'; };
+  await assert.rejects(() => PriorityToolExecutors.executeRecolor({
+    storeArtifact,
+    imageProcessor: { recolor: async () => { throw new Error('model unavailable'); } }
+  }, input), /model unavailable/);
+  await assert.rejects(() => PriorityToolExecutors.executeRecolor({
+    storeArtifact,
+    imageProcessor: { recolor: async buffer => buffer }
+  }, input), /did not change the image pixels/);
+  assert.equal(stores, 0);
+
+  const result = await PriorityToolExecutors.executeRecolor({
+    storeArtifact,
+    imageProcessor: { recolor: async buffer => sharp(buffer).negate().png().toBuffer() }
+  }, input);
+
+  assert.equal(result.artifactId, 'artifact-1');
+  assert.equal(result.selectionMaskId, undefined);
+  assert.equal(stores, 1);
+});
+
+test('model background removal cannot silently fall back to the basic filter', async () => {
+  let stores = 0;
+  const input = { imageId: testPngDataUrl, quality: 'model' };
+  const storeArtifact = async () => { stores++; return 'artifact-1'; };
+  await assert.rejects(() => PriorityToolExecutors.executeRemoveBackground({
+    storeArtifact,
+    comfyAdapter: { ping: async () => false }
+  }, input), /model is unavailable/);
+  await assert.rejects(() => PriorityToolExecutors.executeRemoveBackground({
+    storeArtifact,
+    comfyAdapter: {
+      ping: async () => true,
+      removeBackground: async () => ({
+        success: true,
+        outputImageUri: testPngDataUrl,
+        metrics: { model: 'Native background removal (corner-color)' }
+      })
+    }
+  }, input), /did not return a model/);
+  assert.equal(stores, 0);
+});
+
+test('generation persists real PNG bytes and does not report an unused seed', async () => {
+  const jpeg = await sharp(Buffer.from(testPngDataUrl.split(',')[1], 'base64')).jpeg().toBuffer();
+  let stored;
+  const result = await PriorityToolExecutors.executeGenerate({
+    comfyAdapter: {
+      ping: async () => true,
+      generateImage: async () => ({ success: true, outputImageUri: `data:image/jpeg;base64,${jpeg.toString('base64')}` })
+    },
+    storeArtifact: async (buffer, mime, kind) => {
+      stored = { buffer, mime, kind };
+      return 'artifact-generated';
+    }
+  }, { prompt: 'fixture landscape', seed: 42 });
+  assert.equal(result.artifactId, 'artifact-generated');
+  assert.equal(result.seed, undefined);
+  assert.equal(stored.mime, 'image/png');
+  assert.equal(stored.kind, 'image');
+  assert.equal((await sharp(stored.buffer).metadata()).format, 'png');
 });

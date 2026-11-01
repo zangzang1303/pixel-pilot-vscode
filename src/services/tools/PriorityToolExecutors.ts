@@ -31,6 +31,21 @@ export interface PriorityToolExecutionContext {
  * Implements the 5 core priority tool contracts with concrete execution.
  */
 export class PriorityToolExecutors {
+  private static requireArtifactStore(ctx: PriorityToolExecutionContext | undefined, toolName: string) {
+    if (!ctx?.storeArtifact) {
+      throw new CopilotError({ code: 'invalid_input', message: `${toolName} requires artifact storage.`, toolName });
+    }
+    return ctx.storeArtifact;
+  }
+
+  private static async storeImage(store: NonNullable<PriorityToolExecutionContext['storeArtifact']>, buffer: Buffer, toolName: string): Promise<string> {
+    const artifactId = await store(buffer, 'image/png', 'image');
+    if (!artifactId || !artifactId.trim()) {
+      throw new CopilotError({ code: 'execution_failed', message: `${toolName} did not persist an artifact.`, toolName });
+    }
+    return artifactId;
+  }
+
   private static async resolveBuffer(
     idOrUri: string,
     ctx?: PriorityToolExecutionContext
@@ -78,30 +93,22 @@ export class PriorityToolExecutors {
     ctx: PriorityToolExecutionContext | undefined,
     input: ImageRemoveBackgroundInput
   ): Promise<ImageRemoveBackgroundOutput> {
+    const store = this.requireArtifactStore(ctx, 'image.remove_background');
     const buffer = await this.resolveBuffer(input.imageId, ctx);
     const proc = ctx?.imageProcessor || ImageProcessor.getInstance();
 
     let outBuf: Buffer;
-    let provider = 'sharp';
 
     if (input.quality === 'model') {
       const comfy = ctx?.comfyAdapter || new ComfyUIAdapter();
-      const online = await comfy.ping();
-      if (online) {
-        try {
-          const res = await comfy.removeBackground(`data:image/png;base64,${buffer.toString('base64')}`);
-          if (res.outputImageUri) {
-            outBuf = Buffer.from(res.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-            provider = 'comfyui';
-          } else {
-            outBuf = await proc.removeBackground(buffer);
-          }
-        } catch {
-          outBuf = await proc.removeBackground(buffer);
-        }
-      } else {
-        outBuf = await proc.removeBackground(buffer);
+      if (!await comfy.ping()) {
+        throw new CopilotError({ code: 'unsupported_provider', message: 'ComfyUI background removal model is unavailable.', toolName: 'image.remove_background' });
       }
+      const res = await comfy.removeBackground(`data:image/png;base64,${buffer.toString('base64')}`);
+      if (!res.success || !res.outputImageUri || !res.metrics?.model?.startsWith('ComfyUI')) {
+        throw new CopilotError({ code: 'unsupported_provider', message: 'ComfyUI did not return a model background removal result.', toolName: 'image.remove_background' });
+      }
+      outBuf = decodeImageInput(res.outputImageUri).buffer;
     } else {
       outBuf = await proc.removeBackground(buffer);
     }
@@ -115,10 +122,7 @@ export class PriorityToolExecutors {
     }
     const alphaFraction = +(nonOpaque / totalPixels).toFixed(3);
 
-    let artifactId = `art_cutout_${Date.now()}`;
-    if (ctx?.storeArtifact) {
-      artifactId = await ctx.storeArtifact(outBuf, 'image/png', 'image');
-    }
+    const artifactId = await this.storeImage(store, outBuf, 'image.remove_background');
 
     return {
       artifactId,
@@ -130,9 +134,6 @@ export class PriorityToolExecutors {
     ctx: PriorityToolExecutionContext | undefined,
     input: ImageRecolorInput
   ): Promise<ImageRecolorOutput> {
-    const buffer = await this.resolveBuffer(input.imageId, ctx);
-    const proc = ctx?.imageProcessor || ImageProcessor.getInstance();
-
     const allowedTargets = ['hair', 'clothes', 'background'];
     if (!allowedTargets.includes(input.target)) {
       throw CopilotError.createInvalidInputError(
@@ -141,26 +142,17 @@ export class PriorityToolExecutors {
       );
     }
 
-    let outBuf: Buffer;
-    try {
-      outBuf = await proc.recolor(buffer, input.target, input.color);
-    } catch {
-      // Fallback: apply tint/modulation with Sharp if model unavailable
-      outBuf = await sharp(buffer)
-        .modulate({ saturation: 1.2 })
-        .png()
-        .toBuffer();
-    }
+    const store = this.requireArtifactStore(ctx, 'image.recolor');
+    const buffer = await this.resolveBuffer(input.imageId, ctx);
+    const proc = ctx?.imageProcessor || ImageProcessor.getInstance();
 
-    let artifactId = `art_recolor_${Date.now()}`;
-    if (ctx?.storeArtifact) {
-      artifactId = await ctx.storeArtifact(outBuf, 'image/png', 'image');
+    const outBuf = await proc.recolor(buffer, input.target, input.color);
+    const before = await sharp(buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const after = await sharp(outBuf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    if (before.info.width !== after.info.width || before.info.height !== after.info.height || before.data.equals(after.data)) {
+      throw new CopilotError({ code: 'execution_failed', message: 'Recolor did not change the image pixels.', toolName: 'image.recolor' });
     }
-
-    return {
-      artifactId,
-      selectionMaskId: `mask_${input.target}_${Date.now()}`
-    };
+    return { artifactId: await this.storeImage(store, outBuf, 'image.recolor') };
   }
 
   public static async executeInpaint(
@@ -174,16 +166,15 @@ export class PriorityToolExecutors {
       );
     }
 
+    const store = this.requireArtifactStore(ctx, 'image.inpaint');
+
     const imageBuffer = await this.resolveBuffer(input.imageId, ctx);
     const maskBuffer = await this.resolveBuffer(input.maskId, ctx);
 
     const proc = ctx?.imageProcessor || ImageProcessor.getInstance();
     const outBuf = await proc.inpaint(imageBuffer, maskBuffer);
 
-    let artifactId = `art_inpaint_${Date.now()}`;
-    if (ctx?.storeArtifact) {
-      artifactId = await ctx.storeArtifact(outBuf, 'image/png', 'image');
-    }
+    const artifactId = await this.storeImage(store, outBuf, 'image.inpaint');
 
     return {
       artifactId,
@@ -209,7 +200,7 @@ export class PriorityToolExecutors {
       );
     }
 
-    const seed = input.seed !== undefined ? input.seed : Math.floor(Math.random() * 1000000);
+    const store = this.requireArtifactStore(ctx, 'image.generate');
 
     const comfy = ctx?.comfyAdapter || new ComfyUIAdapter();
     const online = await comfy.ping();
@@ -232,16 +223,10 @@ export class PriorityToolExecutors {
       });
     }
 
-    const outBuf = Buffer.from(res.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-    let artifactId = `art_gen_${Date.now()}`;
-    if (ctx?.storeArtifact) {
-      artifactId = await ctx.storeArtifact(outBuf, 'image/png', 'image');
-    }
+    const outBuf = await sharp(decodeImageInput(res.outputImageUri).buffer).png().toBuffer();
+    const artifactId = await this.storeImage(store, outBuf, 'image.generate');
 
-    return {
-      artifactId,
-      seed
-    };
+    return { artifactId };
   }
 
   /**

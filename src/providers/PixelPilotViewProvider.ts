@@ -12,6 +12,7 @@ import { CopilotOrchestrator } from '../services/copilot/CopilotOrchestrator';
 import { RunLifecycleService } from '../services/copilot/RunLifecycleService';
 import { WebviewBridge } from '../services/copilot/WebviewBridge';
 import { RulePlanner } from '../services/planner/RulePlanner';
+import { PlanExecutionCoordinator } from '../services/planner/PlanExecutionCoordinator';
 import { splitSequentialPrompt } from '../services/copilot/SequentialPlan';
 import { SafeTelemetry } from '../services/copilot/SafeTelemetry';
 import { ConfirmationBroker } from '../services/copilot/ConfirmationBroker';
@@ -50,7 +51,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   private generationCommit: GenerationCommitService;
   private generationExecutor: CanvasGenerationExecutor;
   private contextBuilder = new ContextBuilder();
-  private copilotOrchestrator = new CopilotOrchestrator();
+  private copilotOrchestrator: CopilotOrchestrator;
   private runLifecycle = new RunLifecycleService();
   private readonly telemetry = new SafeTelemetry();
   private webviewBridge = new WebviewBridge();
@@ -73,6 +74,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     this.policy = new PolicyService((provider, purpose) => this.requestWebviewConfirmation(provider, purpose));
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     this.sessionManager = new SessionManager(context.globalStorageUri.fsPath);
+    this.copilotOrchestrator = new CopilotOrchestrator(undefined, undefined,
+      new PlanExecutionCoordinator(path.join(context.globalStorageUri.fsPath, 'plan_checkpoints')));
     this.secretManager = new SecretManager(context);
     this.assetStorage = new AssetStorageService(context);
     this.commitService = new SessionCommitService(this.sessionManager, this.assetStorage);
