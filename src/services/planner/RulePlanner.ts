@@ -195,6 +195,15 @@ export class RulePlanner {
       if (parsed) {
         steps.push(parsed);
         stepSummaries.push(parsed.description || parsed.toolName);
+      } else if (stepStrings.length > 1) {
+        return {
+          planId,
+          intent: 'clarify',
+          prompt: trimmed,
+          steps: [],
+          clarificationMessage: `Không nhận diện được bước ${i + 1}. Hãy mô tả rõ từng thao tác trước khi chạy cả chuỗi.`,
+          summary: 'Chuỗi chỉnh sửa có bước chưa rõ; không thực thi một phần.'
+        };
       }
     }
 
@@ -248,8 +257,9 @@ export class RulePlanner {
       else if (/nền|phông|background/i.test(stepStr)) target = 'background';
 
       let resolvedColor = 'blue';
-      for (const [name, val] of Object.entries(COLOR_NAMES)) {
-        if (new RegExp(`\\b${name}\\b`, 'i').test(stepStr)) {
+      for (const [name, val] of Object.entries(COLOR_NAMES).sort((a, b) => b[0].length - a[0].length)) {
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(stepStr)) {
           resolvedColor = val;
           break;
         }

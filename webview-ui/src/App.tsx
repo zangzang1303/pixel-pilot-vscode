@@ -564,7 +564,12 @@ export const App: React.FC = () => {
               onCancelRun={(requestId) =>
                 vscode.postMessage({
                   command: 'copilotRequest',
-                  request: { command: 'cancel', targetRequestId: requestId }
+                  request: {
+                    version: 2,
+                    requestId: `cancel-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                    command: 'cancel',
+                    targetRequestId: requestId
+                  }
                 })
               }
             />

@@ -1,6 +1,31 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { ProviderCatalog } = require('../out/services/execution/ProviderCatalog');
+const { ImageProcessor } = require('../out/services/image/ImageProcessor');
+
+test('default ComfyUI probe advertises model tools only with node and recolor prerequisites', async () => {
+  const originalFetch = global.fetch;
+  const originalPrerequisites = ImageProcessor.hasRecolorPrerequisites;
+  try {
+    global.fetch = async url => ({
+      ok: true,
+      json: async () => String(url).endsWith('/object_info')
+        ? { RemoveBackground: {}, LoadBackgroundRemovalModel: { input: { required: { bg_removal_name: [null, { options: ['birefnet.safetensors'] }] } } } }
+        : {}
+    });
+    ImageProcessor.hasRecolorPrerequisites = () => false;
+    const catalog = new ProviderCatalog();
+    const withoutMaskRuntime = await catalog.probe('comfyui');
+    assert.ok(withoutMaskRuntime.supportedTools.includes('image.remove_background'));
+    assert.equal(withoutMaskRuntime.supportedTools.includes('image.recolor'), false);
+    ImageProcessor.hasRecolorPrerequisites = () => true;
+    const ready = await catalog.probe('comfyui');
+    assert.ok(ready.supportedTools.includes('image.recolor'));
+  } finally {
+    global.fetch = originalFetch;
+    ImageProcessor.hasRecolorPrerequisites = originalPrerequisites;
+  }
+});
 
 test('ProviderCatalog probes Sharp with basic local capabilities', async () => {
   const catalog = new ProviderCatalog();
@@ -43,6 +68,10 @@ test('ProviderCatalog does not assume all tools ready when provider is online', 
 
 test('ProviderCatalog queries available providers for specific tools', async () => {
   const catalog = new ProviderCatalog();
+
+  catalog.registerProbe('comfyui', async () => ({
+    providerId: 'comfyui', name: 'ComfyUI (Local)', isOnline: false, supportedTools: []
+  }));
 
   catalog.registerProbe('runware', async () => ({
     providerId: 'runware',

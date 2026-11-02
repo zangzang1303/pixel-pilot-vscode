@@ -137,6 +137,16 @@ test('RulePlanner correctly handles negation, questions, clarification, and sequ
   assert.equal(seq.steps[0].toolName, 'image.remove_background');
   assert.equal(seq.steps[1].toolName, 'image.recolor');
   assert.equal(seq.steps[1].inputBindings.imageId, '$prev.artifactId');
+
+  const green = RulePlanner.plan('tách nền rồi đổi màu áo sang xanh lá', { currentImageId: 'img_test' });
+  assert.equal(green.steps[1].args.color, 'green');
+  const red = RulePlanner.plan('tách nền rồi đổi màu tóc sang đỏ', { currentImageId: 'img_test' });
+  assert.equal(red.steps[1].args.color, 'red');
+
+  const partial = RulePlanner.plan('tách nền rồi làm một việc chưa biết', { currentImageId: 'img_test' });
+  assert.equal(partial.intent, 'clarify');
+  assert.equal(partial.steps.length, 0);
+  assert.match(partial.clarificationMessage, /bước 2/i);
 });
 
 test('IntentRouter enforces local-first routing and strictly blocks cloud calls in offline mode', async () => {
@@ -151,18 +161,31 @@ test('IntentRouter enforces local-first routing and strictly blocks cloud calls 
       {
         stepId: 'step_1',
         toolName: 'image.remove_background',
-        args: { imageId: 'img_1', quality: 'model', preserveDetails: true }
+        args: { imageId: 'img_1', quality: 'basic', preserveDetails: true }
       }
     ],
     summary: 'tách nền'
   };
 
-  // 1. Online: selects local sharp provider with cost = 0
+  // 1. Basic processing selects local Sharp with cost = 0.
   const onlinePlan = await router.routePlan(JSON.parse(JSON.stringify(plan)), { offlineMode: false });
   assert.equal(onlinePlan.steps[0].route.providerId, 'sharp');
   assert.equal(onlinePlan.steps[0].route.isCloud, false);
   assert.equal(onlinePlan.estimatedCost.totalEstimate, 0);
   assert.equal(onlinePlan.estimatedCost.requiresConsent, false);
+
+  const modelPlan = JSON.parse(JSON.stringify(plan));
+  modelPlan.steps[0].args.quality = 'model';
+  catalog.registerProbe('comfyui', async () => ({
+    providerId: 'comfyui', name: 'ComfyUI (Local)', isOnline: false, supportedTools: []
+  }));
+  await assert.rejects(() => router.routePlan(JSON.parse(JSON.stringify(modelPlan)), { offlineMode: true }), /not available in local offline mode/);
+  catalog.registerProbe('comfyui', async () => ({
+    providerId: 'comfyui', name: 'ComfyUI (Local)', isOnline: true,
+    supportedTools: ['image.remove_background', 'image.recolor']
+  }));
+  const routedModel = await router.routePlan(modelPlan, { offlineMode: true });
+  assert.equal(routedModel.steps[0].route.providerId, 'comfyui');
 
   // 2. Offline: Tool not available locally (e.g. image.generate with sharp) throws unavailable
   const genPlan = {

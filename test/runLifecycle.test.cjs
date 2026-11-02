@@ -5,7 +5,10 @@ const { RunLifecycleService } = require('../out/services/copilot/RunLifecycleSer
 test('cancelled runs reject late commits and can be cleaned up', () => {
   const lifecycle = new RunLifecycleService();
   lifecycle.start('run-1');
+  const signal = lifecycle.signal('run-1');
+  assert.equal(signal.aborted, false);
   assert.equal(lifecycle.cancel('run-1'), true);
+  assert.equal(signal.aborted, true);
   assert.throws(() => lifecycle.throwIfCancelled('run-1'), /cancelled/i);
   lifecycle.finish('run-1');
   assert.equal(lifecycle.cancel('run-1'), false);

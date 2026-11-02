@@ -6,6 +6,7 @@ import { IntentRouter } from '../planner/IntentRouter';
 import { PlanValidator } from '../planner/PlanValidator';
 import { PlanExecutionCoordinator, StepExecutorCallback } from '../planner/PlanExecutionCoordinator';
 import { MultiStepPlan, PlannerContext, PlanCheckpoint } from '../planner/types';
+import { PriorityToolExecutionContext } from '../tools/PriorityToolExecutors';
 
 export interface PlanningEngine {
   decideTool(prompt: string, context?: AgentContext, config?: LLMConfig): Promise<AgentDecision>;
@@ -72,7 +73,7 @@ export class CopilotOrchestrator {
     return AgentToolRegistry.validateToolCall(toolName, args);
   }
 
-  public async executeTool(toolName: string, args: unknown, context?: AgentContext): Promise<any> {
+  public async executeTool(toolName: string, args: unknown, context?: AgentContext | PriorityToolExecutionContext): Promise<any> {
     return await AgentToolRegistry.execute(toolName, args, context);
   }
 

@@ -21,6 +21,7 @@ export class SessionCommitService {
     prompt?: string;
     maskUri?: string;
     params?: Record<string, unknown>;
+    signal?: AbortSignal;
     result: AIResult;
   }) {
     if (!input.result.success || !input.result.outputImageUri) {
@@ -31,6 +32,7 @@ export class SessionCommitService {
     if (!session || !parent) throw new Error('The target session or parent node no longer exists.');
 
     const outputPath = await this.assets.saveToCache(input.result.outputImageUri);
+    if (input.signal?.aborted) throw new Error('Operation cancelled.');
     const latest = this.sessions.getSession(input.sessionId);
     if (!latest?.nodes[input.parentId]) throw new Error('The target session or parent node no longer exists.');
     return this.sessions.addOperationNode(

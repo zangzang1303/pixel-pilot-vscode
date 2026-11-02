@@ -8,6 +8,10 @@ import { CanvasActionCommitService, CanvasActionTarget } from '../services/sessi
 import { GenerationCommitService, GenerationTarget } from '../services/session/GenerationCommitService';
 import { CanvasGenerationExecutor } from '../services/copilot/CanvasGenerationExecutor';
 import { ContextBuilder } from '../services/copilot/ContextBuilder';
+import { PriorityToolRunService } from '../services/copilot/PriorityToolRunService';
+import { PlannedPrioritySequenceService } from '../services/copilot/PlannedPrioritySequenceService';
+import { ExecutionEngine } from '../services/execution/ExecutionEngine';
+import { ArtifactStore } from '../services/storage/ArtifactStore';
 import { CopilotOrchestrator } from '../services/copilot/CopilotOrchestrator';
 import { RunLifecycleService } from '../services/copilot/RunLifecycleService';
 import { WebviewBridge } from '../services/copilot/WebviewBridge';
@@ -52,6 +56,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   private generationExecutor: CanvasGenerationExecutor;
   private contextBuilder = new ContextBuilder();
   private copilotOrchestrator: CopilotOrchestrator;
+  private priorityTools: PriorityToolRunService;
+  private plannedPrioritySequence: PlannedPrioritySequenceService;
   private runLifecycle = new RunLifecycleService();
   private readonly telemetry = new SafeTelemetry();
   private webviewBridge = new WebviewBridge();
@@ -79,6 +85,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     this.secretManager = new SecretManager(context);
     this.assetStorage = new AssetStorageService(context);
     this.commitService = new SessionCommitService(this.sessionManager, this.assetStorage);
+    this.priorityTools = new PriorityToolRunService(
+      this.copilotOrchestrator, new ExecutionEngine(),
+      new ArtifactStore(context.globalStorageUri.fsPath), this.sessionManager, this.commitService);
+    this.plannedPrioritySequence = new PlannedPrioritySequenceService(
+      this.copilotOrchestrator, this.priorityTools, this.sessionManager);
     this.canvasCommit = new CanvasActionCommitService(this.sessionManager, this.commitService);
     this.generationCommit = new GenerationCommitService(this.sessionManager, this.assetStorage);
     this.configManager = new EnterpriseConfigManager(workspaceRoot);
@@ -840,18 +851,28 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             break;
           }
           if (request.command === 'tool') {
-            const call = this.copilotOrchestrator.validateTool(request.toolName, request.args || {});
+            const isPriorityTool = request.toolName?.startsWith('image.') === true;
+            const call = isPriorityTool ? undefined : this.copilotOrchestrator.validateTool(request.toolName, request.args || {});
             const session = request.sessionId ? this.sessionManager.getSession(request.sessionId) : this.sessionManager.getActiveSession();
             if (!session) throw new Error('No active image session.');
             const nodeId = request.nodeId || session.currentNodeId;
             const node = session.nodes[nodeId];
             if (!node) throw new Error('Pinned context node no longer exists.');
             const image = node.outputImageUri || node.inputImageUri;
-            if (!image && call.intent.operation !== 'generate') throw new Error('An image is required for this tool.');
+            if (!image && request.toolName !== 'image.generate' && call?.intent.operation !== 'generate') throw new Error('An image is required for this tool.');
             const completedNodeId = await this.webviewBridge.dispatch(request.requestId, async () => {
               this.runLifecycle.start(request.requestId);
               try {
-                return await this.runCopilotOperation(session.sessionId, image, call.intent.operation, call.intent, call.intent.promptText || '', request.requestId, nodeId);
+                if (isPriorityTool) {
+                  const result = await this.priorityTools.run({
+                    requestId: request.requestId, sessionId: session.sessionId,
+                    parentId: nodeId, toolName: request.toolName!,
+                    args: request.args || {}, signal: this.runLifecycle.signal(request.requestId)
+                  });
+                  this.broadcastSessionState();
+                  return result.nodeId;
+                }
+                return await this.runCopilotOperation(session.sessionId, image, call!.intent.operation, call!.intent, call!.intent.promptText || '', request.requestId, nodeId);
               } finally {
                 this.runLifecycle.finish(request.requestId);
               }
@@ -860,7 +881,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             this.telemetry.record({ requestId: request.requestId, command: request.command, outcome: 'succeeded', toolName: request.toolName, latencyMs: Date.now() - startedAt });
             break;
           }
-          if (this.runLifecycle.cancel(request.targetRequestId!)) {
+          if (this.priorityTools.cancel(request.targetRequestId!) || this.runLifecycle.cancel(request.targetRequestId!)) {
             this.postToWebview({ type: 'copilotCancelled', requestId: request.targetRequestId });
             this.telemetry.record({ requestId: request.targetRequestId!, command: 'cancel', outcome: 'cancelled', latencyMs: Date.now() - startedAt });
           } else {
@@ -1384,6 +1405,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       const image = suppliedImage || (storedImage ? this.assetStorage.getWebviewUri(storedImage) : '');
       const normalized = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
       const suggestionMatch = normalized.match(/^(?:\/apply\s+|ap dung (?:goi y )?|lam (?:goi y )?|chon (?:goi y )?)([1-3])\s*$/);
+      const sequentialSteps = splitSequentialPrompt(text, 5);
       const lastAdvice = [...current.messages].reverse().find(item => item.suggestions?.length && item.nodeId === current.currentNodeId);
       const chosen = suggestionMatch ? lastAdvice?.suggestions?.[Number(suggestionMatch[1]) - 1] : undefined;
       if (suggestionMatch && !chosen) {
@@ -1394,7 +1416,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         await this.runCopilotOperation(sessionId, image, chosen.intent.operation, chosen.intent, text, message.requestId, nodeId);
         return;
       }
-      if (/^(?:\/analyze|\/analyse)\b|phan tich|danh gia|nhan xet|nen (?:chinh|sua|lam) gi|can (?:chinh|sua) gi|goi y (?:chinh|sua)|tu van (?:chinh|sua)|anh nay (?:the nao|dep khong)|analy[sz]e (?:this |the )?image|what should i (?:edit|fix)/.test(normalized)) {
+      if (sequentialSteps.length === 1 && /^(?:\/analyze|\/analyse)\b|phan tich|danh gia|nhan xet|nen (?:chinh|sua|lam) gi|can (?:chinh|sua) gi|goi y (?:chinh|sua)|tu van (?:chinh|sua)|anh nay (?:the nao|dep khong)|analy[sz]e (?:this |the )?image|what should i (?:edit|fix)/.test(normalized)) {
         if (!image) {
           reply('Hãy mở một ảnh bằng nút “Mở ảnh”, rồi mình sẽ phân tích và đề xuất cách chỉnh sửa.');
           return;
@@ -1408,7 +1430,6 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       let intent = this.getCopilotIntent(text, normalized);
-      const sequentialSteps = splitSequentialPrompt(text);
       if (sequentialSteps.length > 1) {
         const intents = sequentialSteps.map((step) => this.getCopilotIntent(step, step.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')));
         if (intents.some((candidate) => !candidate)) {
@@ -1423,7 +1444,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           reply('Hãy mở một ảnh trước khi chạy chuỗi chỉnh sửa này.');
           return;
         }
-        await this.runSequentialCopilotPlan(sessionId, image, nodeId, intents as any[], text);
+        if (intents.every((candidate) => candidate.operation === 'remove_background' || candidate.operation === 'recolor')) {
+          await this.runPlannedPrioritySequence(sessionId, nodeId, text, sequentialSteps.length, message.requestId);
+        } else {
+          await this.runSequentialCopilotPlan(sessionId, image, nodeId, intents as any[], text, message.requestId);
+        }
         return;
       }
       if (!intent) {
@@ -1510,18 +1535,20 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     initialImage: string,
     initialNodeId: string,
     intents: any[],
-    originalPrompt: string
+    originalPrompt: string,
+    requestId?: string
   ): Promise<void> {
     let image = initialImage;
     let parentId = initialNodeId;
     for (const intent of intents) {
+      if (requestId) this.runLifecycle.throwIfCancelled(requestId);
       const committedNodeId = await this.runCopilotOperation(
         sessionId,
         image,
         intent.operation,
         intent,
         intent.promptText || originalPrompt,
-        undefined,
+        requestId,
         parentId
       );
       if (!committedNodeId) throw new Error(`Step “${intent.label || intent.operation}” did not produce an image.`);
@@ -1531,6 +1558,38 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       parentId = committedNodeId;
       image = node.outputImageUri;
     }
+  }
+
+  /** Route supported local priority steps through durable checkpoints. */
+  private async runPlannedPrioritySequence(
+    sessionId: string,
+    initialNodeId: string,
+    prompt: string,
+    expectedSteps: number,
+    requestId?: string
+  ): Promise<void> {
+    const session = this.sessionManager.getSession(sessionId);
+    const initialImage = session?.nodes[initialNodeId]?.outputImageUri;
+    if (!initialImage) throw new Error('The plan source image is no longer available.');
+    const plan = await this.copilotOrchestrator.planMultiStep(prompt, {
+      sessionId, currentImageId: initialImage,
+      offlineMode: vscode.workspace.getConfiguration('pixelPilot').get<boolean>('offlineMode', false)
+    });
+    const signal = requestId ? this.runLifecycle.signal(requestId) : undefined;
+    await this.plannedPrioritySequence.run({
+      plan, sessionId, initialNodeId, expectedSteps, requestId, signal,
+      onStarted: () => {
+        if (requestId) this.postToWebview({ type: 'plan.started', requestId, planId: plan.planId, summary: plan.summary });
+      },
+      onStep: (step, fraction) => {
+        if (requestId) this.postToWebview({
+          type: 'step.progress', requestId, stage: step.description || step.toolName,
+          fraction, provider: step.route?.providerId
+        });
+      },
+      onCommitted: () => this.broadcastSessionState()
+    });
+    if (requestId) this.postToWebview({ type: 'step.progress', requestId, stage: 'Kế hoạch đã hoàn tất.', fraction: 1 });
   }
 
   private getCopilotIntent(text: string, normalized: string): any | null {
@@ -1708,6 +1767,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       operation,
       intent,
       prompt,
+      signal: requestId ? this.runLifecycle.signal(requestId) : undefined,
       result
     });
     if (operation === 'vectorize' && result.textResult) {

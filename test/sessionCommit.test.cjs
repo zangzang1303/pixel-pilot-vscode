@@ -37,3 +37,16 @@ test('a late result branches from its pinned parent without stealing the selecte
   assert.equal(manager.getSession(session.sessionId).currentNodeId, selected.nodeId);
   assert.deepEqual(manager.getSession(session.sessionId).nodes[session.rootNodeId].childrenIds, [selected.nodeId, committed.nodeId]);
 });
+
+test('cancellation while persisting an artifact leaves the DAG unchanged', async () => {
+  const manager = new SessionManager();
+  const session = manager.createSession('source.png');
+  const controller = new AbortController();
+  let release;
+  const service = new SessionCommitService(manager, { saveToCache: () => new Promise(resolve => { release = resolve; }) });
+  const pending = service.commitImageResult({ sessionId: session.sessionId, parentId: session.rootNodeId, operation: 'upscale', intent: { label: 'Upscale' }, signal: controller.signal, result: { success: true, outputImageUri: 'data:image/png;base64,AA==', metrics } });
+  controller.abort();
+  release('late-result.png');
+  await assert.rejects(pending, /cancelled/i);
+  assert.equal(manager.getSession(session.sessionId).currentNodeId, session.rootNodeId);
+});

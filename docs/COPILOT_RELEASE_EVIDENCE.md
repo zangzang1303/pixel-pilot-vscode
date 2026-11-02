@@ -108,3 +108,9 @@ Sau khi bổ sung checkpoint B25, `npm.cmd run check` pass 102/102 và `npm.cmd 
 Test bổ sung chống tái sử dụng cùng plan ID với session hoặc nội dung bước khác và chống hai session chạy cùng plan đồng thời đều pass; `npm.cmd run check` sau các test này pass 104/104, `npm.cmd run lint` pass. VSIX hash ở đoạn trước là artifact được đóng gói trước khi thêm khóa theo plan. Chưa có lượt CI trên runner sạch.
 
 VSIX E2E cuối lượt pass sau khóa theo plan: cài profile cô lập, Sharp load, trường hợp thiếu model recolor và activation/Studio tab. VSIX SHA-256 `8781BE14398F97C1FCCD204532A4655E52A69F3122852884E02A4CAFBF8C9B7C`. Đây vẫn chưa phải UI critical-flow E2E hay clean-OS acceptance.
+
+## 9. Smoke test ngày 02/11/2026
+
+Máy phát triển hiện tại: `npm.cmd run check` pass 109/109, `npm.cmd run lint` pass. `npm.cmd run test:e2e:vsix` pass khi trỏ runner tới VS Code đã cài: build, đóng gói, cài vào profile cô lập, Sharp runtime, trường hợp thiếu model recolor, activation/commands và mở Studio tab. VSIX SHA-256 `32F2FCE522D07B0B6450F0D4DFB79EE1F487F5D9B629227D2DA555C2FEEE3FBD`. Test mới cho checkpoint xác nhận chuỗi hai bước tiếp tục sau khi khởi động lại, không chạy lại bước đầu và ghép đúng node DAG theo artifact ID.
+
+Các hàng UI critical flow, ba demo qua UI/VSIX và clean-OS ở trên vẫn chưa có bằng chứng; không dùng smoke test này để đóng B28/B29.

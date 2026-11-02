@@ -53,10 +53,11 @@ export class IntentRouter {
    */
   public async routeStep(step: PlanStep, isOffline: boolean): Promise<RouteDecision> {
     const toolName = step.toolName as PriorityToolName;
+    const requiresModel = toolName === 'image.remove_background' && step.args.quality === 'model';
 
     // Check offline mode restrictions
     if (isOffline) {
-      const localProviders: ProviderId[] = ['sharp', 'comfyui', 'ollama'];
+      const localProviders: ProviderId[] = requiresModel ? ['comfyui'] : ['sharp', 'comfyui', 'ollama'];
       const availableLocals: ProviderId[] = [];
 
       for (const id of localProviders) {
@@ -88,7 +89,7 @@ export class IntentRouter {
     const candidateProviders = await this.catalog.getAvailableProvidersForTool(toolName);
 
     // Prefer local-first (cost = 0, privacy friendly)
-    if (candidateProviders.includes('sharp')) {
+    if (!requiresModel && candidateProviders.includes('sharp')) {
       return {
         providerId: 'sharp',
         isCloud: false,
@@ -131,7 +132,7 @@ export class IntentRouter {
 
     // If candidate list is empty, probe sharp as default local fallback
     const sharpCheck = await this.catalog.isToolSupported('sharp', toolName);
-    if (sharpCheck.supported) {
+    if (!requiresModel && sharpCheck.supported) {
       return {
         providerId: 'sharp',
         isCloud: false,

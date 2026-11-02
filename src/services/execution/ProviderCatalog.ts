@@ -1,3 +1,6 @@
+import { ComfyUIAdapter } from '../ai/ComfyUIAdapter';
+import { ImageProcessor } from '../image/ImageProcessor';
+
 export type ProviderId = 'sharp' | 'comfyui' | 'invokeai' | 'runware' | 'ollama' | 'cloud_llm';
 
 export type PriorityToolName =
@@ -140,6 +143,23 @@ export class ProviderCatalog {
         isOnline: true,
         supportedTools,
         unavailableReasons
+      };
+    });
+
+    this.registerProbe('comfyui', async () => {
+      const adapter = new ComfyUIAdapter();
+      const isOnline = await adapter.ping();
+      const rmbgNode = isOnline ? await adapter.getAvailableRmbgNode() : null;
+      const supportedTools: PriorityToolName[] = [];
+      if (rmbgNode) supportedTools.push('image.remove_background');
+      if (rmbgNode && ImageProcessor.hasRecolorPrerequisites()) supportedTools.push('image.recolor');
+      return {
+        providerId: 'comfyui', name: 'ComfyUI (Local)', isOnline,
+        supportedTools,
+        unavailableReasons: {
+          'image.remove_background': rmbgNode ? undefined : 'A background removal model is not available in ComfyUI.',
+          'image.recolor': supportedTools.includes('image.recolor') ? undefined : 'Recolor requires ComfyUI background removal and local Python/ONNX files.'
+        }
       };
     });
   }

@@ -17,6 +17,17 @@ export class ImageProcessor implements IImageProcessor {
     return ImageProcessor.instance;
   }
 
+  /** File-level preflight; execution still verifies the Python model and ComfyUI output. */
+  public static hasRecolorPrerequisites(): boolean {
+    const root = path.resolve(__dirname, '../../..');
+    const pythonCandidates = process.env.PIXEL_PILOT_PYTHON
+      ? [process.env.PIXEL_PILOT_PYTHON]
+      : ['C:\\AI\\ComfyUI\\.venv\\Scripts\\python.exe', 'D:\\ComfyUI_windows_portable\\python_embeded\\python.exe'];
+    return pythonCandidates.some(candidate => fs.existsSync(candidate)) &&
+      fs.existsSync(path.join(root, 'scripts', 'recolor_mask.py')) &&
+      fs.existsSync(path.join(root, '.pixelpilot_runtime', 'selfie_multiclass.onnx'));
+  }
+
   /**
    * Process and compress image buffer to WebP, AVIF, PNG or JPEG with Sharp.
    */
@@ -354,13 +365,12 @@ export class ImageProcessor implements IImageProcessor {
 
   private async getRecolorMask(inputBuffer: Buffer, subject: 'hair' | 'clothes' | 'background' | 'object'): Promise<Buffer> {
     const root = path.resolve(__dirname, '../../..');
-    const runtimeDir = path.join(root, '.pixelpilot_runtime');
     const script = path.join(root, 'scripts', 'recolor_mask.py');
     const pythonCandidates = process.env.PIXEL_PILOT_PYTHON
       ? [process.env.PIXEL_PILOT_PYTHON]
       : ['C:\\AI\\ComfyUI\\.venv\\Scripts\\python.exe', 'D:\\ComfyUI_windows_portable\\python_embeded\\python.exe'];
     const python = pythonCandidates.find(candidate => fs.existsSync(candidate));
-    if (!python || !fs.existsSync(script) || !fs.existsSync(path.join(runtimeDir, 'selfie_multiclass.onnx'))) {
+    if (!python || !ImageProcessor.hasRecolorPrerequisites()) {
       throw new Error('Thiếu mô hình đổi màu chọn lọc. Chạy scripts/setup_recolor.ps1 trong thư mục dự án.');
     }
     return await new Promise<Buffer>((resolve, reject) => {
@@ -379,6 +389,7 @@ export class ImageProcessor implements IImageProcessor {
       child.stdin.end(inputBuffer);
     });
   }
+
 
   /**
    * 4b. Extract Mask (Trích xuất mặt nạ phân vùng nhị phân 0-255 cho inpainting & segmentation)
