@@ -13,7 +13,11 @@ const images = new Map();
 // Sample base64 512x512 PNG image
 const samplePngBase64 =
   'iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAYAAAD0eNT6AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEwAACxMBAJqcGAAAAFFJREFUeJztwTEBAAAAwqD1T20LL6AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/gxlUAAB9O3n2AAAAABJRU5ErkJggg==';
-const defaultImageBuffer = Buffer.from(samplePngBase64, 'base64');
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const visualFixture = path.join(projectRoot, 'assets', 'pixel_pilot_style_anime_1793170160213.png');
+const defaultImageBuffer = fs.existsSync(visualFixture)
+  ? fs.readFileSync(visualFixture)
+  : Buffer.from(samplePngBase64, 'base64');
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -110,7 +114,9 @@ const server = http.createServer((req, res) => {
   }
 
   // 4. Queue Item Status
-  const statusMatch = pathname.match(/\/api\/v1\/queue\/default\/i\/(\d+)\/status/);
+  // InvokeAI v6 uses /i/{itemId}; older clients used /i/{itemId}/status.
+  // Support both so the development mock follows the adapter's compatibility path.
+  const statusMatch = pathname.match(/\/api\/v1\/queue\/default\/i\/(\d+)(?:\/status)?$/);
   if (statusMatch) {
     const itemId = parseInt(statusMatch[1], 10);
     const job = jobs.get(itemId);

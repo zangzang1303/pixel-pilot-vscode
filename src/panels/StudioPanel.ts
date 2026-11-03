@@ -373,7 +373,16 @@ export class StudioPanel {
         break;
       }
 
+      // All active Studio image actions must use the same host ingress as the
+      // sidebar. The previous inline executor is intentionally retained below
+      // under an internal-only command for source compatibility while no UI
+      // message can reach it.
       case 'applyAction': {
+        await this._copilot.handleStudioMessage(message);
+        break;
+      }
+
+      case '__legacyApplyAction': {
         const { action, dataUrl, options } = message;
         if (!dataUrl) {
           vscode.window.showWarningMessage('Chưa có ảnh trên Canvas để xử lý.');

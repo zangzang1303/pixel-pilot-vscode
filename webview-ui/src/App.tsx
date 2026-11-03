@@ -164,7 +164,7 @@ export const App: React.FC = () => {
         case 'setImage':
         case 'SET_CURRENT_IMAGE':
           setCurrentImageUrl(message.dataUrl || message.payload?.imageUri);
-          setSavedPath(message.filePath || message.payload?.fileName);
+          setSavedPath(vscode.isBrowserDemo() ? undefined : message.filePath || message.payload?.fileName);
           setSnippetInserted(false);
           setIsProcessingAction(false);
           break;
@@ -189,11 +189,12 @@ export const App: React.FC = () => {
             message.nodeId === currentNodeIdRef.current;
           if (isCurrentGeneration) {
             setCurrentImageUrl(message.dataUrl);
-            setSavedPath(message.savedPath);
+            setSavedPath(vscode.isBrowserDemo() ? undefined : message.savedPath);
           }
           setSnippetInserted(isCurrentGeneration && Boolean(message.snippetInserted));
           setProgressPercentage(100);
-          setToast({ kind: 'success', message: isCurrentGeneration
+          setToast({ kind: 'success', message: vscode.isBrowserDemo()
+            ? 'Đã tạo ảnh bằng ComfyUI local. Dùng nút Tải ảnh để lưu vào máy.' : isCurrentGeneration
             ? (message.savedPath ? 'Đã tạo và lưu ảnh vào workspace.' : 'Đã tạo ảnh trong lịch sử Pixel Pilot.')
             : 'Ảnh mới đã được lưu ở một phiên khác trong danh sách.' });
           break;
@@ -220,9 +221,9 @@ export const App: React.FC = () => {
           setIsUpscaling(false);
           if (message.sessionId === activeSessionIdRef.current && message.nodeId === currentNodeIdRef.current) {
             setCurrentImageUrl(message.dataUrl);
-            setSavedPath(message.savedPath);
+            setSavedPath(vscode.isBrowserDemo() ? undefined : message.savedPath);
           }
-          setToast({ kind: 'success', message: 'Đã phóng to và lưu ảnh thành công.' });
+          setToast({ kind: 'success', message: vscode.isBrowserDemo() ? 'Đã phóng to ảnh. Dùng nút Tải ảnh để lưu.' : 'Đã phóng to và lưu ảnh thành công.' });
           break;
 
         case 'upscaleError':
@@ -247,7 +248,7 @@ export const App: React.FC = () => {
             setCurrentImageUrl(message.dataUrl || message.payload?.outputUri);
           }
           if (isCurrentResult && message.savedPath) {
-            setSavedPath(message.savedPath);
+            setSavedPath(vscode.isBrowserDemo() ? undefined : message.savedPath);
           }
           setToast({ kind: 'success', message: isCurrentResult
             ? (message.message || 'Đã hoàn tất thao tác ảnh.')
@@ -344,7 +345,7 @@ export const App: React.FC = () => {
             resumePlanId: item.resumePlanId
           })));
           setCurrentImageUrl(message.currentImage || null);
-          setSavedPath(message.savedPath || undefined);
+          setSavedPath(vscode.isBrowserDemo() ? undefined : message.savedPath || undefined);
           break;
         }
       }
@@ -491,6 +492,7 @@ export const App: React.FC = () => {
     />
   ) : (
     <Canvas
+      browserMode={vscode.isBrowserDemo()}
       imageUrl={currentImageUrl}
       isGenerating={isGenerating || isProcessingAction}
       progressStatus={isProcessingAction ? processingLabel : progressStatus}

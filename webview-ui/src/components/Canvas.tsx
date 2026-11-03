@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 
 interface CanvasProps {
+  browserMode?: boolean;
   imageUrl: string | null;
   isGenerating: boolean;
   progressStatus: string;
@@ -30,6 +31,7 @@ interface CanvasProps {
 }
 
 export const Canvas: React.FC<CanvasProps> = ({
+  browserMode = false,
   imageUrl,
   isGenerating,
   progressStatus,
@@ -425,10 +427,9 @@ export const Canvas: React.FC<CanvasProps> = ({
               <div className="w-16 h-16 rounded-2xl bg-slate-900/90 border border-slate-800 flex items-center justify-center mb-4 shadow-xl text-indigo-400">
                 <Sparkles className="w-8 h-8" />
               </div>
-              <h3 className="text-base font-bold text-slate-200 mb-1">InvokeAI Studio Canvas</h3>
+              <h3 className="text-base font-bold text-slate-200 mb-1">{browserMode ? 'Pixel Pilot Web Canvas' : 'InvokeAI Studio Canvas'}</h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Enter your prompt and click <span className="text-indigo-400 font-semibold">Generate Image</span>.
-                The rendered image will be automatically saved to your workspace <code className="text-indigo-300 bg-slate-800 px-1 py-0.5 rounded">assets/</code> folder and can be auto-inserted into code.
+                {browserMode ? 'Mở một ảnh để xử lý ngay trong trình duyệt. Công cụ AI dùng ComfyUI local khi model đã sẵn sàng; bấm Tải ảnh để lưu kết quả.' : <>Enter your prompt and click <span className="text-indigo-400 font-semibold">Generate Image</span>. The rendered image will be automatically saved to your workspace <code className="text-indigo-300 bg-slate-800 px-1 py-0.5 rounded">assets/</code> folder and can be auto-inserted into code.</>}
               </p>
             </div>
           )
@@ -443,7 +444,7 @@ export const Canvas: React.FC<CanvasProps> = ({
                 <Sparkles className="w-5 h-5 text-indigo-400 absolute inset-0 m-auto" />
               </div>
 
-              <h4 className="text-sm font-bold text-slate-100 mb-1">Generating with InvokeAI</h4>
+              <h4 className="text-sm font-bold text-slate-100 mb-1">{browserMode ? 'Đang xử lý ảnh' : 'Generating with InvokeAI'}</h4>
               <p className="text-xs text-slate-400 text-center mb-4 min-h-[1.5rem]">
                 {progressStatus || 'Executing generation graph...'}
               </p>
