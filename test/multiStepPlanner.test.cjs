@@ -6,7 +6,7 @@ const path = require('node:path');
 const { AgentToolRegistry } = require('../out/services/ai/AgentToolRegistry');
 const { PriorityToolExecutors } = require('../out/services/tools/PriorityToolExecutors');
 const { PlanValidator, PlanValidationError } = require('../out/services/planner/PlanValidator');
-const { RulePlanner } = require('../out/services/planner/RulePlanner');
+const { RulePlanner, resolveNamedColor } = require('../out/services/planner/RulePlanner');
 const { IntentRouter } = require('../out/services/planner/IntentRouter');
 const { PlanExecutionCoordinator } = require('../out/services/planner/PlanExecutionCoordinator');
 const { CopilotOrchestrator } = require('../out/services/copilot/CopilotOrchestrator');
@@ -117,6 +117,9 @@ test('RulePlanner correctly handles negation, questions, clarification, and sequ
   const q1 = RulePlanner.plan('ảnh này có đẹp không?');
   assert.equal(q1.intent, 'chat');
   assert.equal(q1.steps.length, 0);
+  const colorQuestion = RulePlanner.plan('Tóc tôi màu đỏ không?');
+  assert.equal(colorQuestion.intent, 'chat');
+  assert.equal(colorQuestion.steps.length, 0);
 
   // 3. Analysis: image.analyze
   const a1 = RulePlanner.plan('phân tích các thông số độ sáng của ảnh', { currentImageId: 'img_test' });
@@ -142,6 +145,27 @@ test('RulePlanner correctly handles negation, questions, clarification, and sequ
   assert.equal(green.steps[1].args.color, 'green');
   const red = RulePlanner.plan('tách nền rồi đổi màu tóc sang đỏ', { currentImageId: 'img_test' });
   assert.equal(red.steps[1].args.color, 'red');
+  assert.equal(resolveNamedColor('xanh lá'), 'green');
+  assert.equal(resolveNamedColor('màu teal'), undefined);
+  const unknownColor = RulePlanner.plan('tách nền rồi đổi màu tóc sang teal', { currentImageId: 'img_test' });
+  assert.equal(unknownColor.intent, 'clarify');
+  assert.equal(unknownColor.steps.length, 0);
+  for (const prompt of ['đổi màu tóc', 'đổi màu sang đỏ', 'recolor to blue']) {
+    const ambiguous = RulePlanner.plan(prompt, { currentImageId: 'img_test' });
+    assert.equal(ambiguous.intent, 'clarify', prompt);
+    assert.equal(ambiguous.steps.length, 0);
+  }
+  const unspecifiedRegion = RulePlanner.plan('tách nền rồi đổi màu sang đỏ', { currentImageId: 'img_test' });
+  assert.equal(unspecifiedRegion.intent, 'clarify');
+  assert.equal(unspecifiedRegion.steps.length, 0);
+  const explicitRegion = RulePlanner.plan('đổi màu tóc sang đỏ', { currentImageId: 'img_test' });
+  assert.equal(explicitRegion.intent, 'edit');
+  assert.equal(explicitRegion.steps[0].args.target, 'hair');
+  assert.equal(explicitRegion.steps[0].args.color, 'red');
+  const plainVietnamese = RulePlanner.plan('doi mau toc sang mau vang', { currentImageId: 'img_test' });
+  assert.equal(plainVietnamese.intent, 'edit');
+  assert.equal(plainVietnamese.steps[0].args.target, 'hair');
+  assert.equal(plainVietnamese.steps[0].args.color, 'yellow');
 
   const partial = RulePlanner.plan('tách nền rồi làm một việc chưa biết', { currentImageId: 'img_test' });
   assert.equal(partial.intent, 'clarify');

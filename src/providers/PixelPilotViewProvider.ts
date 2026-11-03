@@ -11,11 +11,12 @@ import { ContextBuilder } from '../services/copilot/ContextBuilder';
 import { PriorityToolRunService } from '../services/copilot/PriorityToolRunService';
 import { PlannedPrioritySequenceService } from '../services/copilot/PlannedPrioritySequenceService';
 import { ExecutionEngine } from '../services/execution/ExecutionEngine';
+import { CopilotError } from '../services/execution/errors';
 import { ArtifactStore } from '../services/storage/ArtifactStore';
 import { CopilotOrchestrator } from '../services/copilot/CopilotOrchestrator';
 import { RunLifecycleService } from '../services/copilot/RunLifecycleService';
 import { WebviewBridge } from '../services/copilot/WebviewBridge';
-import { RulePlanner } from '../services/planner/RulePlanner';
+import { RulePlanner, resolveNamedColor } from '../services/planner/RulePlanner';
 import { PlanExecutionCoordinator } from '../services/planner/PlanExecutionCoordinator';
 import { splitSequentialPrompt } from '../services/copilot/SequentialPlan';
 import { SafeTelemetry } from '../services/copilot/SafeTelemetry';
@@ -888,7 +889,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             this.postToWebview({ type: 'copilotCancelled', requestId: request.targetRequestId || request.requestId });
           }
         } catch (error: any) {
-          if (/^Operation cancelled\.?$/i.test(error?.message || '')) {
+          if ((error instanceof CopilotError && error.code === 'cancelled') || /^Operation cancelled\.?$/i.test(error?.message || '')) {
             this.postToWebview({ type: 'copilotCancelled', requestId: request.requestId });
             this.telemetry.record({ requestId: request.requestId, command: request.command, outcome: 'cancelled', toolName: request.toolName, latencyMs: Date.now() - startedAt });
           } else {
@@ -1388,19 +1389,40 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       this.sessionManager.attachImage(sessionId, cachedImage);
     }
     const nodeId = session.currentNodeId;
-    this.sessionManager.addMessage(sessionId, { sender: 'user', text, nodeId });
+    const userMessage = this.sessionManager.addMessage(sessionId, { sender: 'user', text, nodeId });
     if (session.title === 'Cuộc trò chuyện mới' || session.title === 'Phiên làm việc mới') {
       this.sessionManager.renameSession(sessionId, text.slice(0, 48));
     }
     this.broadcastSessionState();
 
-    const reply = (answer: string) => {
-      this.sessionManager.addMessage(sessionId, { sender: 'assistant', text: answer, nodeId: this.sessionManager.getSession(sessionId)?.currentNodeId || nodeId, replyType: 'chat' });
+    const reply = (answer: string, resumePlanId?: string) => {
+      this.sessionManager.addMessage(sessionId, { sender: 'assistant', text: answer, nodeId: this.sessionManager.getSession(sessionId)?.currentNodeId || nodeId, replyType: 'chat', resumePlanId });
       this.broadcastSessionState();
     };
 
+    let pendingPlanId: string | undefined;
     try {
       const current = this.sessionManager.getSession(sessionId)!;
+      const resumeMatch = text.match(/^\/resume\s+(plan_[A-Za-z0-9_:-]{1,120})$/i);
+      if (resumeMatch) {
+        const planId = resumeMatch[1];
+        const origin = current.messages.find(item => item.sender === 'user' && item.planId === planId);
+        const checkpoint = this.copilotOrchestrator.getPlanCheckpoint(planId);
+        if (!origin?.nodeId || !checkpoint || checkpoint.sessionId !== sessionId) {
+          reply('Không tìm thấy checkpoint của plan này trong phiên hiện tại.');
+          return;
+        }
+        if (checkpoint.isCompleted) {
+          reply('Plan này đã hoàn tất; không có bước nào cần chạy lại.');
+          return;
+        }
+        pendingPlanId = planId;
+        await this.runPlannedPrioritySequence(sessionId, origin.nodeId, origin.text,
+          splitSequentialPrompt(origin.text, 5).length,
+          { requestId: message.requestId, resumePlanId: planId });
+        reply('Đã tiếp tục và hoàn tất plan từ checkpoint.');
+        return;
+      }
       const storedImage = current.nodes[current.currentNodeId]?.outputImageUri || '';
       const image = suppliedImage || (storedImage ? this.assetStorage.getWebviewUri(storedImage) : '');
       const normalized = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
@@ -1445,7 +1467,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           return;
         }
         if (intents.every((candidate) => candidate.operation === 'remove_background' || candidate.operation === 'recolor')) {
-          await this.runPlannedPrioritySequence(sessionId, nodeId, text, sequentialSteps.length, message.requestId);
+          await this.runPlannedPrioritySequence(sessionId, nodeId, text, sequentialSteps.length, {
+            requestId: message.requestId, originMessageId: userMessage.id,
+            onPlanId: id => { pendingPlanId = id; }
+          });
         } else {
           await this.runSequentialCopilotPlan(sessionId, image, nodeId, intents as any[], text, message.requestId);
         }
@@ -1455,6 +1480,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         // 1. Try RulePlanner for structured single-step or multi-step edit intents
         try {
           const rulePlan = RulePlanner.plan(text, { currentImageId: image });
+          if (rulePlan.intent === 'clarify') {
+            reply(rulePlan.clarificationMessage || 'Hãy mô tả rõ thao tác bạn muốn thực hiện.');
+            return;
+          }
           if (rulePlan.intent === 'edit' && rulePlan.steps.length > 0) {
             const firstStep = rulePlan.steps[0];
             if (firstStep.toolName === 'image.remove_background') {
@@ -1463,8 +1492,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               intent = {
                 operation: 'recolor',
                 label: 'Đổi màu',
-                colorTarget: firstStep.args?.target || 'clothes',
-                targetColor: firstStep.args?.color || 'blue'
+                colorTarget: firstStep.args.target,
+                targetColor: firstStep.args.color
               };
             } else if (firstStep.toolName === 'upscale_image') {
               intent = { operation: 'upscale', factor: firstStep.args?.factor || 2, label: 'Phóng to ảnh' };
@@ -1493,29 +1522,13 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           return;
         }
 
-        // Action-First Engine: When an image is loaded, ALWAYS execute an action and produce the final edited image
-        if (image) {
-          if (/nen|background|phong|troi|sky|canh|scene|bien|hoang hon|rung|studio|sunset/i.test(normalized)) {
-            intent = { operation: 'replace_bg', label: 'Đổi/Thêm nền', promptText: text.replace(/^.*?(?:nen|background|phong)\s*/i, '').trim() || text };
-          } else if (/toc|hair/i.test(normalized)) {
-            const color = /do|red/.test(normalized) ? 'red' : /xanh la|green/.test(normalized) ? 'green' : /vang|yellow|blond/.test(normalized) ? 'yellow' : /tim|purple/.test(normalized) ? 'purple' : /hong|pink/.test(normalized) ? 'pink' : /trang|white/.test(normalized) ? 'white' : /den|black/.test(normalized) ? 'black' : 'cyan';
-            intent = { operation: 'recolor', label: 'Đổi màu tóc', colorTarget: 'hair', targetColor: color };
-          } else if (/ao|quan|vay|trang phuc|clothes|shirt/i.test(normalized)) {
-            const color = /do|red/.test(normalized) ? 'red' : /xanh la|green/.test(normalized) ? 'green' : /vang|yellow/.test(normalized) ? 'yellow' : /tim|purple/.test(normalized) ? 'purple' : /hong|pink/.test(normalized) ? 'pink' : /trang|white/.test(normalized) ? 'white' : /den|black/.test(normalized) ? 'black' : 'blue';
-            intent = { operation: 'recolor', label: 'Đổi màu trang phục', colorTarget: 'clothes', targetColor: color };
-          } else if (/to|lon|scale|4k|2x|4x|phong|tang net|net hon/i.test(normalized)) {
-            intent = { operation: 'upscale', factor: /4k|4x/.test(normalized) ? 4 : 2, label: 'Phóng to ảnh' };
-          } else if (/anime|pixar|3d|cyberpunk|pixel|ve|hoa|tranh|style|phong cach/i.test(normalized)) {
-            intent = { operation: 'style_transfer', label: 'Chuyển phong cách', style: /3d|pixar/.test(normalized) ? 'pixar' : /cyberpunk/.test(normalized) ? 'cyberpunk' : 'anime' };
-          } else if (/vector|svg/i.test(normalized)) {
-            intent = { operation: 'vectorize', label: 'Xuất SVG' };
-          } else if (/mo rong|outpaint|extend/i.test(normalized)) {
-            intent = { operation: 'extend', label: 'Mở rộng ảnh', direction: 'all' };
-          } else {
-            // General / Ambiguous requests ("làm cho đẹp hơn", "chỉnh ảnh", "tối quá", etc.) -> Auto-enhance HDR Clarity
-            intent = { operation: 'enhance', label: 'Tối ưu độ nét & ánh sáng', enhanceType: 'clarity' };
-          }
+        if (/(?:doi mau|nhuom|recolor|change (?:the )?colou?r)/.test(normalized)) {
+          reply('Hãy nêu rõ vùng cần đổi màu (tóc, trang phục hoặc nền) và màu đích.');
+          return;
         }
+
+        reply('Mình chưa xác định được thao tác chỉnh ảnh. Hãy nêu rõ việc cần làm, ví dụ “tách nền”, “phóng to 2x” hoặc “đổi áo sang đỏ”.');
+        return;
       }
 
       if (!image && intent.operation !== 'generate') {
@@ -1524,7 +1537,14 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       }
       await this.runCopilotOperation(sessionId, image, intent.operation, intent, text, message.requestId, nodeId);
     } catch (error: any) {
-      reply(`Không thực hiện được yêu cầu: ${error?.message || String(error)}`);
+      let resumePlanId: string | undefined;
+      if (pendingPlanId && !(error instanceof CopilotError && error.code === 'precondition_failed')) {
+        try {
+          const checkpoint = this.copilotOrchestrator.getPlanCheckpoint(pendingPlanId);
+          if (checkpoint && !checkpoint.isCompleted && !checkpoint.inFlightStepId) resumePlanId = pendingPlanId;
+        } catch { /* A malformed checkpoint must not offer resume. */ }
+      }
+      reply(`Không thực hiện được yêu cầu: ${error?.message || String(error)}`, resumePlanId);
       throw error;
     }
   }
@@ -1566,7 +1586,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     initialNodeId: string,
     prompt: string,
     expectedSteps: number,
-    requestId?: string
+    options: { requestId?: string; originMessageId?: string; resumePlanId?: string; onPlanId?: (id: string) => void } = {}
   ): Promise<void> {
     const session = this.sessionManager.getSession(sessionId);
     const initialImage = session?.nodes[initialNodeId]?.outputImageUri;
@@ -1575,6 +1595,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       sessionId, currentImageId: initialImage,
       offlineMode: vscode.workspace.getConfiguration('pixelPilot').get<boolean>('offlineMode', false)
     });
+    if (options.resumePlanId) plan.planId = options.resumePlanId;
+    if (options.originMessageId) this.sessionManager.attachPlanToMessage(sessionId, options.originMessageId, plan.planId);
+    options.onPlanId?.(plan.planId);
+    const requestId = options.requestId;
     const signal = requestId ? this.runLifecycle.signal(requestId) : undefined;
     await this.plannedPrioritySequence.run({
       plan, sessionId, initialNodeId, expectedSteps, requestId, signal,
@@ -1589,10 +1613,16 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       },
       onCommitted: () => this.broadcastSessionState()
     });
+    try {
+      this.sessionManager.clearResumeOffer(sessionId, plan.planId);
+    } catch (error) {
+      console.warn('[PixelPilot] Could not clear a completed plan resume offer:', error);
+    }
     if (requestId) this.postToWebview({ type: 'step.progress', requestId, stage: 'Kế hoạch đã hoàn tất.', fraction: 1 });
   }
 
   private getCopilotIntent(text: string, normalized: string): any | null {
+    if (/[?？]\s*$/.test(text) && RulePlanner.plan(text).intent === 'chat') return null;
     if (/\?$/.test(normalized) && /la gi|nhu the nao|tai sao|cach |lam sao|co nen|how|why|should/.test(normalized)) return null;
     if (/^\/generate\b|^\/imagine\b|tao (mot )?anh|ve (mot )?buc anh|sinh anh|generate (an? )?image/.test(normalized)) return { operation: 'generate', label: 'Sinh ảnh mới', promptText: text.replace(/^\/(generate|imagine)\s*/i, '').trim() };
     if (/^\/(remove-bg|nobg|tach-nen|replace-bg|bg|doi-nen|upscale|upscale-4x|canny|lineart|mask|caption|alt|extend|outpaint|anime|pixar|pixel|cyberpunk|sketch|style|vectorize|svg|hdr|enhance|vintage|inpaint)/.test(normalized)) {
@@ -1609,30 +1639,16 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     if (/phong to|upscale|tang do phan giai|tang net|tang do net|tang chi tiet|lam net anh/.test(normalized)) return { operation: 'upscale', factor: /4x|4k/.test(normalized) ? 4 : 2, label: 'Phóng to ảnh' };
     const isHair = /\b(?:toc|hair)\b/.test(normalized);
     const isClothes = /\b(?:ao|quan|vay|trang\s*phuc|shirt|clothes|dress|pants)\b/.test(normalized);
-    const hasColorWord = /\b(?:mau|nhuom|doi\s+mau|thay\s+mau)\b/.test(normalized);
-    const matchedColor = /cam|orange/.test(normalized) ? 'orange' :
-      /vang|yellow|blonde/.test(normalized) ? 'yellow' :
-      /do|red/.test(normalized) ? 'red' :
-      /cyan|xanh\s+da\s+troi/.test(normalized) ? 'cyan' :
-      /xanh\s+la|green/.test(normalized) ? 'green' :
-      /xanh|blue/.test(normalized) ? 'blue' :
-      /tim|purple/.test(normalized) ? 'purple' :
-      /hong|pink/.test(normalized) ? 'pink' :
-      /trang|white|bach\s+kim/.test(normalized) ? 'white' :
-      /den|black/.test(normalized) ? 'black' :
-      /nau|brown/.test(normalized) ? 'brown' : null;
+    const matchedColor = resolveNamedColor(text);
 
-    if ((isHair || isClothes || hasColorWord) && matchedColor) {
-      const subject = isHair ? 'hair' : isClothes ? 'clothes' : 'hair';
+    if ((isHair || isClothes) && matchedColor) {
+      const subject = isHair ? 'hair' : 'clothes';
       return {
         operation: 'recolor',
         label: isHair ? 'Đổi màu tóc' : 'Đổi màu trang phục',
         colorTarget: subject,
         targetColor: matchedColor
       };
-    }
-    if (/(?:doi|thay|chuyen|nhuom|bien)\s+(?:mau\s+)?(?:toc|ao|quan|vay|trang\s+phuc|hair|shirt|clothes)|doi mau|nhuom/.test(normalized)) {
-      return { operation: 'recolor', label: 'Đổi màu chọn lọc', colorTarget: /toc|hair/.test(normalized) ? 'hair' : 'clothes', targetColor: matchedColor || 'cyan' };
     }
     if (/canny|do bien|duong vien|edge detection/.test(normalized)) return { operation: 'canny', label: 'Dò biên Canny' };
     if (/lineart|line art|net ve/.test(normalized)) return { operation: 'lineart', label: 'Nét vẽ Lineart' };

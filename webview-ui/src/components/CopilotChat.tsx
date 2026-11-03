@@ -11,6 +11,7 @@ export interface CopilotMessage {
   operation?: string;
   outputImageUri?: string;
   suggestions?: Array<{ label: string; reason: string }>;
+  resumePlanId?: string;
 }
 
 interface SessionSummary { sessionId: string; title: string; updatedAt: number; messageCount: number; }
@@ -83,6 +84,7 @@ export const CopilotChat: React.FC<CopilotChatProps> = ({ messages, isThinking, 
             {item.operation && <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-cyan-300"><Sparkles className="h-3 w-3" />{item.operation.replace(/_/g, ' ')}</div>}<div className="whitespace-pre-wrap break-words">{formatMessage(item.text)}</div>
             {item.outputImageUri && item.operation !== 'original' && <div className="mt-3 overflow-hidden rounded-xl border border-slate-700 bg-slate-950"><div className="flex items-center justify-between border-b border-slate-800 px-3 py-1.5 text-[10px] font-medium text-slate-400"><span>Kết quả chỉnh sửa</span><span className="text-emerald-300">Sẵn sàng</span></div><div className="canvas-checkerboard flex max-h-64 min-h-36 items-center justify-center overflow-hidden"><img src={item.outputImageUri} alt={`Kết quả ${(item.operation || 'ảnh').replace(/_/g, ' ')}`} className="max-h-64 max-w-full object-contain" /></div></div>}
             {item.suggestions && item.suggestions.length > 0 && index === messages.length - 1 && <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-700/70 pt-3">{item.suggestions.map((suggestion, suggestionIndex) => <button key={suggestionIndex} type="button" disabled={isThinking} title={suggestion.reason} onClick={() => onSend(`/apply ${suggestionIndex + 1}`)} className="rounded-lg border border-cyan-400/25 bg-cyan-400/10 px-2.5 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-400/20 disabled:opacity-40">{suggestion.label}</button>)}</div>}
+            {item.role === 'assistant' && item.resumePlanId && <div className="mt-3 border-t border-slate-700/70 pt-3"><button type="button" disabled={isThinking} onClick={() => onSend(`/resume ${item.resumePlanId}`)} className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5 text-xs font-medium text-cyan-100 hover:bg-cyan-400/20 disabled:opacity-40">Tiếp tục từ bước chưa hoàn tất</button></div>}
           </div>
         </article>)}
         {runState.phase !== 'idle' && (

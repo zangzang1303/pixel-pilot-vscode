@@ -1,5 +1,6 @@
 // AgentToolRegistry.ts - Standardized Visual AI Tool Registry & Function Calling Schemas
 import { OperationType, ParsedIntent } from '../session/types';
+import { RECOLOR_COLORS } from '../../shared/tool-contracts';
 
 export interface ToolParameterProperty {
   type: string;
@@ -442,7 +443,7 @@ export class AgentToolRegistry {
         properties: {
           imageId: { type: 'string', description: 'ID hoặc URI ảnh nguồn' },
           target: { type: 'string', enum: ['hair', 'clothes', 'background'], description: 'Đối tượng cần đổi màu' },
-          color: { type: 'string', description: 'Màu mục tiêu' }
+          color: { type: 'string', description: 'Màu mục tiêu', enum: [...RECOLOR_COLORS] }
         },
         required: ['imageId', 'target', 'color']
       },

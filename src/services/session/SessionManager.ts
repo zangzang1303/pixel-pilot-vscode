@@ -251,6 +251,30 @@ export class SessionManager {
     });
   }
 
+  public attachPlanToMessage(sessionId: string, messageId: string, planId: string): void {
+    if (!/^plan_[A-Za-z0-9_:-]{1,120}$/.test(planId)) throw new Error('Invalid plan ID.');
+    const session = this.sessions.get(sessionId);
+    const message = session?.messages.find(item => item.id === messageId && item.sender === 'user');
+    if (!session || !message || (message.planId && message.planId !== planId)) {
+      throw new Error('The plan origin message is unavailable.');
+    }
+    this.persistMutation(() => {
+      message.planId = planId;
+      session.updatedAt = Date.now();
+    });
+  }
+
+  public clearResumeOffer(sessionId: string, planId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session || !session.messages.some(item => item.resumePlanId === planId)) return;
+    this.persistMutation(() => {
+      for (const message of session.messages) {
+        if (message.resumePlanId === planId) delete message.resumePlanId;
+      }
+      session.updatedAt = Date.now();
+    });
+  }
+
   public attachImage(sessionId: string, imageUri: string): void {
     const session = this.sessions.get(sessionId);
     if (!session || !imageUri) return;

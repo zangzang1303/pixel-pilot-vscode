@@ -43,6 +43,7 @@ const COLOR_NAMES: Record<string, string> = {
   đỏ: 'red', do: 'red', red: 'red',
   xanh: 'blue', 'xanh dương': 'blue', 'xanh duong': 'blue', blue: 'blue',
   'xanh lá': 'green', 'xanh la': 'green', green: 'green',
+  cyan: 'cyan', 'xanh da trời': 'cyan', 'xanh da troi': 'cyan',
   vàng: 'yellow', vang: 'yellow', yellow: 'yellow', blond: 'yellow', blonde: 'yellow', golden: 'yellow',
   tím: 'purple', tim: 'purple', purple: 'purple',
   hồng: 'pink', hong: 'pink', pink: 'pink',
@@ -52,6 +53,14 @@ const COLOR_NAMES: Record<string, string> = {
   nâu: 'brown', nau: 'brown', brown: 'brown',
   xám: 'gray', xam: 'gray', gray: 'gray', grey: 'gray'
 };
+
+export function resolveNamedColor(text: string): string | undefined {
+  for (const [name, value] of Object.entries(COLOR_NAMES).sort((a, b) => b[0].length - a[0].length)) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(text)) return value;
+  }
+  return undefined;
+}
 
 /**
  * RulePlanner (B22)
@@ -195,13 +204,15 @@ export class RulePlanner {
       if (parsed) {
         steps.push(parsed);
         stepSummaries.push(parsed.description || parsed.toolName);
-      } else if (stepStrings.length > 1) {
+      } else if (stepStrings.length > 1 || /(?:đổi\s+màu|doi\s+mau|nhuộm|nhuom|recolor|change\s+(?:the\s+)?colou?r)/i.test(stepStr)) {
         return {
           planId,
           intent: 'clarify',
           prompt: trimmed,
           steps: [],
-          clarificationMessage: `Không nhận diện được bước ${i + 1}. Hãy mô tả rõ từng thao tác trước khi chạy cả chuỗi.`,
+          clarificationMessage: stepStrings.length > 1
+            ? `Không nhận diện được bước ${i + 1}. Hãy mô tả rõ từng thao tác trước khi chạy cả chuỗi.`
+            : 'Hãy nêu rõ vùng cần đổi màu (tóc, trang phục hoặc nền) và màu đích được hỗ trợ.',
           summary: 'Chuỗi chỉnh sửa có bước chưa rõ; không thực thi một phần.'
         };
       }
@@ -252,18 +263,13 @@ export class RulePlanner {
 
     // 2. Recolor (clothes, hair, background)
     if (/(?:đổi\s+màu|doi\s+mau|nhuộm|nhuom|chuyển\s+màu|thay\s+màu|đổi\s+áo|doi\s+ao|đổi\s+tóc|doi\s+toc|đổi\s+phông|đổi\s+nền|recolor|change\s+hair|change\s+clothes|make\s+(?:the\s+)?hair)/i.test(stepStr)) {
-      let target: 'hair' | 'clothes' | 'background' = 'clothes';
-      if (/tóc|hair/i.test(stepStr)) target = 'hair';
-      else if (/nền|phông|background/i.test(stepStr)) target = 'background';
+      let target: 'hair' | 'clothes' | 'background' | undefined;
+      if (/tóc|toc|hair/i.test(stepStr)) target = 'hair';
+      else if (/nền|nen|phông|phong|background/i.test(stepStr)) target = 'background';
+      else if (/áo|ao|quần|quan|váy|vay|trang\s*phục|trang\s*phuc|shirt|clothes|dress|pants/i.test(stepStr)) target = 'clothes';
 
-      let resolvedColor = 'blue';
-      for (const [name, val] of Object.entries(COLOR_NAMES).sort((a, b) => b[0].length - a[0].length)) {
-        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        if (new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu').test(stepStr)) {
-          resolvedColor = val;
-          break;
-        }
-      }
+      const resolvedColor = resolveNamedColor(stepStr);
+      if (!resolvedColor || !target) return null;
 
       return {
         stepId,

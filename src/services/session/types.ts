@@ -62,6 +62,8 @@ export interface ChatMessage {
   thought?: string;                  // Agent reasoning / Chain of Thought
   replyType?: 'chat' | 'tool_call';  // Whether this was a conversation or tool execution
   toolName?: string;                 // Executed tool name if any
+  planId?: string;                   // Durable plan owned by a user request
+  resumePlanId?: string;             // Assistant message offering resume
 
   suggestions?: Array<{ label: string; reason: string; intent: ParsedIntent }>;
 }

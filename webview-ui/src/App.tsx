@@ -340,7 +340,8 @@ export const App: React.FC = () => {
             text: item.text,
             operation: item.operation,
             outputImageUri: item.outputImageUri,
-            suggestions: item.suggestions
+            suggestions: item.suggestions,
+            resumePlanId: item.resumePlanId
           })));
           setCurrentImageUrl(message.currentImage || null);
           setSavedPath(message.savedPath || undefined);

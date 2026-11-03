@@ -20,6 +20,7 @@ test('priority tool contracts validate inputs for 5 core tools', () => {
   assert.equal(recolor.target, 'hair');
   assert.equal(recolor.color, 'blue');
   assert.throws(() => validatePriorityToolInput('image.recolor', { imageId: 'img_3', target: 'shoes', color: 'blue' }), /target/);
+  assert.throws(() => validatePriorityToolInput('image.recolor', { imageId: 'img_3', target: 'hair', color: 'teal' }), /supported color/);
 
   // 4. image.inpaint
   const inpaint = validatePriorityToolInput('image.inpaint', { imageId: 'img_4', prompt: 'clean restore', maskId: 'm1', seed: 42 });

@@ -19,6 +19,10 @@ test('tool registry validates required arguments, enums, and numeric values', ()
     /unsupported value/i
   );
   assert.throws(
+    () => AgentToolRegistry.validateToolCall('image.recolor', { imageId: 'img_1', target: 'hair', color: 'teal' }),
+    /unsupported value/i
+  );
+  assert.throws(
     () => AgentToolRegistry.validateToolCall('replace_background', {}),
     /Missing required argument/i
   );

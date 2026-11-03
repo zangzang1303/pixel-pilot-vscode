@@ -22,7 +22,7 @@ export class PlannedPrioritySequenceService {
     onStep?: (step: PlanStep, fraction: number) => void;
     onCommitted?: () => void;
   }): Promise<PlanCheckpoint> {
-    const { plan, sessionId, initialNodeId, requestId, signal } = input;
+    const { plan, sessionId, initialNodeId, signal } = input;
     if (plan.intent !== 'edit' || plan.steps.length !== input.expectedSteps ||
         plan.steps.some(step => !['image.remove_background', 'image.recolor'].includes(step.toolName))) {
       throw new Error(plan.clarificationMessage || 'The full edit sequence could not be planned safely.');
@@ -59,7 +59,7 @@ export class PlannedPrioritySequenceService {
       }
       input.onStep?.(step, plan.steps.indexOf(step) / plan.steps.length);
       const result = await this.priorityTools.run({
-        requestId: `${requestId || plan.planId}:${step.stepId}`,
+        requestId: `${plan.planId}:${step.stepId}`,
         sessionId, parentId, toolName: step.toolName, args, signal
       });
       input.onCommitted?.();

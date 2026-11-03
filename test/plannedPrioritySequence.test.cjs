@@ -25,6 +25,7 @@ test('planned priority sequence resumes from a durable checkpoint and binds the 
     let secondRuns = 0;
     const fakePriority = {
       run: async input => {
+        assert.equal(input.requestId, `${plan.planId}:${input.toolName === 'image.remove_background' ? 'step_1' : 'step_2'}`);
         if (input.toolName === 'image.remove_background') {
           firstRuns++;
           const node = sessions.addOperationNode(session.sessionId, input.parentId, 'remove_background', 'Cutout', 'source.png', 'cutout.png', metrics, { params: { artifactId: 'art_cutout' } });
@@ -45,10 +46,10 @@ test('planned priority sequence resumes from a durable checkpoint and binds the 
     wrongRoute.steps[0].route.providerId = 'sharp';
     await assert.rejects(() => makeService().run({ plan: wrongRoute, sessionId: session.sessionId, initialNodeId: session.rootNodeId, expectedSteps: 2 }), /basic Sharp/);
     assert.equal(firstRuns, 0);
-    await assert.rejects(() => makeService().run({ plan, sessionId: session.sessionId, initialNodeId: session.rootNodeId, expectedSteps: 2 }), /local model unavailable/);
+    await assert.rejects(() => makeService().run({ plan, sessionId: session.sessionId, initialNodeId: session.rootNodeId, expectedSteps: 2, requestId: 'chat-original' }), /local model unavailable/);
     assert.equal(firstRuns, 1);
     sessions = new SessionManager(dir);
-    const checkpoint = await makeService().run({ plan, sessionId: session.sessionId, initialNodeId: session.rootNodeId, expectedSteps: 2 });
+    const checkpoint = await makeService().run({ plan, sessionId: session.sessionId, initialNodeId: session.rootNodeId, expectedSteps: 2, requestId: 'chat-resume' });
     assert.equal(checkpoint.isCompleted, true);
     assert.equal(firstRuns, 1);
     assert.equal(secondRuns, 2);

@@ -69,6 +69,10 @@ export class CopilotOrchestrator {
     return await this.coordinator.resumePlan(plan, sessionId, executor, signal);
   }
 
+  public getPlanCheckpoint(planId: string): PlanCheckpoint | undefined {
+    return this.coordinator.getCheckpoint(planId);
+  }
+
   public validateTool(toolName: unknown, args: unknown): ValidatedToolCall {
     return AgentToolRegistry.validateToolCall(toolName, args);
   }

@@ -4,6 +4,7 @@ const sharp = require('sharp');
 const { PriorityToolExecutors } = require('../out/services/tools/PriorityToolExecutors');
 const { AgentToolRegistry } = require('../out/services/ai/AgentToolRegistry');
 const { CopilotError } = require('../out/services/execution/errors');
+const { ImageProcessor } = require('../out/services/image/ImageProcessor');
 
 let testPngDataUrl;
 
@@ -20,6 +21,11 @@ test.before(async () => {
     }
   }).png().toBuffer();
   testPngDataUrl = `data:image/png;base64,${png.toString('base64')}`;
+});
+
+test('local recolor rejects an unsupported color before loading a model', async () => {
+  const buffer = Buffer.from(testPngDataUrl.split(',')[1], 'base64');
+  await assert.rejects(() => ImageProcessor.getInstance().recolor(buffer, 'hair', 'teal'), /không được hỗ trợ/i);
 });
 
 test('PriorityToolExecutors registers all 5 core tools into AgentToolRegistry', () => {

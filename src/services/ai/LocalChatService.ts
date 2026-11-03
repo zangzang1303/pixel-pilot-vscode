@@ -1,13 +1,9 @@
-import fs from 'fs';
-import path from 'path';
-import { spawn } from 'child_process';
 import { ChatMessage } from '../session/types';
 
 /** Optional, free local chat model. Image edits stay in the dedicated image tools. */
 export class LocalChatService {
   private static readonly baseUrl = 'http://127.0.0.1:11434';
   private static readonly model = 'qwen2.5:1.5b';
-  private static startAttempt: Promise<boolean> | undefined;
 
   private static async isReady(): Promise<boolean> {
     try {
@@ -18,33 +14,8 @@ export class LocalChatService {
     } catch { return false; }
   }
 
-  public static async ensureRunning(): Promise<boolean> {
-    if (await this.isReady()) return true;
-    if (!this.startAttempt) {
-      this.startAttempt = (async () => {
-        const candidates = [
-          'D:\\Ollama_PixelPilot\\ollama.exe',
-          path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Ollama', 'ollama.exe')
-        ];
-        const executable = candidates.find(candidate => fs.existsSync(candidate));
-        if (!executable) return false;
-        const child = spawn(executable, ['serve'], {
-          detached: true, windowsHide: true, stdio: 'ignore',
-          env: { ...process.env, OLLAMA_MODELS: path.join(path.dirname(executable), 'models'), OLLAMA_HOST: '127.0.0.1:11434' }
-        });
-        child.unref();
-        for (let attempt = 0; attempt < 15; attempt++) {
-          await new Promise(resolve => setTimeout(resolve, 700));
-          if (await this.isReady()) return true;
-        }
-        return false;
-      })().finally(() => { this.startAttempt = undefined; });
-    }
-    return this.startAttempt;
-  }
-
   public static async reply(prompt: string, history: ChatMessage[], imageContext?: string): Promise<string | null> {
-    if (!await this.ensureRunning()) return null;
+    if (!await this.isReady()) return null;
     const messages = [
       { role: 'system', content: 'Bạn là Pixel Pilot Copilot, trợ lý phân tích và chỉnh sửa ảnh trong VS Code. Trả lời bằng tiếng Việt, ngắn gọn và thực tế. Khi có dữ liệu ảnh, chỉ nêu chi tiết có trong mô tả thị giác hoặc số đo. Số đo toàn ảnh không chứng minh vị trí của vật thể hay lỗi cục bộ. Nếu thiếu dữ liệu để kết luận, hãy nói rõ. Đề xuất thao tác Pixel Pilot có thể làm: tách nền, phóng to, tăng độ rõ, đổi màu, inpaint, mở rộng, Canny, Lineart, Depth, SVG. Khi người dùng muốn thực hiện thao tác, hướng dẫn lệnh tương ứng. Không nhận là đã chỉnh ảnh khi chưa có kết quả công cụ.' },
       ...history.filter(item => item.sender === 'user' || item.sender === 'assistant').slice(-10).map(item => ({ role: item.sender, content: item.text })),

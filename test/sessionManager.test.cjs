@@ -38,6 +38,25 @@ test('session DAG persists operations, chat, and active node', () => {
   }
 });
 
+test('plan origin and resume offer persist and are cleared after completion', () => {
+  const directory = tempStore();
+  try {
+    let manager = new SessionManager(directory);
+    const session = manager.createSession('source.png');
+    const origin = manager.addMessage(session.sessionId, { sender: 'user', text: 'tách nền rồi đổi màu áo', nodeId: session.rootNodeId });
+    manager.attachPlanToMessage(session.sessionId, origin.id, 'plan_fixture_1');
+    const other = manager.createSession('other.png');
+    assert.throws(() => manager.attachPlanToMessage(other.sessionId, origin.id, 'plan_fixture_1'), /origin message/);
+    assert.throws(() => manager.attachPlanToMessage(session.sessionId, origin.id, 'plan_different'), /origin message/);
+    manager.addMessage(session.sessionId, { sender: 'assistant', text: 'Bước 2 chưa xong', resumePlanId: 'plan_fixture_1' });
+    manager = new SessionManager(directory);
+    assert.equal(manager.getSession(session.sessionId).messages.find(item => item.id === origin.id).planId, 'plan_fixture_1');
+    assert.equal(manager.getSession(session.sessionId).messages.at(-1).resumePlanId, 'plan_fixture_1');
+    manager.clearResumeOffer(session.sessionId, 'plan_fixture_1');
+    assert.equal(new SessionManager(directory).getSession(session.sessionId).messages.at(-1).resumePlanId, undefined);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('malformed persisted session data is quarantined instead of overwritten', () => {
   const directory = tempStore();
   try {

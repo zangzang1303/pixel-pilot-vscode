@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 import { IImageProcessor, ImageProcessingOptions, ImageMetadata } from './IImageProcessor';
+import { RECOLOR_COLORS } from '../../shared/tool-contracts';
 
 export class ImageProcessor implements IImageProcessor {
   private static instance: ImageProcessor;
@@ -255,6 +256,11 @@ export class ImageProcessor implements IImageProcessor {
     subject: 'hair' | 'clothes' | 'background' | 'object' = 'clothes',
     targetColor: string = 'purple'
   ): Promise<Buffer> {
+    const normalizedColor = targetColor.toLowerCase();
+    const legacyColorNames = ['cam', 'vang', 'blonde', 'xanh', 'do', 'tim', 'hong', 'trang', 'nau', 'den'];
+    if (!RECOLOR_COLORS.includes(normalizedColor as typeof RECOLOR_COLORS[number]) && !legacyColorNames.includes(normalizedColor)) {
+      throw new Error(`Màu đổi ảnh không được hỗ trợ: ${targetColor}.`);
+    }
     const { data, info } = await sharp(inputBuffer)
       .ensureAlpha()
       .raw()
@@ -313,6 +319,9 @@ export class ImageProcessor implements IImageProcessor {
       case 'white':
       case 'trang':
         targetH = 0; targetS = 0.05; targetLScale = 1.70;
+        break;
+      case 'gray':
+        targetH = 0; targetS = 0.04; targetLScale = 1.0;
         break;
       case 'brown':
       case 'nau':

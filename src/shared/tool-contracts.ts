@@ -10,6 +10,8 @@ export type PriorityToolName =
   | 'image.inpaint'
   | 'image.generate';
 
+export const RECOLOR_COLORS = ['cyan', 'blue', 'red', 'green', 'purple', 'pink', 'yellow', 'orange', 'black', 'white', 'brown', 'gray'] as const;
+
 export interface ImageAnalyzeInput {
   imageId: string;
   includeCaption?: boolean;
@@ -133,13 +135,13 @@ export function validatePriorityToolInput<K extends PriorityToolName>(tool: K, r
       if (typeof input.target !== 'string' || !validTargets.has(input.target)) {
         throw new Error('image.recolor requires target of "hair", "clothes", or "background".');
       }
-      if (typeof input.color !== 'string' || !input.color.trim()) {
-        throw new Error('image.recolor requires non-empty color.');
+      if (typeof input.color !== 'string' || !RECOLOR_COLORS.includes(input.color.trim().toLowerCase() as typeof RECOLOR_COLORS[number])) {
+        throw new Error(`image.recolor requires a supported color: ${RECOLOR_COLORS.join(', ')}.`);
       }
       return {
         imageId: input.imageId,
         target: input.target as 'hair' | 'clothes' | 'background',
-        color: input.color.trim()
+        color: input.color.trim().toLowerCase()
       } as PriorityToolInputs[K];
     }
     case 'image.inpaint': {

@@ -114,3 +114,11 @@ VSIX E2E cuối lượt pass sau khóa theo plan: cài profile cô lập, Sharp 
 Máy phát triển hiện tại: `npm.cmd run check` pass 109/109, `npm.cmd run lint` pass. `npm.cmd run test:e2e:vsix` pass khi trỏ runner tới VS Code đã cài: build, đóng gói, cài vào profile cô lập, Sharp runtime, trường hợp thiếu model recolor, activation/commands và mở Studio tab. VSIX SHA-256 `32F2FCE522D07B0B6450F0D4DFB79EE1F487F5D9B629227D2DA555C2FEEE3FBD`. Test mới cho checkpoint xác nhận chuỗi hai bước tiếp tục sau khi khởi động lại, không chạy lại bước đầu và ghép đúng node DAG theo artifact ID.
 
 Các hàng UI critical flow, ba demo qua UI/VSIX và clean-OS ở trên vẫn chưa có bằng chứng; không dùng smoke test này để đóng B28/B29.
+
+## 10. Kiểm tra ngày 03/11/2026
+
+`npm.cmd run check` pass 110/110 và `npm.cmd run lint` pass sau khi thêm tham chiếu plan trong session, nút tiếp tục trong webview và kiểm tra checkpoint khi nhận `/resume`. Lượt `npm.cmd run test:e2e:vsix` đã build và cài VSIX thành công trong profile cô lập; Sharp runtime và trường hợp thiếu model recolor pass. Extension Host E2E dừng vì máy đang chạy `CodeSetup`, VS Code báo giữ `vscode-updating` mutex và từ chối mở instance mới. Chưa ghi nhận gate E2E này pass cho thay đổi ngày 03/11; các hàng UI flow và clean-OS vẫn chưa có bằng chứng.
+
+Sau khi bổ sung guard màu, `npm.cmd run check` pass 111/111 và `npm.cmd run lint` pass. Đã đóng gói lại VSIX, kiểm tra cấu trúc và install smoke pass (Sharp runtime, recolor thiếu model); SHA-256 của artifact cuối: `67CF9098B6E91D031E562BEAB3175486E29CE7DA851B79B7FB36A9EAED9018BF`. Extension Host E2E chưa pass: runner trong sandbox không nhận bản VS Code cài sẵn và không thể tải bản thay thế vì mạng bị chặn; chạy trực tiếp với Code.exe cục bộ ngoài sandbox gặp mutex `vscode-updating` của trình cập nhật. UI critical flows vẫn chưa được xác minh.
+
+Sau khi bỏ suy diễn chỉnh ảnh từ câu chat mơ hồ, chặn câu hỏi bị diễn giải thành lệnh đổi màu và bổ sung clarification cho vùng/màu, `npm.cmd run check` pass 111/111, eval fixture 120/120, `npm.cmd run lint` pass. VSIX build/cấu trúc và install smoke pass (Sharp runtime, recolor thiếu model); SHA-256 hiện tại `C56B5510F0632CDA7555AB63A2A6B87C235F8635762E17FB7650AF3DC5BBDB0A`. Chưa xác minh Extension Host hoặc UI flows của artifact này; các gate clean-OS và provider demos vẫn mở.

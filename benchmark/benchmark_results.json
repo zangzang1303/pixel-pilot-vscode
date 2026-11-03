@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-10-28T09:20:45.359Z",
+  "timestamp": "2026-11-03T03:01:20.130Z",
   "metrics": {
-    "avgPlannerLatencyMs": 0.248,
-    "reducerThroughput1000EventsMs": 1.553,
-    "artifactDedupeStoreMs": 14.257
+    "avgPlannerLatencyMs": 0.541,
+    "reducerThroughput1000EventsMs": 0.305,
+    "artifactDedupeStoreMs": 0.676
   }
 }
