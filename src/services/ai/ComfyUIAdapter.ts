@@ -520,6 +520,24 @@ export class ComfyUIAdapter implements IAIProvider {
     };
   }
 
+  /** OCR via the installed Florence-2 model; never substitutes metadata text. */
+  public async recognizeText(imageInput: string): Promise<AIResult> {
+    if (!await this.ping()) throw new Error('ComfyUI chưa chạy để nhận dạng chữ.');
+    const nodeInfo = await fetch(`${this.baseUrl}/object_info/Florence2ModelLoader`, { signal: AbortSignal.timeout(3000) });
+    if (!nodeInfo.ok) throw new Error('Florence-2 OCR chưa khả dụng.');
+    const models = ((await nodeInfo.json()) as any)?.Florence2ModelLoader?.input?.required?.model?.[0];
+    if (!Array.isArray(models) || !models.includes('Florence-2-base-ft')) throw new Error('Thiếu model Florence-2-base-ft cho OCR.');
+    const upload = await this.uploadImage(this.getBufferFromInput(imageInput));
+    const workflow = {
+      '1': { inputs: { image: upload.name, upload: 'image' }, class_type: 'LoadImage' },
+      '2': { inputs: { model: 'Florence-2-base-ft', precision: 'fp16' }, class_type: 'Florence2ModelLoader' },
+      '3': { inputs: { image: ['1', 0], florence2_model: ['2', 0], text_input: '', task: 'ocr', fill_mask: true, max_new_tokens: 512, num_beams: 3, do_sample: false }, class_type: 'Florence2Run' },
+      '4': { inputs: { text: ['3', 2] }, class_type: 'PixelPilotTextOutput' }
+    };
+    const text = await this.executeTextWorkflow(workflow, '4');
+    return { success: true, textResult: text, metrics: { model: 'Florence-2 Base FT OCR', latencyMs: 0, costUsd: 0 } };
+  }
+
   /**
    * 8. Extend Canvas
    */
