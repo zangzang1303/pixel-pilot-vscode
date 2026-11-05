@@ -24,6 +24,18 @@ test('a failed artifact write leaves the current DAG node unchanged', async () =
   assert.equal(manager.getActiveSession().currentNodeId, session.rootNodeId);
 });
 
+test('persisted metrics distinguish estimated local zero from unreported cloud cost', async () => {
+  const manager = new SessionManager();
+  const session = manager.createSession('source.png');
+  const service = new SessionCommitService(manager, { saveToCache: async () => 'artifact.png' });
+  const local = await service.commitImageResult({ sessionId: session.sessionId, parentId: session.rootNodeId, operation: 'upscale', intent: { label: 'Local' }, result: { success: true, outputImageUri: 'data:image/png;base64,AA==', metrics: { model: 'Local Sharp', latencyMs: 5, costUsd: 0 } } });
+  const cloud = await service.commitImageResult({ sessionId: session.sessionId, parentId: session.rootNodeId, operation: 'upscale', intent: { label: 'Cloud' }, result: { success: true, outputImageUri: 'data:image/png;base64,AA==', metrics: { model: 'Runware example', latencyMs: 5, costUsd: 0 } } });
+  assert.equal(local.metrics.costStatus, 'estimated');
+  assert.equal(local.metrics.costUsd, 0);
+  assert.equal(cloud.metrics.costStatus, 'unknown');
+  assert.equal(cloud.metrics.costUsd, undefined);
+});
+
 test('a late result branches from its pinned parent without stealing the selected node', async () => {
   const manager = new SessionManager();
   const session = manager.createSession('source.png');

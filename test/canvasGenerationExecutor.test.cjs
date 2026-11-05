@@ -21,6 +21,9 @@ test('shared Generate executor selects InvokeAI for both surfaces when a model i
   const generated = await executor.execute('a kite', undefined, { width: 512 }, (status, percentage) => progress.push([status, percentage]));
   assert.equal(generated.imageName, 'invoke.png');
   assert.equal(generated.result.metrics.model, 'InvokeAI/model-a');
+  assert.ok(Number.isFinite(generated.result.metrics.latencyMs) && generated.result.metrics.latencyMs >= 0);
+  assert.equal(generated.result.metrics.costStatus, 'unknown');
+  assert.equal(generated.result.metrics.costUsd, undefined);
   assert.deepEqual(calls, [{ prompt: 'a kite', model: { key: 'model-a', name: 'Model A' }, options: { width: 512 } }]);
   assert.deepEqual(progress, [['running', 50]]);
 });

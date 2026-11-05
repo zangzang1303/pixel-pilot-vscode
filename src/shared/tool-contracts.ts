@@ -70,6 +70,23 @@ export interface ImageInpaintOutput {
   maskId?: string;
 }
 
+/** [top,left,bottom,right] integer coordinates in the provider's 0–1000 scale. */
+export interface ImageFluxBoxEditInput {
+  imageId: string;
+  box: [number, number, number, number];
+  description: string;
+  instruction: string;
+}
+
+export interface ImageFluxBoxEditOutput {
+  artifactId: string;
+  provider: 'runware';
+  model: string;
+  latencyMs: number;
+  costUsd?: number;
+  costStatus: 'actual' | 'unknown';
+}
+
 export interface ImageGenerateInput {
   prompt: string;
   width?: number;
@@ -90,6 +107,7 @@ export type PriorityToolInputs = {
   'image.recolor': ImageRecolorInput;
   'image.inpaint': ImageInpaintInput;
   'image.generate': ImageGenerateInput;
+  'image.flux_box_edit': ImageFluxBoxEditInput;
 };
 
 export type PriorityToolOutputs = {
@@ -98,7 +116,22 @@ export type PriorityToolOutputs = {
   'image.recolor': ImageRecolorOutput;
   'image.inpaint': ImageInpaintOutput;
   'image.generate': ImageGenerateOutput;
+  'image.flux_box_edit': ImageFluxBoxEditOutput;
 };
+
+export function validateFluxBoxEditInput(raw: unknown): ImageFluxBoxEditInput {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('FLUX box edit input must be an object.');
+  const input = raw as Record<string, unknown>;
+  if (typeof input.imageId !== 'string' || !input.imageId.trim()) throw new Error('FLUX box edit requires imageId.');
+  if (!Array.isArray(input.box) || input.box.length !== 4 || !input.box.every(value => Number.isInteger(value))) {
+    throw new Error('FLUX box must contain four integer coordinates on the 0–1000 scale.');
+  }
+  const [x1, y1, x2, y2] = input.box as number[];
+  if (x1 < 0 || y1 < 0 || x2 > 1000 || y2 > 1000 || x2 <= x1 || y2 <= y1) throw new Error('FLUX box must be a non-empty box inside [0,1000].');
+  if (typeof input.description !== 'string' || !input.description.trim()) throw new Error('FLUX box edit requires a target description.');
+  if (typeof input.instruction !== 'string' || !input.instruction.trim()) throw new Error('FLUX box edit requires an edit instruction.');
+  return { imageId: input.imageId, box: [x1, y1, x2, y2], description: input.description.trim(), instruction: input.instruction.trim() };
+}
 
 export function validatePriorityToolInput<K extends PriorityToolName>(tool: K, raw: unknown): PriorityToolInputs[K] {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {

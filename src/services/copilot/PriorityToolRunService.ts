@@ -36,6 +36,7 @@ export class PriorityToolRunService {
     args: Record<string, unknown>;
     signal?: AbortSignal;
   }): Promise<{ nodeId?: string; analysis?: unknown; artifactId?: string }> {
+    const startedAt = Date.now();
     const { requestId, sessionId, parentId, toolName } = input;
     if (toolName !== 'image.analyze' && !(toolName in operations)) {
       throw new Error(`Priority tool ${toolName} is not supported.`);
@@ -105,7 +106,14 @@ export class PriorityToolRunService {
       const result: AIResult = {
         success: true,
         outputImageUri: this.artifacts.getAbsolutePath(artifactId),
-        metrics: { model: toolName, latencyMs: 0, costUsd: 0, width: artifact.record.width, height: artifact.record.height }
+        metrics: {
+          model: toolName,
+          latencyMs: Date.now() - startedAt,
+          costUsd: toolName === 'image.generate' || args.quality === 'model' ? undefined : 0,
+          costStatus: toolName === 'image.generate' || args.quality === 'model' ? 'unknown' : 'estimated',
+          width: artifact.record.width,
+          height: artifact.record.height
+        }
       };
       const node = await this.commits.commitImageResult({
         sessionId, parentId, operation: operations[toolName], intent: { label: call.intent.label },

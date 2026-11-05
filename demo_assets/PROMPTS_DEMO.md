@@ -62,3 +62,4 @@ Dưới đây là các câu lệnh chuẩn (tiếng Việt và tiếng Anh) đã
   3. Bấm **Khôi phục trạng thái (Restore Node)**.
 * **Điểm nhấn thuyết minh với Thầy**:
   > *"Hệ thống không dùng Undo/Redo dạng ngăn xếp (Stack) cổ điển mà dùng Cấu trúc Đồ thị Có Hướng Không Chu Trình (DAG) gắn mã băm SHA-256 bất biến. Điều này đảm bảo lập trình viên có thể rẽ nhánh (branching) thử nghiệm nhiều phương án đồ họa mà không bao giờ lo mất dữ liệu."*
+

@@ -52,6 +52,12 @@ export const Canvas: React.FC<CanvasProps> = ({
   const [brushSize, setBrushSize] = useState<number>(24);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
   const [hasMask, setHasMask] = useState<boolean>(false);
+  const [boxMode, setBoxMode] = useState(false);
+  const [box, setBox] = useState<[number, number, number, number] | null>(null);
+  const boxStart = useRef<[number, number] | null>(null);
+  const boxPointerId = useRef<number | null>(null);
+  const [boxDescription, setBoxDescription] = useState('');
+  const [boxInstruction, setBoxInstruction] = useState('');
 
   // Zoom / View state
   const [zoom, setZoom] = useState<number>(1);
@@ -84,12 +90,16 @@ export const Canvas: React.FC<CanvasProps> = ({
         maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
       }
       setHasMask(false);
+      setBox(null);
+      setBoxMode(false);
+      setBoxDescription('');
+      setBoxInstruction('');
     };
     img.src = imageUrl;
   }, [imageUrl]);
 
   // Drawing helpers for Mask/Inpaint
-  const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const getCanvasCoordinates = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const maskCanvas = maskCanvasRef.current;
     if (!maskCanvas) return { x: 0, y: 0 };
 
@@ -103,15 +113,17 @@ export const Canvas: React.FC<CanvasProps> = ({
     };
   };
 
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const startDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (brushMode === 'none' || !imageUrl) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
     setIsDrawing(true);
 
     const { x, y } = getCanvasCoordinates(e);
     drawMask(x, y);
   };
 
-  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const draw = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawing || brushMode === 'none' || !imageUrl) return;
     const { x, y } = getCanvasCoordinates(e);
     drawMask(x, y);
@@ -148,7 +160,6 @@ export const Canvas: React.FC<CanvasProps> = ({
     if (!maskCanvasRef.current || !onApplyAction) return;
     const maskDataUrl = maskCanvasRef.current.toDataURL('image/png');
     onApplyAction('inpaint', { maskDataUrl });
-    clearMask();
   };
 
   const clearMask = () => {
@@ -159,6 +170,23 @@ export const Canvas: React.FC<CanvasProps> = ({
       ctx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
       setHasMask(false);
     }
+  };
+
+  const boxPoint = (event: React.PointerEvent<HTMLDivElement>): [number, number] => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return [Math.max(0, Math.min(1000, Math.round((event.clientY - rect.top) / rect.height * 1000))),
+      Math.max(0, Math.min(1000, Math.round((event.clientX - rect.left) / rect.width * 1000)))];
+  };
+
+  const updateBox = (end: [number, number]) => {
+    if (!boxStart.current) return;
+    const [top, left] = boxStart.current;
+    setBox([Math.min(top, end[0]), Math.min(left, end[1]), Math.max(top, end[0]), Math.max(left, end[1])]);
+  };
+
+  const runBoxEdit = () => {
+    if (!box || box[2] - box[0] < 5 || box[3] - box[1] < 5 || !boxDescription.trim() || !boxInstruction.trim()) return;
+    onApplyAction?.('fluxBoxEdit', { box, description: boxDescription.trim(), instruction: boxInstruction.trim() });
   };
 
   const copyImage = async () => {
@@ -189,6 +217,9 @@ export const Canvas: React.FC<CanvasProps> = ({
   };
 
   const handleCanvasKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (event.nativeEvent.isComposing || (target instanceof HTMLElement &&
+        target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]'))) return;
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.key === 'b' || event.key === 'B') {
       event.preventDefault();
@@ -215,8 +246,6 @@ export const Canvas: React.FC<CanvasProps> = ({
     <div
       role="region"
       aria-label="Khung vẽ chỉnh sửa ảnh"
-      tabIndex={0}
-      onKeyDown={handleCanvasKeyDown}
       className="flex-1 flex flex-col h-full bg-slate-950 relative overflow-hidden select-none outline-none focus:ring-1 focus:ring-violet-500/20"
     >
       {/* Top Toolbar */}
@@ -253,6 +282,14 @@ export const Canvas: React.FC<CanvasProps> = ({
             <Eraser className="w-3.5 h-3.5" />
             <span>Eraser</span>
           </button>
+
+          {!browserMode && <button
+            onClick={() => { setBoxMode(value => !value); setBrushMode('none'); }}
+            aria-pressed={boxMode}
+            disabled={!imageUrl}
+            className={`px-2 py-1 rounded-lg text-xs ${boxMode ? 'bg-violet-600 text-white' : 'text-slate-300 hover:bg-slate-800 disabled:opacity-40'}`}
+            title="Khoanh vùng đối tượng để chỉnh bằng FLUX.3 Klein trên Runware"
+          >FLUX.3 Box</button>}
 
           {brushMode !== 'none' && (
             <div className="flex items-center gap-2 ml-2 pl-2 border-l border-slate-800">
@@ -390,6 +427,16 @@ export const Canvas: React.FC<CanvasProps> = ({
         </div>
       </div>
 
+      {boxMode && <div className="px-3 py-2 border-b border-slate-800 bg-slate-900 flex flex-wrap items-center gap-2 text-xs z-10">
+        <span className="text-slate-300">Kéo khung quanh đối tượng trên ảnh.</span>
+        <input aria-label="Mô tả đối tượng" placeholder="Đối tượng trong khung" value={boxDescription}
+          onChange={event => setBoxDescription(event.target.value)} className="bg-slate-800 border border-slate-700 rounded px-2 py-1 min-w-40" />
+        <input aria-label="Yêu cầu chỉnh sửa" placeholder="Muốn thay đổi thế nào?" value={boxInstruction}
+          onChange={event => setBoxInstruction(event.target.value)} className="bg-slate-800 border border-slate-700 rounded px-2 py-1 min-w-52 flex-1" />
+        <button onClick={runBoxEdit} disabled={!box || box[2] - box[0] < 5 || box[3] - box[1] < 5 || !boxDescription.trim() || !boxInstruction.trim()}
+          className="bg-violet-600 hover:bg-violet-500 disabled:opacity-40 rounded px-2 py-1 text-white">Chỉnh bằng Runware</button>
+      </div>}
+
       {/* Main Canvas Viewport */}
       <div
         ref={containerRef}
@@ -412,14 +459,35 @@ export const Canvas: React.FC<CanvasProps> = ({
             {/* Inpaint Mask Canvas */}
             <canvas
               ref={maskCanvasRef}
-              onMouseDown={startDrawing}
-              onMouseMove={draw}
-              onMouseUp={stopDrawing}
-              onMouseLeave={stopDrawing}
+              onPointerDown={startDrawing}
+              onPointerMove={draw}
+              onPointerUp={stopDrawing}
+              onPointerCancel={stopDrawing}
               className={`absolute inset-0 w-full h-full ${
-                brushMode !== 'none' ? 'cursor-crosshair' : 'pointer-events-none'
-              }`}
+                brushMode !== 'none' && !boxMode ? 'cursor-crosshair' : 'pointer-events-none'
+              } touch-none`}
             />
+            {boxMode && <div className="absolute inset-0 cursor-crosshair touch-none"
+              onPointerDown={event => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                boxPointerId.current = event.pointerId;
+                boxStart.current = boxPoint(event);
+                updateBox(boxPoint(event));
+              }}
+              onPointerMove={event => {
+                if (boxPointerId.current === event.pointerId && boxStart.current) updateBox(boxPoint(event));
+              }}
+              onPointerUp={event => {
+                if (boxPointerId.current !== event.pointerId) return;
+                updateBox(boxPoint(event));
+                boxPointerId.current = null;
+                boxStart.current = null;
+              }}
+              onPointerCancel={() => { boxPointerId.current = null; boxStart.current = null; }}
+            >{box && <div className="absolute border-2 border-violet-400 bg-violet-500/15 pointer-events-none"
+              style={{ top: `${box[0] / 10}%`, left: `${box[1] / 10}%`, height: `${(box[2] - box[0]) / 10}%`, width: `${(box[3] - box[1]) / 10}%` }} />}</div>}
           </div>
         ) : (
           !isGenerating && (

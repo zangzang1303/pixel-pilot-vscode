@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "dataset": {
+    "id": "REPLACE_WITH_RIGHTS_CLEARED_DATASET_ID",
+    "revision": "REPLACE_WITH_IMMUTABLE_REVISION",
+    "rightsConfirmed": false,
+    "rightsSource": "",
+    "items": []
+  },
+  "rubric": {
+    "version": "draft-1",
+    "criteria": {
+      "instruction_fidelity": "Follows the requested transformation or description.",
+      "subject_preservation": "Preserves the intended subject identity and important details.",
+      "outside_region_preservation": "Preserves pixels/details outside the requested edit region.",
+      "naturalness": "Looks coherent and free of visible artifacts.",
+      "detail_retention": "Retains useful detail without introducing upscale artifacts.",
+      "shape_fidelity": "Preserves important shapes, proportions, and composition.",
+      "editability": "SVG structure remains valid and practically editable.",
+      "style_fidelity": "Matches the requested visual style while preserving required content.",
+      "factual_grounding": "Caption claims are supported by visible image content.",
+      "hallucination_control": "Does not invent unsupported objects, text, or attributes.",
+      "text_accuracy": "Recognized text matches the source image.",
+      "reading_order": "Text is grouped and ordered consistently with the image.",
+      "context_preservation": "Newly generated content blends with the preserved scene.",
+      "technical_output": "Output dimensions, format, alpha, and structure meet the task contract."
+    },
+    "criteriaByTask": {
+      "remove_background": ["instruction_fidelity", "subject_preservation", "naturalness", "technical_output"],
+      "replace_background": ["instruction_fidelity", "subject_preservation", "outside_region_preservation", "naturalness"],
+      "recolor": ["instruction_fidelity", "subject_preservation", "outside_region_preservation", "naturalness"],
+      "inpaint": ["instruction_fidelity", "outside_region_preservation", "context_preservation", "naturalness"],
+      "flux_box_edit": ["instruction_fidelity", "subject_preservation", "outside_region_preservation", "naturalness"],
+      "outpaint": ["instruction_fidelity", "outside_region_preservation", "context_preservation", "naturalness"],
+      "upscale": ["detail_retention", "shape_fidelity", "naturalness", "technical_output"],
+      "vectorize": ["shape_fidelity", "editability", "technical_output"],
+      "style_transfer": ["style_fidelity", "subject_preservation", "naturalness"],
+      "enhance": ["instruction_fidelity", "subject_preservation", "detail_retention", "naturalness"],
+      "caption": ["instruction_fidelity", "factual_grounding", "hallucination_control"],
+      "ocr": ["text_accuracy", "reading_order", "hallucination_control"],
+      "resize": ["technical_output", "shape_fidelity"],
+      "compress": ["technical_output", "detail_retention"]
+    }
+  },
+  "thresholds": {
+    "development": 40,
+    "holdout": 20,
+    "minPairsPerGroup": 20,
+    "minPassingPairs": 17
+  },
+  "runs": []
+}

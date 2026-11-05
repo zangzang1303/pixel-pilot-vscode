@@ -5,6 +5,19 @@ export interface ArtifactWriter {
   saveToCache(value: string | Buffer, hintExtension?: string): Promise<string>;
 }
 
+function withCostProvenance(metrics: AIResult['metrics']): AIResult['metrics'] {
+  if (metrics.costStatus) return metrics;
+  const model = metrics.model.toLowerCase();
+  const runware = model.includes('runware') || model.startsWith('bfl:');
+  if (runware) {
+    // Historical adapter constants represented tariff estimates, while zero often meant "not reported".
+    return metrics.costUsd && metrics.costUsd > 0
+      ? { ...metrics, costStatus: 'estimated' }
+      : { ...metrics, costUsd: undefined, costStatus: 'unknown' };
+  }
+  return { ...metrics, costStatus: 'estimated' };
+}
+
 /**
  * The only mutation boundary for a completed image operation. Artifact persistence
  * happens before the DAG pointer advances, so a disk failure cannot be displayed
@@ -35,6 +48,7 @@ export class SessionCommitService {
     if (input.signal?.aborted) throw new Error('Operation cancelled.');
     const latest = this.sessions.getSession(input.sessionId);
     if (!latest?.nodes[input.parentId]) throw new Error('The target session or parent node no longer exists.');
+    const metrics = withCostProvenance(input.result.metrics);
     return this.sessions.addOperationNode(
       input.sessionId,
       input.parentId,
@@ -42,7 +56,7 @@ export class SessionCommitService {
       input.intent.label || input.operation,
       parent.outputImageUri,
       outputPath,
-      input.result.metrics,
+      metrics,
       {
         prompt: input.prompt, maskUri: input.maskUri, params: input.params,
         textResult: input.result.textResult,

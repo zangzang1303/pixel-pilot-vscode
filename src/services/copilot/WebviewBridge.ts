@@ -3,18 +3,28 @@
  * and maintains sequence ordering for broadcast events.
  */
 export class WebviewBridge {
-  private readonly requests = new Map<string, Promise<unknown>>();
+  private readonly requests = new Map<string, { fingerprint?: string; promise: Promise<unknown>; settled: boolean }>();
   private readonly surfaces = new Set<(message: unknown) => void>();
   private sequence = 0;
 
   constructor(private readonly maxRememberedRequests = 256) {}
 
-  public dispatch<T>(requestId: string, execute: () => Promise<T>): Promise<T> {
+  public dispatch<T>(requestId: string, execute: () => Promise<T>, fingerprint?: string): Promise<T> {
     const existing = this.requests.get(requestId);
-    if (existing) return existing as Promise<T>;
+    if (existing) {
+      if ((existing.fingerprint !== undefined || fingerprint !== undefined) && fingerprint !== existing.fingerprint) {
+        return Promise.reject(new Error(`Request ID '${requestId}' was reused with a different payload.`));
+      }
+      return existing.promise as Promise<T>;
+    }
 
     const promise = Promise.resolve().then(execute);
-    this.requests.set(requestId, promise);
+    const entry = { fingerprint, promise: promise as Promise<unknown>, settled: false };
+    this.requests.set(requestId, entry);
+    void promise.then(
+      () => { entry.settled = true; this.trim(); },
+      () => { entry.settled = true; this.trim(); }
+    );
     this.trim();
     return promise;
   }
@@ -49,9 +59,9 @@ export class WebviewBridge {
 
   private trim(): void {
     while (this.requests.size > this.maxRememberedRequests) {
-      const oldest = this.requests.keys().next().value as string | undefined;
-      if (!oldest) return;
-      this.requests.delete(oldest);
+      const oldestSettled = [...this.requests].find(([, entry]) => entry.settled)?.[0];
+      if (!oldestSettled) return; // Never evict an active request: doing so would allow duplicate paid work.
+      this.requests.delete(oldestSettled);
     }
   }
 }

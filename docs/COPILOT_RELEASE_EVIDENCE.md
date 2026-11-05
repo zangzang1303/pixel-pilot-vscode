@@ -122,3 +122,105 @@ Các hàng UI critical flow, ba demo qua UI/VSIX và clean-OS ở trên vẫn ch
 Sau khi bổ sung guard màu, `npm.cmd run check` pass 111/111 và `npm.cmd run lint` pass. Đã đóng gói lại VSIX, kiểm tra cấu trúc và install smoke pass (Sharp runtime, recolor thiếu model); SHA-256 của artifact cuối: `67CF9098B6E91D031E562BEAB3175486E29CE7DA851B79B7FB36A9EAED9018BF`. Extension Host E2E chưa pass: runner trong sandbox không nhận bản VS Code cài sẵn và không thể tải bản thay thế vì mạng bị chặn; chạy trực tiếp với Code.exe cục bộ ngoài sandbox gặp mutex `vscode-updating` của trình cập nhật. UI critical flows vẫn chưa được xác minh.
 
 Sau khi bỏ suy diễn chỉnh ảnh từ câu chat mơ hồ, chặn câu hỏi bị diễn giải thành lệnh đổi màu và bổ sung clarification cho vùng/màu, `npm.cmd run check` pass 111/111, eval fixture 120/120, `npm.cmd run lint` pass. VSIX build/cấu trúc và install smoke pass (Sharp runtime, recolor thiếu model); SHA-256 hiện tại `C56B5510F0632CDA7555AB63A2A6B87C235F8635762E17FB7650AF3DC5BBDB0A`. Chưa xác minh Extension Host hoặc UI flows của artifact này; các gate clean-OS và provider demos vẫn mở.
+
+
+## 10. Implementation regression update ? 05/11/2026
+
+Working-tree checks after T01?T07 slices and FLUX preview apply/discard wiring:
+
+- `npm.cmd run check`: PASS; production webview build + extension-host compile + 122/122 tests.
+- `npm.cmd run lint`: PASS; source-policy lint and host/webview type-check.
+- Added regression coverage for batch consent/collisions, request-ID payload conflict, fetch cancellation vs timeout, and preview idempotency/stale/discard/expiry.
+- No live Runware billing/quality smoke, interactive UI workflow, clean Windows VM, or pilot was run in this update. These release gates remain open.
+
+- `npm.cmd run package:smoke -- --cache .tmp-npm-cache`: PASS; cache directory was removed after the check.
+- `npm.cmd run package:vsix -- -OutputDirectory artifacts/beta-candidate-20261105`: PASS; isolated install/Sharp/missing-model smoke PASS. Candidate SHA-256: `54FD95A9F93422666EA4A2A8E5B7E907F40549D4ED218E07332AAE0C1F17BF83`.
+- `npm.cmd run test:e2e`: BLOCKED by this sandbox: VS Code renderer launch failed (exit 49), with denied profile cache/network sandbox access and GPU process failure. This is not counted as an application pass/fail.
+
+
+### Update after T15 batch work ? 05/11/2026
+
+- `npm.cmd run check`: PASS, production webview build + host compile + 125/125 tests. `npm.cmd run lint`: PASS.
+- Batch fixture acceptance: 10 inputs with interleaved failures; 7 retained successful outputs, retry resubmitted only the 3 failed inputs, and manifests were written. This is deterministic fixture evidence, not a live provider UI run.
+- Rebuilt candidate after the batch changes; isolated install/Sharp/missing-model smoke PASS. Current candidate: `artifacts/beta-candidate-20261105/pixel-pilot-vscode-1.1.0.vsix`, SHA-256 `CD60E1DB864315987F9E0E4D9B9ACFC1882D47D7511050AF87D5030F6240B65D`.
+- Extension Host E2E remains blocked in this sandbox by VS Code renderer launch failure (exit 49); clean Windows VM, live Runware smoke, UI-critical flows, and pilot remain open.
+
+
+### Update after request-retention fix ? 05/11/2026
+
+- Fixed WebviewBridge eviction so active deduplicated requests stay registered at capacity; targeted regression and full suite pass.
+- `npm.cmd run check`: PASS, 126/126 tests; `npm.cmd run lint`: PASS.
+- Rebuilt and reinstalled candidate; VSIX structural validation and isolated Sharp/missing-model smoke PASS. Current SHA-256: `BCBBB028406DC42B9E84D0AE61596F2ED388D212081DE7CAB614F97076B7A8C2`.
+
+
+### Update after FLUX cancellation wiring ? 05/11/2026
+
+- `npm.cmd run check`: PASS, 127/127 tests; `npm.cmd run lint`: PASS.
+- FLUX box edit now receives an AbortSignal from a UI Cancel action; adapter drops a result if cancellation wins before response acceptance. Contract test verifies signal forwarding.
+- Candidate rebuilt and isolated install/Sharp/missing-model smoke PASS. Current SHA-256: `13C6BDD6DE30FC048E346338B8EA5C5C6AD16A28FB3AD7C696254855CB8CB55F`.
+- Interactive UI cancel behavior and paid-provider outcome still require UI/provider acceptance; Extension Host E2E/clean VM/pilot remain open.
+
+
+### Update after T14 provenance and labeling slice ? 05/11/2026
+
+- `npm.cmd run check`: PASS, 129/129 tests; `npm.cmd run lint`: PASS.
+- Copilot operation latency is measured across provider execution. Runware task payloads request provider-reported cost ([Runware pricing docs](https://runware.ai/docs/platform/pricing)); persisted metrics distinguish actual, estimated, and unknown, without writing unreported cloud cost as $0.
+- Basic caption fallback identifies itself as image metadata only (format, dimensions, orientation), not semantic vision. The local SVG label describes the 48x64 color-quantized Sharp tracer.
+- Candidate rebuilt and structurally verified; isolated VSIX install, Sharp runtime, and missing-model behavior smoke PASS. SHA-256: `738A79574FECF06BA89073479717CB4407F7BB4A5B7216E9A68BCFA36BB9B641`.
+- Still open: broader T12-T14 provider rollout/metrics on every canvas path, live provider cost/quality, interactive UI acceptance, Extension Host E2E in the sandbox, clean Windows VM, and pilot. This update does not close beta or final release gates.
+
+
+### Update after T16 export implementation slice ? 05/11/2026
+
+- `npm.cmd run check`: PASS, 132/132 tests; `npm.cmd run lint`: PASS. Dedicated image-export tests verify PNG custom bounds/aspect/alpha, WebP alpha/no enlargement, and invalid-bound rejection.
+- Export now offers PNG/WebP and original/1024/2048/custom maximum bounds; resize fits inside the box without distortion or enlargement. Save uses a temporary file and rename. The active-editor snippet prompt is offered only after the export file is committed.
+- VSIX candidate rebuilt and structurally verified; isolated installation, Sharp runtime, and missing-model behavior smoke PASS. SHA-256: `BF5AFA068D787877A460793D6AC80B353811A78330851D88E0113024E1AD7A9C`.
+- T16 implementation is partial pending interactive VS Code acceptance for format/dimension choices, overwrite/cancel/error paths, and snippet insertion. The export operation does not mutate session nodes, so failed export leaves image history unchanged by construction; interactive proof is still open.
+
+
+### T14 follow-up ? Canvas duration ? 05/11/2026
+
+- Canvas image actions now record elapsed processing time from after Workspace Trust through provider processing, then pass it into the committed node metrics. FLUX continues to use Runware request timing.
+- `npm.cmd run check`: PASS, 137/137; `npm.cmd run lint`: PASS. Candidate was rebuilt, structurally verified, installed in isolation, and passed Sharp/missing-model smoke. SHA-256 at that update: `D55A93065D7481FCE3E80AA770610ADDF0EC3DD13823C3BAEAA3AA8A3E3C7A7A`.
+- T14 remains partial: direct adapter calls outside the measured Copilot/Canvas ingress still contain placeholder latency, and end-to-end UI/provider cost acceptance remains open.
+
+
+### T14 follow-up ? priority tools and Generate provenance ? 05/11/2026
+
+- Priority tool and Canvas Generate paths now measure elapsed execution. Model generation records provider cost as unknown when no provider amount was returned; local deterministic tools record estimated zero rather than a fictitious billed amount. Regression tests verify these cases.
+- Full check PASS 133/133; lint PASS. Current isolated-smoke VSIX SHA-256: `F2DBEA086647AD0033CB5B0F784AE0770E4AEC088597EA720A78B2355D8F5123`.
+- T14 remains incomplete for direct adapter ingress outside Copilot/Canvas/priority paths and live provider/UI reconciliation.
+
+
+### T17 artifact recovery and reference-aware pruning slice ? 05/11/2026
+
+- Artifact manifest writes are serialized with unique temporary files and a last-known-good backup. A corrupt manifest is quarantined and the backup is loaded when valid. Pruning retains referenced records plus their parent/preview dependency chain and does not remove metadata when a file delete fails.
+- Startup pruning now maps the SessionManager's persisted absolute artifact paths to manifest IDs before deleting unreferenced records. Tests cover backup recovery, parallel stores, dependency retention, and path-based pruning.
+- `npm.cmd run check`: PASS, 137/137; `npm.cmd run lint`: PASS. Candidate structural validation and isolated installation/Sharp/missing-model smoke PASS. SHA-256: `D55A93065D7481FCE3E80AA770610ADDF0EC3DD13823C3BAEAA3AA8A3E3C7A7A`.
+- T17 remains partial: recovery across simultaneous process crashes, broader session migration, and clean-profile/VM acceptance remain open.
+
+
+### T14 follow-up ? Runware reported billing ? 05/11/2026
+
+- Runware image operations now persist the `cost` returned for the matching task as `actual`; missing cost is `unknown`. Hard-coded per-operation cloud tariffs were removed. Local metadata caption fallback is explicitly labeled and timed.
+- Regression tests cover reported and omitted costs. Full check PASS 139/139; lint PASS. Candidate structural verification, isolated install, Sharp runtime, and missing-model smoke PASS. SHA-256: `EA3D7EDDECA4B30199DF6879CF62F15EDB8AF276FB3AF4EC9E55F46EF749C5E1`.
+- Provider live billing remains unverified; contract tests do not prove the account's production billing response. Direct legacy adapter metrics outside the measured ingress paths remain under review.
+
+
+### T18 integration regression ? FLOW-05 ? 05/11/2026
+
+- Simulated a delayed priority tool while switching sessions and rolling back its original session. The late result remains on the captured branch; selection stays on the rollback node and the newly active session, the provider runs once, and reopening the store preserves both.
+- `npm.cmd run check`: PASS, 145/145; `npm.cmd run lint`: PASS. This is host/service integration coverage, not interactive UI E2E.
+
+
+### T19 quality evaluation runner scaffold ? 05/11/2026
+
+- `scripts/quality-eval.cjs` validates quality-evaluation manifest structure and scores isolated task/provider/model groups. Five regression tests cover synthetic success, rights/hash/leakage/duplicate rejection, threshold failure, and two-rater adjudication rules. Full check PASS 145/145; source-policy lint and host/webview type-check PASS.
+- This is tooling validation only. No licensed 60-image dataset, real provider/model outputs, approved final rubric, or independent rater scores are present; therefore no image-quality result or T19 acceptance is claimed. Existing `evals/release/TC1_recolor_clothes_blue.png` remains a smoke fixture, not a quality benchmark.
+
+
+### T20 Extension Host shell smoke ? 05/11/2026
+
+- `test/e2e/extensionHost.cjs` now asserts a visible `Pixel Pilot - AI Studio` tab after opening Studio. On Windows development workspace, VS Code 1.85.2, Node 22.11.0, `PIXEL_PILOT_E2E_DISABLE_ELECTRON_SANDBOX=1 npm.cmd run test:e2e` PASS; activation, command registration, visible Studio tab, and no-image command handling all completed in an isolated profile. `npm.cmd run lint` PASS; `npm.cmd run check` PASS, 145/145.
+- The default Electron sandbox run remains blocked before extension assertions: Windows denies sandbox setup for the E2E profile Cache/Network directories and renderer exits 49. The diagnostic flag disables the Electron sandbox and GPU for this test process only; it does not count as standard-sandbox or clean-VM acceptance. No provider was called.
+- This still is not UI critical-flow E2E: Canvas input, mask/box coordinates, preview/apply/discard, cancellation, session/rollback, and export require interactive acceptance. No release candidate hash is associated with this test-only change.

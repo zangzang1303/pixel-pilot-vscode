@@ -130,3 +130,4 @@ Nếu thầy muốn trải nghiệm trực tiếp trên máy tính của thầy:
    ```
    *(Hoặc trong VS Code, mở tab Extensions `Ctrl+Shift+X` -> bấm vào dấu ba chấm `...` ở góc trên -> chọn **Install from VSIX...** và trỏ đến tệp vsix).*
 3. Sau khi cài xong, biểu tượng **Pixel Pilot** sẽ xuất hiện trên thanh Activity Bar bên trái của VS Code, sẵn sàng sử dụng ngay lập tức!
+

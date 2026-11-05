@@ -355,7 +355,7 @@ export class ComfyUIAdapter implements IAIProvider {
       success: true,
       outputImageUri: `data:image/png;base64,${previewBuffer.toString('base64')}`,
       textResult: svgString,
-      metrics: { model: 'Local Vectorizer SOTA', latencyMs: 30, costUsd: 0 }
+      metrics: { model: 'Local 48x64 color-quantized SVG tracer (Sharp)', latencyMs: 0, costUsd: 0 }
     };
   }
 
@@ -516,7 +516,7 @@ export class ComfyUIAdapter implements IAIProvider {
     return {
       success: true,
       textResult: cap,
-      metrics: { model: 'Local Visual Captioner', latencyMs: 10, costUsd: 0 }
+      metrics: { model: 'Local image metadata description (Sharp; no visual understanding)', latencyMs: 0, costUsd: 0 }
     };
   }
 

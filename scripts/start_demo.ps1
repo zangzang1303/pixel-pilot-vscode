@@ -62,3 +62,4 @@ if (-not $NoLaunch) {
     Write-Host "  2. Hoac nhap chuot phai vao anh 01_chan_dung_toc_bay_TC1.jpg va chon 'Pixel Pilot: Open AI Studio'" -ForegroundColor White
     Write-Host "  3. Xem chi tiet kich ban demo tai: demo_assets\PROMPTS_DEMO.md va DEMO_HUONG_DAN_THAY.md" -ForegroundColor White
 }
+

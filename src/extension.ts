@@ -11,6 +11,7 @@ import { FileSystemUtils } from './utils/fileSystem';
 import { ImageProcessor } from './services/image/ImageProcessor';
 import { ComfyUIAdapter } from './services/ai/ComfyUIAdapter';
 import { PriorityToolExecutors } from './services/tools/PriorityToolExecutors';
+import { PolicyService } from './services/security/PolicyService';
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('✨ Pixel Pilot Enterprise Vision Studio is now active!');
@@ -19,6 +20,7 @@ export function activate(context: vscode.ExtensionContext) {
   PriorityToolExecutors.registerAll();
 
   const invokeApi = new InvokeApiService();
+  const policy = new PolicyService();
 
   // 1. Register the Sidebar Webview Provider
   const provider = new PixelPilotViewProvider(context);
@@ -112,6 +114,12 @@ export function activate(context: vscode.ExtensionContext) {
   // 8. Command: Batch Process Folder from File Explorer
   context.subscriptions.push(
     vscode.commands.registerCommand('pixelPilot.batchProcessFolder', async (uri?: vscode.Uri) => {
+      try {
+        await policy.requireTrustedWorkspace('Batch image processing');
+      } catch (error: any) {
+        vscode.window.showWarningMessage(error.message || String(error));
+        return;
+      }
       let targetUri = uri;
       if (!targetUri) {
         const selected = await vscode.window.showOpenDialog({
@@ -170,10 +178,12 @@ export function activate(context: vscode.ExtensionContext) {
       const outputDir = path.join(targetUri.fsPath, 'pixelpilot_output');
 
       // 4. Configure Provider
+      let runwareBatch = false;
       if (!isComfyOnline) {
         const key = await provider.getSecretManager().getApiKey();
         if (key && key.trim().length > 10) {
           provider.getRunwareAdapter().setApiKey(key);
+          runwareBatch = true;
         } else {
           // Use ComfyUIAdapter in native fallback mode
           batchProcessor.setAIProvider(comfy);
@@ -181,15 +191,51 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       // 5. Execute
-      const summary = await batchProcessor.executeBatch(images, choice.op, outputDir);
+      if (runwareBatch) {
+        try {
+          await policy.requireCloudConsent('Runware', `Batch ${choice.op} for ${images.length} images`);
+        } catch (error: any) {
+          vscode.window.showWarningMessage(error.message || String(error));
+          return;
+        }
+      }
+      const summary = await batchProcessor.executeBatch(images, choice.op, outputDir, {
+        beforeEach: async () => {
+          await policy.requireTrustedWorkspace('Batch processing');
+          if (runwareBatch) await policy.assertCloudAllowed('Runware', `Batch ${choice.op}`);
+        },
+        beforeWrite: async () => policy.requireTrustedWorkspace('Batch output write')
+      });
 
       // 6. Report
+      const batchActions = summary.failed > 0 ? ['Retry failed', 'Open output folder'] : ['Open output folder'];
       const action = await vscode.window.showInformationMessage(
-        `✅ Hoàn thành xử lý lô: ${summary.succeeded}/${summary.total} ảnh thành công (${(summary.totalTimeMs / 1000).toFixed(1)}s)`,
-        'Mở thư mục kết quả'
+        `Batch complete: ${summary.succeeded}/${summary.total} succeeded (${(summary.totalTimeMs / 1000).toFixed(1)}s). Manifest: ${summary.manifestPath}${summary.manifestError ? ` (manifest update warning: ${summary.manifestError})` : ''}`,
+        ...batchActions
       );
 
-      if (action === 'Mở thư mục kết quả') {
+      if (action === 'Retry failed') {
+        const failedCount = summary.results.filter(result => !result.success).length;
+        try {
+          await policy.requireTrustedWorkspace('Batch retry');
+          if (runwareBatch) await policy.requireCloudConsent('Runware', `Retry ${failedCount} failed batch images`);
+          const retry = await batchProcessor.retryFailed(summary, {
+            beforeEach: async () => {
+              await policy.requireTrustedWorkspace('Batch retry');
+              if (runwareBatch) await policy.assertCloudAllowed('Runware', `Retry batch ${choice.op}`);
+            },
+            beforeWrite: async () => policy.requireTrustedWorkspace('Batch output write')
+          });
+          if (retry) vscode.window.showInformationMessage(
+            `Retry completed: ${retry.succeeded}/${retry.total} images succeeded. Manifest: ${retry.manifestPath}`,
+            'Open output folder'
+          ).then(async retryAction => {
+            if (retryAction === 'Open output folder') await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputDir));
+          });
+        } catch (error: any) {
+          vscode.window.showWarningMessage(error.message || String(error));
+        }
+      } else if (action === 'Open output folder') {
         if (fs.existsSync(outputDir)) {
           await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(outputDir));
         }

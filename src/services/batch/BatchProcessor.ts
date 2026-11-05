@@ -2,6 +2,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { randomUUID } from 'crypto';
 import { IAIProvider } from '../ai/IAIProvider';
 import { OperationType } from '../session/types';
 
@@ -21,6 +22,8 @@ export interface BatchSummary {
   totalTimeMs: number;
   outputDirectory: string;
   results: BatchItemResult[];
+  manifestPath: string;
+  manifestError?: string;
 }
 
 export class BatchProcessor {
@@ -71,7 +74,7 @@ export class BatchProcessor {
     images: vscode.Uri[],
     operation: OperationType,
     outputDir: string,
-    options: { factor?: 2 | 4; prompt?: string } = {}
+    options: { factor?: 2 | 4; prompt?: string; beforeEach?: (image: vscode.Uri, index: number) => Promise<void>; beforeWrite?: (image: vscode.Uri, index: number) => Promise<void> } = {}
   ): Promise<BatchSummary> {
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
@@ -79,8 +82,21 @@ export class BatchProcessor {
 
     const startTime = Date.now();
     const results: BatchItemResult[] = [];
+    const batchId = randomUUID();
+    const manifestPath = path.join(outputDir, `.pixel-pilot-batch-${batchId}.json`);
+    let manifestError: string | undefined;
+    const manifest = { version: 1, batchId, operation, state: 'running', createdAt: Date.now(), updatedAt: Date.now(),
+      sourceFiles: images.map(image => image.fsPath), results };
+    const persistManifest = async () => {
+      manifest.updatedAt = Date.now();
+      const tempPath = `${manifestPath}.${randomUUID()}.tmp`;
+      await fs.promises.writeFile(tempPath, JSON.stringify(manifest, null, 2), { flag: 'wx' });
+      await fs.promises.rename(tempPath, manifestPath);
+    };
+    await persistManifest();
     let succeeded = 0;
     let failed = 0;
+    let cancelled = false;
 
     await vscode.window.withProgress(
       {
@@ -93,6 +109,7 @@ export class BatchProcessor {
 
         for (let i = 0; i < images.length; i++) {
           if (token.isCancellationRequested) {
+            cancelled = true;
             vscode.window.showWarningMessage('Đã hủy tiến trình xử lý hàng loạt!');
             break;
           }
@@ -108,6 +125,8 @@ export class BatchProcessor {
           const itemStart = Date.now();
 
           try {
+            await options.beforeEach?.(imgUri, i);
+            if (token.isCancellationRequested) { cancelled = true; break; }
             // Read input file into data URI
             const fileBuf = await vscode.workspace.fs.readFile(imgUri);
             const ext = parsed.ext.toLowerCase().replace('.', '') || 'png';
@@ -158,8 +177,9 @@ export class BatchProcessor {
 
             if (outBuffer) {
               const outFileName = `${parsed.name}_${operation}.${outExt}`;
-              const outFilePath = path.join(outputDir, outFileName);
-              await fs.promises.writeFile(outFilePath, outBuffer);
+              await options.beforeWrite?.(imgUri, i);
+              if (token.isCancellationRequested) { cancelled = true; break; }
+              const outFilePath = await this.writeOutputWithoutOverwrite(outputDir, outFileName, outBuffer);
 
               succeeded++;
               results.push({
@@ -168,6 +188,7 @@ export class BatchProcessor {
                 success: true,
                 latencyMs: Date.now() - itemStart
               });
+              try { await persistManifest(); } catch (error: any) { manifestError = error?.message || String(error); }
             }
           } catch (err: any) {
             failed++;
@@ -177,6 +198,7 @@ export class BatchProcessor {
               error: err.message || String(err),
               latencyMs: Date.now() - itemStart
             });
+            try { await persistManifest(); } catch (error: any) { manifestError = error?.message || String(error); }
           }
         }
       }
@@ -189,10 +211,38 @@ export class BatchProcessor {
       failed,
       totalTimeMs: Date.now() - startTime,
       outputDirectory: outputDir,
-      results
+      results,
+      manifestPath,
+      manifestError
     };
 
+    manifest.state = cancelled ? 'cancelled' : 'completed';
+    try { await persistManifest(); } catch (error: any) { summary.manifestError = error?.message || String(error); }
+
     return summary;
+  }
+
+  /** Retry only failed inputs from the last run; successful files are never submitted again. */
+  public async retryFailed(previous: BatchSummary, options: { factor?: 2 | 4; prompt?: string; beforeEach?: (image: vscode.Uri, index: number) => Promise<void>; beforeWrite?: (image: vscode.Uri, index: number) => Promise<void> } = {}): Promise<BatchSummary | undefined> {
+    const failedImages = previous.results.filter(result => !result.success).map(result => vscode.Uri.file(result.filePath));
+    if (failedImages.length === 0) return undefined;
+    return this.executeBatch(failedImages, previous.operation, previous.outputDirectory, options);
+  }
+
+  private async writeOutputWithoutOverwrite(outputDir: string, fileName: string, buffer: Buffer): Promise<string> {
+    const parsed = path.parse(fileName);
+    for (let suffix = 0; suffix < 10000; suffix++) {
+      const candidate = path.join(outputDir, suffix === 0
+        ? fileName
+        : `${parsed.name}_${suffix}${parsed.ext}`);
+      try {
+        await fs.promises.writeFile(candidate, buffer, { flag: 'wx' });
+        return candidate;
+      } catch (error: any) {
+        if (error?.code !== 'EEXIST') throw error;
+      }
+    }
+    throw new Error(`Could not allocate a unique output name for ${fileName}.`);
   }
 
   private extractBuffer(uriOrBase64: string): Buffer | null {

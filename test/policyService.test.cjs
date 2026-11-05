@@ -29,9 +29,11 @@ test('cloud policy checks Workspace Trust and requires a fresh native consent', 
   assert.equal(dialogs, 1);
   approved = true;
   await policy.requireCloudConsent('Runware', 'Upscale');
+  await policy.assertCloudAllowed('Runware', 'Batch Upscale');
   await policy.requireCloudConsent('Runware', 'Upscale');
   assert.equal(dialogs, 3);
   offline = true;
   await assert.rejects(() => policy.requireCloudConsent('Runware', 'Upscale'), /offline mode/i);
+  await assert.rejects(() => policy.assertCloudAllowed('Runware', 'Batch Upscale'), /offline mode/i);
   assert.equal(dialogs, 3);
 });

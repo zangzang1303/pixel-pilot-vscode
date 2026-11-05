@@ -91,6 +91,8 @@ export const App: React.FC = () => {
   // Action processing status (Edit & Dev Tools)
   const [isProcessingAction, setIsProcessingAction] = useState<boolean>(false);
   const [processingLabel, setProcessingLabel] = useState<string>('');
+  const [cancelableActionId, setCancelableActionId] = useState<string | null>(null);
+  const cancelableActionRef = useRef<string | null>(null);
 
   // Active Image & Saved path
   const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
@@ -167,6 +169,7 @@ export const App: React.FC = () => {
           setSavedPath(vscode.isBrowserDemo() ? undefined : message.filePath || message.payload?.fileName);
           setSnippetInserted(false);
           setIsProcessingAction(false);
+          setPreviewState(null);
           break;
 
         case 'generationStarted':
@@ -240,6 +243,9 @@ export const App: React.FC = () => {
         case 'actionComplete':
         case 'AI_ACTION_SUCCESS':
           setIsProcessingAction(false);
+          setCancelableActionId(null);
+          cancelableActionRef.current = null;
+          setPreviewState(null);
           const isCurrentResult = !message.sessionId || (
             message.sessionId === activeSessionIdRef.current &&
             (!message.nodeId || message.nodeId === currentNodeIdRef.current)
@@ -250,15 +256,30 @@ export const App: React.FC = () => {
           if (isCurrentResult && message.savedPath) {
             setSavedPath(vscode.isBrowserDemo() ? undefined : message.savedPath);
           }
+          const costStatus = message.metrics?.costStatus;
+          const costText = costStatus === 'actual'
+            ? `Chi phí thực tế: $${Number(message.metrics.costUsd).toFixed(5)}.`
+            : costStatus === 'estimated'
+              ? `Chi phí ước tính: $${Number(message.metrics.costUsd).toFixed(5)}.`
+              : costStatus === 'unknown' ? 'Provider không trả thông tin chi phí.' : '';
           setToast({ kind: 'success', message: isCurrentResult
-            ? (message.message || 'Đã hoàn tất thao tác ảnh.')
+            ? `${message.message || 'Đã hoàn tất thao tác ảnh.'}${costText ? ` ${costText}` : ''}`
             : 'Kết quả đã lưu vào phiên hoặc nhánh ảnh trước đó.' });
           break;
 
         case 'actionError':
         case 'AI_ACTION_ERROR':
           setIsProcessingAction(false);
+          setCancelableActionId(null);
+          cancelableActionRef.current = null;
           setToast({ kind: 'error', message: message.message || message.payload?.error || 'Không thể hoàn tất thao tác ảnh.' });
+          break;
+
+        case 'actionCancelled':
+          setIsProcessingAction(false);
+          setCancelableActionId(null);
+          cancelableActionRef.current = null;
+          setToast({ kind: 'info', message: 'FLUX edit cancelled; no preview was applied.' });
           break;
 
         case 'operationFailed':
@@ -286,6 +307,9 @@ export const App: React.FC = () => {
 
         case 'previewReady':
         case 'plan.preview_ready':
+          setIsProcessingAction(false);
+          setCancelableActionId(null);
+          cancelableActionRef.current = null;
           if (message.previewUrl || message.result?.outputImageUri) {
             setPreviewState({
               previewUrl: message.previewUrl || message.result?.outputImageUri,
@@ -410,9 +434,15 @@ export const App: React.FC = () => {
 
     setIsProcessingAction(true);
     setProcessingLabel(`Đang thực hiện ${action}...`);
+    const requestId = `canvas-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    if (action === 'fluxBoxEdit') {
+      cancelableActionRef.current = requestId;
+      setCancelableActionId(requestId);
+    }
 
     vscode.postMessage({
       command: 'applyAction',
+      requestId,
       action,
       dataUrl: currentImageUrl,
       sessionId: activeSessionId,
@@ -473,19 +503,17 @@ export const App: React.FC = () => {
       previewUrl={previewState.previewUrl}
       operationLabel={previewState.operationLabel}
       onApply={() => {
-        setCurrentImageUrl(previewState.previewUrl);
         vscode.postMessage({
           command: 'plan.apply',
-          planId: previewState.planId,
-          previewUrl: previewState.previewUrl
+          previewId: previewState.planId
         });
-        setPreviewState(null);
-        setToast({ kind: 'success', message: 'Đã áp dụng kết quả chỉnh sửa vào Canvas.' });
+        setIsProcessingAction(true);
+        setProcessingLabel('Đang áp dụng preview...');
       }}
       onDiscard={() => {
         vscode.postMessage({
           command: 'plan.discard',
-          planId: previewState.planId
+          previewId: previewState.planId
         });
         setPreviewState(null);
       }}
@@ -531,6 +559,11 @@ export const App: React.FC = () => {
         onApplyAction={handleApplyAction}
         isProcessingAction={isProcessingAction}
         processingLabel={processingLabel}
+        canCancelAction={Boolean(cancelableActionId)}
+        onCancelAction={() => {
+          const requestId = cancelableActionRef.current;
+          if (requestId) vscode.postMessage({ command: 'cancelCanvasAction', requestId });
+        }}
         onOpenImage={handleOpenImage}
         sessions={sessions}
         activeSessionId={activeSessionId}

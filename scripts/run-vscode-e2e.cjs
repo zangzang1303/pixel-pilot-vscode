@@ -42,6 +42,13 @@ async function main() {
     '--skip-release-notes',
     '--disable-workspace-trust'
   ];
+  // Some restricted Windows runners deny Electron's cache/network sandbox
+  // setup before the Extension Host starts. This opt-in diagnostic mode is
+  // only for an isolated E2E profile and must not be counted as clean-machine
+  // sandbox acceptance.
+  if (process.env.PIXEL_PILOT_E2E_DISABLE_ELECTRON_SANDBOX === '1') {
+    args.push('--no-sandbox', '--disable-gpu', '--disable-gpu-sandbox');
+  }
 
   const exitCode = await new Promise((resolve, reject) => {
     const environment = { ...process.env };
