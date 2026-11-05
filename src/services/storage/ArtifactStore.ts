@@ -43,6 +43,7 @@ export class ArtifactStore {
   private manifestPath: string;
   private records = new Map<string, ArtifactRecord>();
   private hashIndex = new Map<string, string>(); // sha256 -> id
+  private manifestWrite: Promise<void> = Promise.resolve();
 
   constructor(storageRoot: string) {
     this.baseDir = path.resolve(storageRoot, 'artifacts');
@@ -60,23 +61,74 @@ export class ArtifactStore {
   private loadManifest(): void {
     if (fs.existsSync(this.manifestPath)) {
       try {
-        const raw = fs.readFileSync(this.manifestPath, 'utf8');
-        const list: ArtifactRecord[] = JSON.parse(raw);
-        for (const item of list) {
-          this.records.set(item.id, item);
-          this.hashIndex.set(item.sha256, item.id);
-        }
+        this.loadManifestFile(this.manifestPath);
+        return;
       } catch {
-        // Corrupted manifest will be quarantined or rebuilt
+        const quarantinePath = `${this.manifestPath}.corrupt-${Date.now()}`;
+        try { fs.renameSync(this.manifestPath, quarantinePath); } catch { /* Keep the original if quarantine is blocked. */ }
+      }
+    }
+
+    const backupPath = `${this.manifestPath}.bak`;
+    if (fs.existsSync(backupPath)) {
+      try {
+        this.loadManifestFile(backupPath);
+        return;
+      } catch {
+        try { fs.renameSync(backupPath, `${backupPath}.corrupt-${Date.now()}`); } catch { /* Keep the backup if quarantine is blocked. */ }
       }
     }
   }
 
+  private loadManifestFile(filePath: string): void {
+    const raw: unknown = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (!Array.isArray(raw)) throw new Error('Artifact manifest must be an array.');
+    const records = raw as ArtifactRecord[];
+    const seenIds = new Set<string>();
+    const seenHashes = new Set<string>();
+    for (const item of records) {
+      if (!item || typeof item.id !== 'string' || !item.id.startsWith('art_') ||
+          typeof item.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(item.sha256) ||
+          typeof item.storageKey !== 'string' || path.basename(item.storageKey) !== item.storageKey ||
+          !['image', 'mask', 'svg'].includes(item.kind) || typeof item.mime !== 'string' ||
+          !Number.isFinite(item.byteSize) || item.byteSize < 1 || !Number.isFinite(item.createdAt) ||
+          !item.provenance || typeof item.provenance !== 'object' || seenIds.has(item.id) || seenHashes.has(item.sha256)) {
+        throw new Error('Artifact manifest contains an invalid record.');
+      }
+      seenIds.add(item.id);
+      seenHashes.add(item.sha256);
+    }
+    this.records.clear();
+    this.hashIndex.clear();
+    for (const item of records) {
+      this.records.set(item.id, item);
+      this.hashIndex.set(item.sha256, item.id);
+    }
+  }
+
   private async saveManifest(): Promise<void> {
-    const list = Array.from(this.records.values());
-    const tempPath = `${this.manifestPath}.tmp`;
-    await fs.promises.writeFile(tempPath, JSON.stringify(list, null, 2), 'utf8');
-    await fs.promises.rename(tempPath, this.manifestPath);
+    const write = this.manifestWrite.then(async () => {
+      const list = Array.from(this.records.values());
+      const json = JSON.stringify(list, null, 2);
+      const backupPath = `${this.manifestPath}.bak`;
+      const backupTemp = `${backupPath}.${crypto.randomUUID()}.tmp`;
+      const manifestTemp = `${this.manifestPath}.${crypto.randomUUID()}.tmp`;
+      try {
+        if (fs.existsSync(this.manifestPath)) {
+          await fs.promises.copyFile(this.manifestPath, backupTemp);
+          await fs.promises.rename(backupTemp, backupPath);
+        }
+        await fs.promises.writeFile(manifestTemp, json, { encoding: 'utf8', flag: 'wx' });
+        await fs.promises.rename(manifestTemp, this.manifestPath);
+      } catch (error) {
+        await Promise.all([backupTemp, manifestTemp].map(async file => {
+          try { await fs.promises.unlink(file); } catch { /* No temporary file remains. */ }
+        }));
+        throw error;
+      }
+    });
+    this.manifestWrite = write.catch(() => undefined);
+    return write;
   }
 
   /**
@@ -194,38 +246,62 @@ export class ArtifactStore {
     let deleted = 0;
     let retained = 0;
 
-    const toDeleteIds: string[] = [];
-    for (const [id, record] of this.records.entries()) {
-      if (referencedIds.has(id)) {
+    const protectedIds = new Set(referencedIds);
+    const pending = [...protectedIds];
+    while (pending.length) {
+      const id = pending.pop()!;
+      const record = this.records.get(id);
+      for (const relatedId of [record?.parentArtifactId, record?.previewArtifactId]) {
+        if (relatedId && !protectedIds.has(relatedId)) {
+          protectedIds.add(relatedId);
+          pending.push(relatedId);
+        }
+      }
+    }
+
+    let changed = false;
+    for (const [id, record] of [...this.records.entries()]) {
+      if (protectedIds.has(id)) {
         retained++;
         continue;
       }
 
-      // Candidate for deletion
-      toDeleteIds.push(id);
       const fullPath = path.resolve(this.baseDir, record.storageKey);
+      const relative = path.relative(this.baseDir, fullPath);
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        retained++;
+        continue;
+      }
       try {
         if (fs.existsSync(fullPath)) {
           await fs.promises.unlink(fullPath);
         }
-        deleted++;
-      } catch {
-        // Ignore file lock errors
-      }
-    }
-
-    for (const id of toDeleteIds) {
-      const rec = this.records.get(id);
-      if (rec) {
-        this.hashIndex.delete(rec.sha256);
+        this.hashIndex.delete(record.sha256);
         this.records.delete(id);
+        deleted++;
+        changed = true;
+      } catch {
+        retained++;
       }
     }
 
-    if (deleted > 0) {
+    if (changed) {
       await this.saveManifest();
     }
 
     return { deleted, retained };
+  }
+
+  /** Prunes by persisted paths so session DAG references remain authoritative. */
+  public async pruneUnreferencedPaths(
+    referencedPaths: ReadonlySet<string>
+  ): Promise<{ deleted: number; retained: number }> {
+    const normalizedPaths = new Set(Array.from(referencedPaths, value => path.resolve(value)));
+    const referencedIds = new Set<string>();
+    for (const [id, record] of this.records) {
+      const fullPath = path.resolve(this.baseDir, record.storageKey);
+      if (normalizedPaths.has(fullPath)) referencedIds.add(id);
+    }
+    return this.pruneUnreferenced(referencedIds);
   }
 }

@@ -98,6 +98,7 @@ export interface ToolResultView {
     provider?: string;
     latencyMs?: number;
     costUsd?: number;
+    costStatus?: 'actual' | 'estimated' | 'unknown';
   };
 }
 
@@ -132,6 +133,27 @@ export interface CapabilityView {
   unavailableReason?: string;
 }
 
+/** A preview is a staged result. It is not a session edit until the host ACKs apply. */
+export interface PreviewReadyView {
+  previewId: string;
+  sessionId: string;
+  parentNodeId: string;
+  sourceRevision: string;
+  operation: string;
+  previewImageUri: string;
+  expiresAt: number;
+}
+
+export type PreviewDecision =
+  | { type: 'preview.apply'; previewId: string; sessionId: string; parentNodeId: string; sourceRevision: string }
+  | { type: 'preview.discard'; previewId: string };
+
+export type PreviewDecisionResult =
+  | { status: 'applied'; previewId: string; nodeId: string; sessionId: string }
+  | { status: 'discarded'; previewId: string }
+  | { status: 'stale'; previewId: string; currentNodeId: string }
+  | { status: 'failed'; previewId: string; message: string };
+
 export type ClientCommand =
   | { type: 'client.ready'; lastSequence?: number }
   | { type: 'copilot.submit'; sessionId: string; nodeId: string; revision?: string; text: string }
@@ -139,7 +161,8 @@ export type ClientCommand =
   | { type: 'run.cancel'; runId: string }
   | { type: 'confirmation.respond'; token: string; approved: boolean }
   | { type: 'session.select_node'; sessionId: string; nodeId: string }
-  | { type: 'session.sync'; sessionId: string; afterSequence?: number };
+  | { type: 'session.sync'; sessionId: string; afterSequence?: number }
+  | PreviewDecision;
 
 export type ClientMessage = Envelope & ClientCommand;
 
@@ -155,7 +178,9 @@ export type HostEvent =
   | { type: 'run.cancelled'; runId: string }
   | { type: 'session.snapshot'; session: SessionView }
   | { type: 'session.delta'; delta: SessionDelta }
-  | { type: 'capabilities.updated'; catalog: CapabilityView[] };
+  | { type: 'capabilities.updated'; catalog: CapabilityView[] }
+  | { type: 'preview.ready'; preview: PreviewReadyView }
+  | { type: 'preview.decision'; result: PreviewDecisionResult };
 
 export type HostMessage = Envelope & { eventId: string; sequence: number } & HostEvent;
 

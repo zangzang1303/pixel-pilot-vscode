@@ -27,7 +27,9 @@ export type OperationType =
 export interface NodeMetrics {
   model: string;
   latencyMs: number;
-  costUsd: number;
+  costUsd?: number;
+  /** actual = provider-reported; estimated = local/known tariff estimate; unknown = no defensible value. */
+  costStatus?: 'actual' | 'estimated' | 'unknown';
   width?: number;
   height?: number;
   fileSizeKb?: number;

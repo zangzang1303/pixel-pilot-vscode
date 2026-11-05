@@ -22,12 +22,17 @@ export class PolicyService {
     }
   }
 
-  /** Per-request consent: grants are deliberately not persisted or replayed. */
-  public async requireCloudConsent(provider: string, purpose: string): Promise<void> {
+  /** Recheck policy after consent and immediately before each cloud request. */
+  public async assertCloudAllowed(provider: string, purpose: string): Promise<void> {
     if (this.isOfflineMode()) {
       throw new Error(`${purpose} is unavailable while Pixel Pilot offline mode is enabled.`);
     }
-    await this.requireTrustedWorkspace(purpose);
+    await this.requireTrustedWorkspace(`${purpose} via ${provider}`);
+  }
+
+  /** Per-request consent: grants are deliberately not persisted or replayed. */
+  public async requireCloudConsent(provider: string, purpose: string): Promise<void> {
+    await this.assertCloudAllowed(provider, purpose);
     const webviewDecision = this.webviewConfirmation ? await this.webviewConfirmation(provider, purpose) : undefined;
     if (webviewDecision !== undefined) {
       if (!webviewDecision) throw new Error('Cloud operation was not approved.');

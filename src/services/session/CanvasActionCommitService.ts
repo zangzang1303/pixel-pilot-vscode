@@ -21,7 +21,8 @@ const IMAGE_ACTIONS: Record<string, { operation: OperationType; label: string }>
   recolor: { operation: 'recolor', label: 'Recolor' },
   styleTransfer: { operation: 'style_transfer', label: 'Style transfer' },
   vectorize: { operation: 'vectorize', label: 'Vectorize' },
-  inpaint: { operation: 'inpaint', label: 'Inpaint' }
+  inpaint: { operation: 'inpaint', label: 'Inpaint' },
+  fluxBoxEdit: { operation: 'inpaint', label: 'FLUX.3 Klein box edit' }
 };
 
 /** Pins the button's target before any provider or file operation can yield. */
@@ -58,7 +59,12 @@ export class CanvasActionCommitService {
       result: {
         success: true,
         outputImageUri,
-        metrics: { model, latencyMs: 0, costUsd: 0 }
+        metrics: { model,
+          latencyMs: typeof options?.latencyMs === 'number' ? options.latencyMs : 0,
+          costUsd: typeof options?.costUsd === 'number' ? options.costUsd : undefined,
+          costStatus: options?.costStatus === 'actual' || options?.costStatus === 'estimated' || options?.costStatus === 'unknown'
+            ? options.costStatus
+            : undefined }
       }
     });
   }

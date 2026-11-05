@@ -13,6 +13,7 @@ Pixel Pilot là extension chỉnh sửa ảnh trong VS Code với Sidebar Assist
 | AI ảnh cục bộ | Generate qua InvokeAI hoặc ComfyUI khi server và model sẵn sàng. Các công cụ khác phụ thuộc capability thực tế của ComfyUI. Không có model thì công cụ báo không khả dụng. |
 | Recolor chọn lọc | Cần Python, model ONNX và ComfyUI foreground model. VSIX không chứa model ONNX; xem [hướng dẫn cài đặt](docs/SETUP_GUIDE.md). Chưa có kiểm chứng chất lượng bảo vệ da trên tập ảnh đại diện. |
 | Cloud | Runware và LLM cloud cần key trong VS Code SecretStorage, Workspace Trust và xác nhận trước thao tác liên quan. Offline mode chặn request cloud. Chi phí và tốc độ phụ thuộc provider; không có mức cố định được bảo đảm. |
+| FLUX.3 Klein Box Edit | Trong Canvas Studio, mở ảnh rồi bấm **FLUX.3 Box**, kéo khung quanh đối tượng, nhập mô tả đối tượng và yêu cầu chỉnh sửa. Extension gửi ảnh tham chiếu cùng tọa độ box chuẩn hóa 0–1000 tới Runware sau khi xác nhận cloud, rồi lưu kết quả thành node lịch sử. Box hướng dẫn model theo vùng, không bảo đảm giữ nguyên từng pixel ngoài khung. Cần Runware API key và credits. |
 | Công cụ phụ | OCR, image-to-code và batch có các đường thực thi riêng; kiểm tra provider và quyền trước khi dùng. |
 
 Một số công cụ có thể hiện trong UI nhưng báo *unavailable* theo môi trường. Fixture/mock chỉ dành cho phát triển hoặc kiểm thử và không phải bằng chứng provider thật.
@@ -51,7 +52,10 @@ VSIX install smoke dùng profile cô lập để kiểm tra extension ID, Sharp 
 
 ## Tài liệu
 
+- [Kế hoạch tổng thể đến bản final](docs/KE_HOACH_TONG_THE_DEN_FINAL.md)
+- [Kế hoạch beta chi tiết — tuần 1–8](docs/KE_HOACH_TRIEN_KHAI_CHI_TIET.md)
 - [Kế hoạch phát triển](docs/COPILOT_DEVELOPMENT_PLAN.md)
+- [Ma trận capability beta](docs/BETA_CAPABILITY_MATRIX.md)
 - [Tiến độ triển khai](docs/COPILOT_IMPLEMENTATION_PROGRESS.md)
 - [Bằng chứng release cần thu thập](docs/COPILOT_RELEASE_EVIDENCE.md)
 - [Đề cương nghiên cứu](docs/ACADEMIC_RESEARCH_PROPOSAL.md)

@@ -25,7 +25,8 @@ import {
   PenTool,
   Plus,
   Pencil,
-  Trash2
+  Trash2,
+  X
 } from 'lucide-react';
 
 export interface ModelItem {
@@ -69,6 +70,8 @@ interface SettingsSidebarProps {
   onApplyAction: (action: string, options?: any) => void;
   isProcessingAction: boolean;
   processingLabel: string;
+  canCancelAction: boolean;
+  onCancelAction: () => void;
   onOpenImage: () => void;
   // Chat Props
   sessions: Array<{ sessionId: string; title: string; updatedAt: number; messageCount: number }>;
@@ -111,6 +114,8 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
   onApplyAction,
   isProcessingAction,
   processingLabel,
+  canCancelAction,
+  onCancelAction,
   onOpenImage,
   sessions,
   activeSessionId,
@@ -697,6 +702,7 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
           <div className="p-2.5 rounded-xl bg-purple-950/60 border border-purple-800/80 text-xs text-purple-200 flex items-center gap-2 animate-pulse">
             <Sparkles className="w-4 h-4 animate-spin text-purple-400" />
             <span>{processingLabel || 'Đang thực hiện tác vụ AI...'}</span>
+            {canCancelAction && <button type="button" onClick={onCancelAction} className="ml-auto rounded border border-red-500/40 px-2 py-1 text-red-200 hover:bg-red-500/20" aria-label="Cancel FLUX edit"><X className="h-3.5 w-3.5" /></button>}
           </div>
         )}
       </div>

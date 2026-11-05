@@ -23,6 +23,13 @@ export class RunwareAdapter implements IAIProvider {
     return this.apiKey;
   }
 
+  private reportedCostMetrics(result: any): { costUsd?: number; costStatus: 'actual' | 'unknown' } {
+    const cost = result?.cost;
+    return typeof cost === 'number' && Number.isFinite(cost) && cost >= 0
+      ? { costUsd: cost, costStatus: 'actual' }
+      : { costStatus: 'unknown' };
+  }
+
   public setApiKey(key: string): void {
     this.apiKey = (key || '').trim();
   }
@@ -104,7 +111,7 @@ export class RunwareAdapter implements IAIProvider {
     return result;
   }
 
-  private async dispatchTasks(tasks: any[]): Promise<{ data: any; latencyMs: number }> {
+  public async dispatchTasks(tasks: any[], signal?: AbortSignal): Promise<{ data: any; latencyMs: number }> {
     // A connected adapter must recheck the vault immediately before each send.
     // Clearing a key cannot leave an old in-memory adapter authorized.
     const key = this.resolveApiKey ? (await this.resolveApiKey()).trim() : this.apiKey;
@@ -122,8 +129,12 @@ export class RunwareAdapter implements IAIProvider {
         'Authorization': `Bearer ${key}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(tasks)
+      // Runware reports the exact charge per task when includeCost is requested.
+      body: JSON.stringify(tasks.map(task => ({ ...task, includeCost: true }))),
+      signal
     });
+
+    if (signal?.aborted) throw new Error('Provider request cancelled.');
 
     const latencyMs = Date.now() - startTime;
 
@@ -144,6 +155,35 @@ export class RunwareAdapter implements IAIProvider {
     const resultData = json.data || json;
     console.log(`[Runware API] Phản hồi thành công trong ${latencyMs}ms`);
     return { data: resultData, latencyMs };
+  }
+
+  /** Edit an object inside a normalized [top, left, bottom, right] box. */
+  public async editBoundingBox(imageInput: string, box: number[], description: string, instruction: string, signal?: AbortSignal): Promise<AIResult> {
+    const model = 'bfl:flux@3-image-klein';
+    try {
+      if (box.length !== 4 || box.some(value => !Number.isInteger(value) || value < 0 || value > 1000) ||
+          box[0] >= box[2] || box[1] >= box[3]) {
+        throw new Error('Bounding box phải có dạng [trên, trái, dưới, phải] trong khoảng 0–1000.');
+      }
+      if (!description.trim() || !instruction.trim()) throw new Error('Cần mô tả đối tượng và yêu cầu chỉnh sửa.');
+      const taskUUID = crypto.randomUUID();
+      const { data, latencyMs } = await this.dispatchTasks([{
+        taskType: 'imageInference', taskUUID, model,
+        positivePrompt: `${instruction.trim()} Edit <selected_1> in the specified region. Preserve the rest of the reference image as closely as possible.`,
+        inputs: { referenceImages: [this.normalizeImageInput(imageInput)] },
+        settings: { boundingBoxes: [{ id: 'selected_1', referenceIndex: 0, sourceBox: box, targetBox: box, description: description.trim() }] },
+        steps: 16, outputFormat: 'PNG', outputType: 'dataURI', includeCost: true
+      }], signal);
+      if (signal?.aborted) throw new Error('Provider request cancelled.');
+      const result = this.selectTaskResult(data, taskUUID);
+      const outputImageUri = this.extractImageOutput(result);
+      if (!outputImageUri) throw new Error('Runware không trả về ảnh kết quả.');
+      const reportedCost = typeof result.cost === 'number' && Number.isFinite(result.cost) && result.cost >= 0 ? result.cost : undefined;
+      return { success: true, outputImageUri, metrics: { model, latencyMs, costUsd: reportedCost,
+        costStatus: reportedCost === undefined ? 'unknown' : 'actual' } };
+    } catch (error: any) {
+      return { success: false, error: error.message || String(error), metrics: { model, latencyMs: 0, costStatus: 'unknown' } };
+    }
   }
 
   /**
@@ -183,13 +223,13 @@ export class RunwareAdapter implements IAIProvider {
         metrics: {
           model: 'Runware BiRefNet General (runware:112@5)',
           latencyMs,
-          costUsd: 0.0006
+          ...this.reportedCostMetrics(res)
         }
       };
     } catch (err: any) {
       return {
         success: false,
-        metrics: { model: 'Runware BiRefNet General', latencyMs: 0, costUsd: 0 },
+        metrics: { model: 'Runware BiRefNet General', latencyMs: 0, costStatus: 'unknown' },
         error: err.message || String(err)
       };
     }
@@ -227,7 +267,7 @@ export class RunwareAdapter implements IAIProvider {
         metrics: {
           model: `Runware Upscale ${factor}x`,
           latencyMs,
-          costUsd: factor === 4 ? 0.002 : 0.001
+          ...this.reportedCostMetrics(res)
         }
       };
     } catch (err: any) {
@@ -248,7 +288,7 @@ export class RunwareAdapter implements IAIProvider {
       }
       return {
         success: false,
-        metrics: { model: 'Runware Upscale', latencyMs: 0, costUsd: 0 },
+        metrics: { model: 'Runware Upscale', latencyMs: 0, costStatus: 'unknown' },
         error: err.message || String(err)
       };
     }
@@ -294,13 +334,13 @@ export class RunwareAdapter implements IAIProvider {
         metrics: {
           model: 'Runware Recraft Vectorizer',
           latencyMs,
-          costUsd: 0.003
+          ...this.reportedCostMetrics(res)
         }
       };
     } catch (err: any) {
       return {
         success: false,
-        metrics: { model: 'Runware Vectorize', latencyMs: 0, costUsd: 0 },
+        metrics: { model: 'Runware Vectorize', latencyMs: 0, costStatus: 'unknown' },
         error: err.message || String(err)
       };
     }
@@ -353,13 +393,13 @@ export class RunwareAdapter implements IAIProvider {
         metrics: {
           model: 'Runware Generative Inpainting',
           latencyMs,
-          costUsd: 0.002
+          ...this.reportedCostMetrics(res)
         }
       };
     } catch (err: any) {
       return {
         success: false,
-        metrics: { model: 'Runware Inpaint', latencyMs: 0, costUsd: 0 },
+        metrics: { model: 'Runware Inpaint', latencyMs: 0, costStatus: 'unknown' },
         error: err.message || String(err)
       };
     }
@@ -417,7 +457,7 @@ export class RunwareAdapter implements IAIProvider {
         metrics: {
           model: `Runware Preprocessor (${method.toUpperCase()})`,
           latencyMs,
-          costUsd: 0.0005
+          ...this.reportedCostMetrics(res)
         }
       };
     } catch (err: any) {
@@ -437,7 +477,7 @@ export class RunwareAdapter implements IAIProvider {
       } catch {}
       return {
         success: false,
-        metrics: { model: `Runware Edge (${method})`, latencyMs: 0, costUsd: 0 },
+        metrics: { model: `Runware Edge (${method})`, latencyMs: 0, costStatus: 'unknown' },
         error: err.message || String(err)
       };
     }
@@ -469,22 +509,28 @@ export class RunwareAdapter implements IAIProvider {
         metrics: {
           model: 'Runware Vision Captioner',
           latencyMs,
-          costUsd: 0.0004
+          ...this.reportedCostMetrics(res)
         }
       };
     } catch (err: any) {
       try {
+        const localStartedAt = Date.now();
         const buf = this.getBufferFromInput(imageInput);
         const cap = await ImageProcessor.getInstance().generateCaption(buf);
         return {
           success: true,
           textResult: cap,
-          metrics: { model: 'Local Visual Captioner', latencyMs: 25, costUsd: 0 }
+          metrics: {
+            model: 'Local image metadata description (Sharp; no visual understanding)',
+            latencyMs: Date.now() - localStartedAt,
+            costUsd: 0,
+            costStatus: 'estimated'
+          }
         };
       } catch {}
       return {
         success: false,
-        metrics: { model: 'Runware Caption', latencyMs: 0, costUsd: 0 },
+        metrics: { model: 'Runware Caption', latencyMs: 0, costStatus: 'unknown' },
         error: err.message || String(err)
       };
     }
@@ -507,7 +553,7 @@ export class RunwareAdapter implements IAIProvider {
         metrics: { model: 'Canvas Outpainting Expansion', latencyMs: 40, costUsd: 0 }
       };
     } catch (e: any) {
-      return { success: false, metrics: { model: 'Extend Canvas', latencyMs: 0, costUsd: 0 }, error: e.message };
+      return { success: false, metrics: { model: 'Extend Canvas', latencyMs: 0, costStatus: 'unknown' }, error: e.message };
     }
   }
 
@@ -549,13 +595,13 @@ export class RunwareAdapter implements IAIProvider {
         metrics: {
           model: 'Runware Generative Background',
           latencyMs,
-          costUsd: 0.002
+          ...this.reportedCostMetrics(res)
         }
       };
     } catch (err: any) {
       return {
         success: false,
-        metrics: { model: 'Runware Replace Background', latencyMs: 0, costUsd: 0 },
+        metrics: { model: 'Runware Replace Background', latencyMs: 0, costStatus: 'unknown' },
         error: err.message || String(err)
       };
     }
@@ -606,7 +652,7 @@ export class RunwareAdapter implements IAIProvider {
         metrics: {
           model: `Runware Style (${style.toUpperCase()})`,
           latencyMs,
-          costUsd: 0.002
+          ...this.reportedCostMetrics(res)
         }
       };
     } catch (err: any) {
@@ -627,7 +673,7 @@ export class RunwareAdapter implements IAIProvider {
       }
       return {
         success: false,
-        metrics: { model: `Runware Style (${style})`, latencyMs: 0, costUsd: 0 },
+        metrics: { model: `Runware Style (${style})`, latencyMs: 0, costStatus: 'unknown' },
         error: err.message || String(err)
       };
     }
@@ -674,7 +720,7 @@ export class RunwareAdapter implements IAIProvider {
         metrics: {
           model: `Runware AI Enhance (${type.toUpperCase()})`,
           latencyMs,
-          costUsd: 0.0015
+          ...this.reportedCostMetrics(res)
         }
       };
     } catch (err: any) {
@@ -695,7 +741,7 @@ export class RunwareAdapter implements IAIProvider {
       }
       return {
         success: false,
-        metrics: { model: `Runware Enhance (${type})`, latencyMs: 0, costUsd: 0 },
+        metrics: { model: `Runware Enhance (${type})`, latencyMs: 0, costStatus: 'unknown' },
         error: err.message || String(err)
       };
     }

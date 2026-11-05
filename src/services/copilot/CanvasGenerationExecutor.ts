@@ -18,6 +18,7 @@ export class CanvasGenerationExecutor {
     options: GenerationOptions = {},
     onProgress?: (status: string, percentage?: number) => void
   ): Promise<{ result: AIResult; imageName: string }> {
+    const startedAt = Date.now();
     if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4096) {
       throw new Error('Generation prompt must contain 1–4096 characters.');
     }
@@ -35,8 +36,9 @@ export class CanvasGenerationExecutor {
           outputImageUri: generated.dataUrl,
           metrics: {
             model: `InvokeAI/${typeof selected === 'string' ? selected : selected.key}`,
-            latencyMs: 0,
-            costUsd: 0
+            latencyMs: Date.now() - startedAt,
+            costUsd: undefined,
+            costStatus: 'unknown'
           }
         }
       };

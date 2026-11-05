@@ -15,6 +15,34 @@ test('webview bridge executes a duplicated request ID only once', async () => {
   assert.equal(executions, 1);
 });
 
+test('webview bridge rejects a request ID reused with a different payload', async () => {
+  const bridge = new WebviewBridge();
+  let calls = 0;
+  const first = bridge.dispatch('same-id', async () => ++calls, '{"text":"first"}');
+  const retry = bridge.dispatch('same-id', async () => ++calls, '{"text":"different"}');
+  assert.equal(await first, 1);
+  await assert.rejects(retry, /reused with a different payload/);
+  assert.equal(calls, 1);
+});
+
+test('request retention never evicts in-flight work when the cache reaches capacity', async () => {
+  const bridge = new WebviewBridge(1);
+  let resolveFirst;
+  let calls = 0;
+  const first = bridge.dispatch('active-1', () => {
+    calls++;
+    return new Promise(resolve => { resolveFirst = resolve; });
+  }, 'one');
+  const second = bridge.dispatch('active-2', async () => { calls++; return 'two'; }, 'two');
+  const duplicate = bridge.dispatch('active-1', async () => { calls++; return 'duplicate'; }, 'one');
+  await Promise.resolve();
+  resolveFirst('one');
+  assert.equal(await first, 'one');
+  assert.equal(await duplicate, 'one');
+  assert.equal(await second, 'two');
+  assert.equal(calls, 2);
+});
+
 test('webview bridge registers surfaces and broadcasts with monotonic sequence', () => {
   const bridge = new WebviewBridge();
   const receivedA = [];

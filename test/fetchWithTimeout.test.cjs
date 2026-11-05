@@ -16,3 +16,13 @@ test('provider fetch timeout aborts the request and reports a bounded error', as
   );
   assert.equal(aborted, true);
 });
+
+test('provider fetch propagates caller cancellation and distinguishes it from timeout', async () => {
+  const caller = new AbortController();
+  const hangingFetch = (_input, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+  });
+  const pending = fetchWithTimeout('https://provider.invalid', { method: 'POST', signal: caller.signal }, 1000, hangingFetch);
+  caller.abort();
+  await assert.rejects(pending, /request cancelled/i);
+});

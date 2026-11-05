@@ -22,6 +22,15 @@ async function run() {
   // Opening the Studio exercises the contributed command and webview host
   // without calling an external model provider.
   await vscode.commands.executeCommand('pixel-pilot.openStudio');
+  const deadline = Date.now() + 5000;
+  let studioTab;
+  while (Date.now() < deadline && !studioTab) {
+    studioTab = vscode.window.tabGroups.all
+      .flatMap(group => group.tabs)
+      .find(tab => tab.label === 'Pixel Pilot - AI Studio');
+    if (!studioTab) await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.ok(studioTab, 'Opening Studio must create the expected visible webview tab.');
 
   // These context commands must be safe when no editor/image URI is supplied.
   // This covers the empty/no-workspace recovery path in a real Extension Host
