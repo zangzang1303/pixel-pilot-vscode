@@ -30,6 +30,56 @@ const provider = calls => ({
   removeBackground: async () => { calls.count++; return { success: true, outputImageUri: output }; }
 });
 
+test('batch manifest records basic fallback separately from a model cutout', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixelpilot-batch-provenance-'));
+  const outputDir = path.join(root, 'output');
+  try {
+    const images = [0, 1].map(index => {
+      const filePath = path.join(root, `image${index}.png`);
+      fs.writeFileSync(filePath, `source-${index}`);
+      return { fsPath: filePath };
+    });
+    const processor = new BatchProcessor({
+      name: 'ComfyUI Local GPU',
+      removeBackground: async dataUri => ({
+        success: true, outputImageUri: output,
+        metrics: { model: dataUri.includes(Buffer.from('source-0').toString('base64'))
+          ? 'Native background removal (corner-color)' : 'ComfyUI BiRefNet GPU' }
+      })
+    });
+    const summary = await processor.executeBatch(images, 'remove_background', outputDir);
+    assert.equal(summary.succeeded, 2);
+    const manifest = JSON.parse(fs.readFileSync(summary.manifestPath, 'utf8'));
+    assert.deepEqual(manifest.results.map(result => [result.provider, result.mode, result.model]), [
+      ['sharp', 'basic', 'Native background removal (corner-color)'],
+      ['comfyui', 'model', 'ComfyUI BiRefNet GPU']
+    ]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('batch manifest identifies Sharp upscale fallback', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixelpilot-batch-upscale-mode-'));
+  try {
+    const imagePath = path.join(root, 'image.png');
+    fs.writeFileSync(imagePath, 'source');
+    const processor = new BatchProcessor({
+      name: 'ComfyUI Local GPU',
+      upscale: async () => ({ success: true, outputImageUri: output,
+        metrics: { model: 'Sharp Lanczos3 + sharpen upscale 2x' } })
+    });
+    const summary = await processor.executeBatch([{ fsPath: imagePath }], 'upscale', path.join(root, 'output'));
+    assert.equal(summary.succeeded, 1);
+    const [item] = JSON.parse(fs.readFileSync(summary.manifestPath, 'utf8')).results;
+    assert.equal(item.provider, 'sharp');
+    assert.equal(item.mode, 'basic');
+    assert.equal(item.model, 'Sharp Lanczos3 + sharpen upscale 2x');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('batch checks per-item authorization and retains successful work when a later item is denied', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixelpilot-batch-policy-'));
   const outputDir = path.join(root, 'output');

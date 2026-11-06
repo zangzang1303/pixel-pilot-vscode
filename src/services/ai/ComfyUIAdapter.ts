@@ -230,6 +230,7 @@ export class ComfyUIAdapter implements IAIProvider {
    * 1. Remove Background (BiRefNet / RMBG)
    */
   public async removeBackground(imageInput: string): Promise<AIResult> {
+    const startedAt = Date.now();
     const isOnline = await this.ping();
     if (!isOnline) {
       const buf = this.getBufferFromInput(imageInput);
@@ -237,7 +238,7 @@ export class ComfyUIAdapter implements IAIProvider {
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-        metrics: { model: 'Native background removal (corner-color)', latencyMs: 40, costUsd: 0 }
+        metrics: { model: 'Native background removal (corner-color)', latencyMs: Date.now() - startedAt, costUsd: 0, costStatus: 'estimated' }
       };
     }
 
@@ -251,7 +252,7 @@ export class ComfyUIAdapter implements IAIProvider {
         return {
           success: true,
           outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-          metrics: { model: 'Native background removal (corner-color)', latencyMs: 45, costUsd: 0 }
+          metrics: { model: 'Native background removal (corner-color)', latencyMs: Date.now() - startedAt, costUsd: 0, costStatus: 'estimated' }
         };
       }
 
@@ -276,7 +277,7 @@ export class ComfyUIAdapter implements IAIProvider {
         return {
           success: true,
           outputImageUri: `data:image/png;base64,${outputImages[0].toString('base64')}`,
-          metrics: { model: `ComfyUI ${modelName} GPU`, latencyMs: 0, costUsd: 0 }
+          metrics: { model: `ComfyUI ${modelName} GPU`, latencyMs: Date.now() - startedAt, costUsd: 0, costStatus: 'estimated' }
         };
       }
 
@@ -299,7 +300,7 @@ export class ComfyUIAdapter implements IAIProvider {
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outputImages[0].toString('base64')}`,
-        metrics: { model: `ComfyUI ${rmbgClass} GPU`, latencyMs: 800, costUsd: 0 }
+        metrics: { model: `ComfyUI ${rmbgClass} GPU`, latencyMs: Date.now() - startedAt, costUsd: 0, costStatus: 'estimated' }
       };
     } catch {
       const buf = this.getBufferFromInput(imageInput);
@@ -307,7 +308,7 @@ export class ComfyUIAdapter implements IAIProvider {
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-        metrics: { model: 'Native background removal (corner-color)', latencyMs: 45, costUsd: 0 }
+        metrics: { model: 'Native background removal (corner-color)', latencyMs: Date.now() - startedAt, costUsd: 0, costStatus: 'estimated' }
       };
     }
   }
@@ -316,6 +317,7 @@ export class ComfyUIAdapter implements IAIProvider {
    * 2. Upscale 2x / 4x (RealESRGAN / 4x-UltraSharp)
    */
   public async upscale(imageInput: string, factor: 2 | 4 = 2): Promise<AIResult> {
+    const startedAt = Date.now();
     const isOnline = await this.ping();
     if (!isOnline) {
       const buf = this.getBufferFromInput(imageInput);
@@ -323,7 +325,7 @@ export class ComfyUIAdapter implements IAIProvider {
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-        metrics: { model: `Super-Resolution ${factor}x (Native GPU Engine)`, latencyMs: 50, costUsd: 0 }
+        metrics: { model: `Sharp Lanczos3 + sharpen upscale ${factor}x`, latencyMs: Date.now() - startedAt, costUsd: 0, costStatus: 'estimated' }
       };
     }
 
@@ -361,7 +363,7 @@ export class ComfyUIAdapter implements IAIProvider {
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outputImages[0].toString('base64')}`,
-        metrics: { model: `ComfyUI ${availableModel} GPU (${factor}x)`, latencyMs: 1200, costUsd: 0 }
+        metrics: { model: `ComfyUI ${availableModel} GPU (${factor}x)`, latencyMs: Date.now() - startedAt, costUsd: 0, costStatus: 'estimated' }
       };
     } catch {
       const buf = this.getBufferFromInput(imageInput);
@@ -369,7 +371,7 @@ export class ComfyUIAdapter implements IAIProvider {
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-        metrics: { model: `Super-Resolution ${factor}x (Lanczos3 + CAS Sharpness)`, latencyMs: 50, costUsd: 0 }
+        metrics: { model: `Sharp Lanczos3 + sharpen upscale ${factor}x`, latencyMs: Date.now() - startedAt, costUsd: 0, costStatus: 'estimated' }
       };
     }
   }
@@ -460,7 +462,7 @@ export class ComfyUIAdapter implements IAIProvider {
     return {
       success: true,
       outputImageUri: `data:image/png;base64,${maskBuf.toString('base64')}`,
-      metrics: { model: 'Local Binary Mask Segmenter', latencyMs: 25, costUsd: 0 }
+      metrics: { model: 'Local binary mask (corner-color heuristic)', latencyMs: 25, costUsd: 0 }
     };
   }
 
@@ -510,10 +512,12 @@ export class ComfyUIAdapter implements IAIProvider {
       }
     }
     const outBuf = await ImageProcessor.getInstance().detectEdges(buf, method);
+    const localModel = method === 'depth' ? 'Local luminance-based depth approximation'
+      : method === 'lineart' ? 'Local Sobel line art' : 'Local Sobel edge detector';
     return {
       success: true,
       outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-      metrics: { model: `Local ControlNet Preprocessor (${method.toUpperCase()})`, latencyMs: 30, costUsd: 0 }
+      metrics: { model: localModel, latencyMs: 30, costUsd: 0 }
     };
   }
 
@@ -841,7 +845,7 @@ export class ComfyUIAdapter implements IAIProvider {
     return {
       success: true,
       outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-      metrics: { model: `HDR Clarity & Contrast (${type.toUpperCase()} Remaster)`, latencyMs: 35, costUsd: 0 }
+      metrics: { model: `Sharp local enhance (${type})`, latencyMs: 35, costUsd: 0, costStatus: 'estimated' }
     };
   }
 

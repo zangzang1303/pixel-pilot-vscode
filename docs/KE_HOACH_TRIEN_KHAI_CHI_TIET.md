@@ -342,3 +342,15 @@ Ba quyết định nhóm cần chốt ở buổi D1: gán tên thật cho A/B/C,
 - Expanded `test/e2e/extensionHost.cjs` to assert that `pixel-pilot.openStudio` creates the visible `Pixel Pilot - AI Studio` tab, in addition to activation, command registration, and safe no-image command handling.
 - Added opt-in `PIXEL_PILOT_E2E_DISABLE_ELECTRON_SANDBOX=1` for constrained-runner diagnosis only; it uses an isolated `.vscode-test/e2e-profile` and passes `--no-sandbox --disable-gpu --disable-gpu-sandbox`. `npm.cmd run test:e2e` passed in this mode with VS Code 1.85.2 / Node 22.11.0; `npm.cmd run lint` passed.
 - The normal Electron sandbox run still fails before the test with Windows access-denied errors for the isolated Cache/Network directories and renderer exit 49. The diagnostic pass is not clean-VM or sandbox acceptance and does not cover interactive Canvas, mask/box, preview/apply/discard, cancel, session switching, or export. T20 remains partial.
+
+### T12/T14 progress — background removal and upscale provenance — 07/11/2026
+
+- Canvas tách nền và upscale hiện lưu đúng thuật toán/provider/mode vào node; fallback Sharp được nêu rõ trong thông báo. Tên lệnh Explorer/Batch không còn khẳng định BiRefNet hoặc super-resolution khi có thể dùng basic fallback.
+- Batch manifest ghi `provider`, `mode`, `model` theo từng ảnh tách nền/upscale. Batch chọn Runware (sau consent) nếu ComfyUI online nhưng thiếu RMBG model; nếu không có provider model thì tách nền basic được ghi rõ.
+- `npm.cmd run check` PASS 156/156; `npm.cmd run lint` PASS. Test mới kiểm tra ComfyUI native fallback, model result, manifest theo từng ảnh và offline Sharp upscale. Chưa chạy tương tác UI/provider thật. T12/T14 vẫn partial; tiếp theo rà inpaint/mask/depth/outpaint và chuyển các ingress còn lại sang run service.
+
+### T12/T14 progress — Studio và các thao tác Canvas còn lại — 07/11/2026
+
+- Mask, dò biên, depth, extend, style và inpaint cùng phân biệt model ComfyUI với xử lý Sharp cục bộ theo `metrics.model`; DAG và toast ghi đúng nguồn thực tế. Nhãn depth/Sobel/outpaint basic phản ánh thuật toán trong `ImageProcessor`.
+- Caption metadata được phân biệt với Florence-2 và lưu model/thời gian trong message; recolor ghi pipeline ONNX + ComfyUI + Sharp; SVG ghi thuật toán lượng tử hóa cục bộ.
+- Studio bỏ executor ảnh cũ; `applyAction`, alias cũ và nút Upscale riêng đều chuyển tới host chung. `npm.cmd run check` PASS 161/161; `npm.cmd run lint` PASS. T12/T14 chưa nghiệm thu: còn các ingress/adapter khác, đo latency trực tiếp, và xác nhận UI/provider live.

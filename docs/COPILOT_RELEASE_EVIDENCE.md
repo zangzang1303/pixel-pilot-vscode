@@ -249,3 +249,15 @@ Working-tree checks after T01?T07 slices and FLUX preview apply/discard wiring:
 - `npm.cmd run package:vsix -- -OutputDirectory artifacts/beta-candidate-20261106` PASS: webview build, Host compile and archive structural validation. Candidate rebuilt after the model-loader diagnosis change: `artifacts/beta-candidate-20261106/pixel-pilot-vscode-1.1.0.vsix`, 13,499,209 bytes, SHA-256 `0227CB5E7439D914254FA816037180727FBB1D62B9B30FFF96B7F61855EBE195`.
 - Source base is `779bbb5` with uncommitted T21/T22 changes in the working tree. The hash identifies this local artifact, not a frozen release commit.
 - Isolated installation, Extension Host assertions, interactive workflows, update/migration, and clean Windows VM acceptance were not completed for this candidate. T23 remains partial; this structural result does not close its release gate.
+
+### T12/T14 Canvas and Batch mode/provenance slice — 07/11/2026
+
+- Canvas background removal checks RMBG availability before choosing ComfyUI and no longer calls a ComfyUI adapter fallback a ComfyUI model result. It records Sharp/basic and the actual algorithm in DAG metrics and tells the user which mode finished. Canvas upscale has the same distinction for ComfyUI model, Runware, and Sharp Lanczos3 + sharpen.
+- Batch manifest records per-image provider/mode/model for background removal and upscale. A ComfyUI server without an RMBG node/model no longer prevents an available Runware route from being chosen. Explorer and Batch labels are provider-neutral where basic fallback is possible.
+- `npm.cmd run check`: PASS, 156/156; `npm.cmd run lint`: PASS; focused regression: 23/23; `git diff --check`: PASS. These are code/fixture checks only. No live provider, UI, standard Electron-sandbox E2E, clean VM, or updated VSIX acceptance is claimed. The 06/11 VSIX candidate predates these changes.
+
+### T12/T14 Studio and remaining Canvas action provenance — 07/11/2026
+
+- Canvas mask, Canny/edge, depth, extend, style transfer, and inpaint now resolve provider/mode/model from the adapter result instead of treating every returned image as a ComfyUI result. Basic Sobel, luminance depth approximation, solid border extension, local style filters, and local fill are labeled accordingly. Recolor records its ONNX + ComfyUI + Sharp pipeline; local SVG records its quantized tracer.
+- Caption from local metadata is no longer presented as AI image understanding. The pinned caption message stores measured latency and the actual model/source label. Studio's old image action name is an alias to the shared host, and its separate Upscale executor was removed.
+- `npm.cmd run check`: PASS, 161/161; `npm.cmd run lint`: PASS; focused regression: 18/18. These checks do not establish live provider output, interactive UI flows, Electron-sandbox E2E, clean VM, or quality acceptance. T12/T14 remain partial.

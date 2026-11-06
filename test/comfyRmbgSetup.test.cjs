@@ -98,3 +98,15 @@ test('native cutout and mask workflows select a model exposed in the first choic
     global.fetch = originalFetch;
   }
 });
+
+test('offline upscale reports the Sharp algorithm instead of a GPU model', async () => {
+  const adapter = new ComfyUIAdapter();
+  adapter.ping = async () => false;
+  const image = await sharp({ create: { width: 2, height: 2, channels: 4, background: '#ffffff' } }).png().toBuffer();
+  const result = await adapter.upscale(`data:image/png;base64,${image.toString('base64')}`, 2);
+  assert.equal(result.success, true);
+  assert.equal(result.metrics.model, 'Sharp Lanczos3 + sharpen upscale 2x');
+  const output = await sharp(Buffer.from(result.outputImageUri.split(',')[1], 'base64')).metadata();
+  assert.equal(output.width, 4);
+  assert.equal(output.height, 4);
+});

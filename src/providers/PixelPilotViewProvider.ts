@@ -25,7 +25,7 @@ import { ConfirmationBroker } from '../services/copilot/ConfirmationBroker';
 import { RunwareAdapter } from '../services/ai/RunwareAdapter';
 import { IntentRouter } from '../services/ai/IntentRouter';
 import { VisionAgentOrchestrator } from '../services/ai/VisionAgentOrchestrator';
-import { OperationType, AIResult } from '../services/session/types';
+import { OperationType, AIResult, NodeMetrics } from '../services/session/types';
 import { SecretManager } from '../services/security/SecretManager';
 import { PolicyService } from '../services/security/PolicyService';
 import { AssetStorageService } from '../services/storage/AssetStorageService';
@@ -37,6 +37,8 @@ import { OCRService } from '../services/ai/OCRService';
 import { FileSystemUtils } from '../utils/fileSystem';
 import { encodeImageExport } from '../utils/ImageExportService';
 import { ComfyUIAdapter } from '../services/ai/ComfyUIAdapter';
+import { backgroundRemovalProvenance } from '../services/ai/BackgroundRemovalProvenance';
+import { resolveAdapterImageResult } from '../services/ai/AdapterImageResult';
 import { LocalChatService } from '../services/ai/LocalChatService';
 import { ImageAnalysisService } from '../services/ai/ImageAnalysisService';
 import sharp from 'sharp';
@@ -186,8 +188,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     await this.policy.requireCloudConsent(provider, purpose);
   }
 
-  public recordCanvasCaption(target: CanvasActionTarget, caption: string): void {
-    this.canvasCommit.recordCaption(target, caption);
+  public recordCanvasCaption(target: CanvasActionTarget, caption: string, metrics?: NodeMetrics): void {
+    this.canvasCommit.recordCaption(target, caption, metrics);
     this.broadcastSessionState();
   }
 
@@ -451,6 +453,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
           const target = this.captureCanvasAction({ sessionId: message.sessionId, parentId: message.nodeId });
           await this.requireCanvasWorkspaceTrust();
+          const upscaleStartedAt = Date.now();
 
           this.postToWebview({ command: 'upscaleStarted' });
           const buffer = decodeImageInput(dataUrl).buffer;
@@ -459,7 +462,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
           this.postToWebview({
             command: 'upscaleProgress',
-            status: `Đang phóng to ${targetFactor}x (Lanczos3 Super-Resolution)...`,
+            status: `Đang phóng to ${targetFactor}x bằng Sharp Lanczos3...`,
             percentage: 50
           });
 
@@ -468,7 +471,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           const savedResult = await this.saveCanvasAction(target, 'upscale',
             upscaledBuf,
             `pixel_pilot_upscaled_${targetFactor}x_${Date.now()}.png`,
-            { factor: targetFactor, provider: 'sharp' }
+            { factor: targetFactor, provider: 'sharp', mode: 'basic', model: `Sharp Lanczos3 + sharpen upscale ${targetFactor}x`,
+              latencyMs: Date.now() - upscaleStartedAt, costUsd: 0, costStatus: 'estimated' }
           );
 
           if (this.isCanvasTargetCurrent({ sessionId: target.sessionId, parentId: savedResult.nodeId })) {
@@ -480,7 +484,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             dataUrl: savedResult.dataUrl,
             sessionId: savedResult.sessionId,
             nodeId: savedResult.nodeId,
-            savedPath: savedResult.relativePath
+            savedPath: savedResult.relativePath,
+            message: `Phóng to ${targetFactor}x bằng Sharp Lanczos3 + sharpen.`
           });
 
           vscode.window.showInformationMessage(`✨ Phóng to ${targetFactor}x thành công: ${savedResult.relativePath}`);
@@ -551,23 +556,21 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             this.postToWebview({ command: 'previewReady', previewUrl: `data:image/png;base64,${output.toString('base64')}`,
               originalUrl: dataUrl, operationLabel: 'FLUX.3 Klein box edit', planId: preview.previewId });
           } else if (action === 'removeBackground') {
-            let outBuf: Buffer;
-            let provider = 'sharp';
+            let outBuf: Buffer | undefined;
+            let provenance: { provider: string; mode: string; model: string; costUsd?: number; costStatus?: string } = {
+              provider: 'sharp', mode: 'basic', model: 'Native background removal (corner-color)'
+            };
             const comfy = new ComfyUIAdapter();
-            const comfyOnline = await comfy.ping();
-            if (comfyOnline) {
+            const comfyReady = await comfy.ping() && Boolean(await comfy.getAvailableRmbgNode());
+            if (comfyReady) {
               try {
                 const res = await comfy.removeBackground(dataUrl);
-                if (res.outputImageUri) {
-                  const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
-                  outBuf = Buffer.from(b64, 'base64');
-                  provider = 'comfyui';
-                } else {
-                  outBuf = await imageProc.removeBackground(buffer);
+                if (res.success && res.outputImageUri) {
+                  outBuf = decodeImageInput(res.outputImageUri).buffer;
+                  provenance = { ...backgroundRemovalProvenance(res, 'comfyui'),
+                    costUsd: res.metrics.costUsd, costStatus: res.metrics.costStatus };
                 }
-              } catch {
-                outBuf = await imageProc.removeBackground(buffer);
-              }
+              } catch { /* Use the basic local cutout below. */ }
             } else {
               const runwareKey = await this.secretManager.getApiKey();
               if (runwareKey && runwareKey.trim().length > 10) {
@@ -575,49 +578,51 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
                 try {
                   const adapter = new RunwareAdapter(runwareKey, () => this.secretManager.getApiKey());
                   const res = await adapter.removeBackground(dataUrl);
-                  if (res.outputImageUri) {
-                    const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
-                    outBuf = Buffer.from(b64, 'base64');
-                    provider = 'runware';
-                  } else {
-                    outBuf = await imageProc.removeBackground(buffer);
+                  if (res.success && res.outputImageUri) {
+                    outBuf = decodeImageInput(res.outputImageUri).buffer;
+                    provenance = { ...backgroundRemovalProvenance(res, 'runware'),
+                      costUsd: res.metrics.costUsd, costStatus: res.metrics.costStatus };
                   }
-                } catch {
-                  outBuf = await imageProc.removeBackground(buffer);
-                }
-              } else {
-                outBuf = await imageProc.removeBackground(buffer);
+                } catch { /* Use the basic local cutout below. */ }
               }
             }
+            if (!outBuf) outBuf = await imageProc.removeBackground(buffer);
 
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_cutout_${Date.now()}.png`, { ...options, latencyMs: Date.now() - actionStartedAt, provider });
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_cutout_${Date.now()}.png`, {
+              ...options, latencyMs: Date.now() - actionStartedAt, ...provenance
+            });
+            const modeLabel = provenance.mode === 'basic' ? 'xử lý cơ bản' :
+              provenance.provider === 'runware' ? 'Runware' : provenance.provider === 'comfyui' ? 'ComfyUI' : 'nguồn chưa xác định';
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
               nodeId: savedResult.nodeId,
-              savedPath: savedResult.relativePath
+              savedPath: savedResult.relativePath,
+              message: `Tách nền hoàn tất bằng ${modeLabel}.`
             });
-            vscode.window.showInformationMessage(`✨ Tách nền thành công: ${savedResult.relativePath}`);
+            vscode.window.showInformationMessage(`✨ Tách nền bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'upscale') {
             const factor = (options?.factor as 2 | 4) || 2;
-            let outBuf: Buffer;
-            let provider = 'sharp';
+            let outBuf: Buffer | undefined;
+            let provenance: { provider: string; mode: string; model: string; costUsd?: number; costStatus?: string } = {
+              provider: 'sharp', mode: 'basic', model: `Sharp Lanczos3 + sharpen upscale ${factor}x`
+            };
             const comfy = new ComfyUIAdapter();
             const comfyOnline = await comfy.ping();
             if (comfyOnline) {
               try {
                 const res = await comfy.upscale(dataUrl, factor);
-                if (res.outputImageUri) {
-                  const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
-                  outBuf = Buffer.from(b64, 'base64');
-                  provider = 'comfyui';
-                } else {
-                  outBuf = await imageProc.upscale(buffer, factor);
+                if (res.success && res.outputImageUri) {
+                  outBuf = decodeImageInput(res.outputImageUri).buffer;
+                  const model = res.metrics.model;
+                  const isComfyModel = /^ComfyUI\b/i.test(model);
+                  const isSharpBasic = /^Sharp Lanczos3 \+ sharpen upscale\b/i.test(model);
+                  provenance = { provider: isComfyModel ? 'comfyui' : isSharpBasic ? 'sharp' : 'unknown',
+                    mode: isComfyModel ? 'model' : isSharpBasic ? 'basic' : 'unknown', model,
+                    costUsd: res.metrics.costUsd, costStatus: res.metrics.costStatus };
                 }
-              } catch {
-                outBuf = await imageProc.upscale(buffer, factor);
-              }
+              } catch { /* Use local Sharp upscale below. */ }
             } else {
               const runwareKey = await this.secretManager.getApiKey();
               if (runwareKey && runwareKey.trim().length > 10) {
@@ -625,94 +630,90 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
                 try {
                   const adapter = new RunwareAdapter(runwareKey, () => this.secretManager.getApiKey());
                   const res = await adapter.upscale(dataUrl, factor);
-                  if (res.outputImageUri) {
-                    const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
-                    outBuf = Buffer.from(b64, 'base64');
-                    provider = 'runware';
-                  } else {
-                    outBuf = await imageProc.upscale(buffer, factor);
-                  }
-                } catch {
-                  outBuf = await imageProc.upscale(buffer, factor);
-                }
-              } else {
-                outBuf = await imageProc.upscale(buffer, factor);
+                  const resolved = await resolveAdapterImageResult(res, () => imageProc.upscale(buffer, factor),
+                    `Sharp Lanczos3 + sharpen upscale ${factor}x`);
+                  outBuf = resolved.buffer;
+                  provenance = resolved.provenance;
+                } catch { /* Use local Sharp upscale below. */ }
               }
             }
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`, { ...options, latencyMs: Date.now() - actionStartedAt, provider });
+            if (!outBuf) outBuf = await imageProc.upscale(buffer, factor);
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`, {
+              ...options, latencyMs: Date.now() - actionStartedAt, ...provenance
+            });
+            const modeLabel = provenance.mode === 'basic' ? 'Sharp (Lanczos3 + sharpen)' :
+              provenance.provider === 'runware' ? 'Runware' : provenance.provider === 'comfyui' ? 'ComfyUI' : 'nguồn chưa xác định';
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
               nodeId: savedResult.nodeId,
-              savedPath: savedResult.relativePath
+              savedPath: savedResult.relativePath,
+              message: `Phóng to ${factor}x hoàn tất bằng ${modeLabel}.`
             });
-            vscode.window.showInformationMessage(`✨ Phóng to ${factor}x thành công: ${savedResult.relativePath}`);
+            vscode.window.showInformationMessage(`✨ Phóng to ${factor}x bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'enhance') {
             const type = options?.type || 'clarity';
-            let outBuf: Buffer;
-            let provider = 'sharp';
+            let adapterResult: AIResult | undefined;
             const runwareKey = await this.secretManager.getApiKey();
             if (runwareKey && runwareKey.trim().length > 10) {
               await this.policy.requireCloudConsent('Runware', `Enhance ${type}`);
               try {
                 const adapter = new RunwareAdapter(runwareKey, () => this.secretManager.getApiKey());
-                const res = await adapter.enhanceImage(dataUrl, type);
-                if (res.outputImageUri) {
-                  const b64 = res.outputImageUri.replace(/^data:image\/\w+;base64,/, '');
-                  outBuf = Buffer.from(b64, 'base64');
-                  provider = 'runware';
-                } else {
-                  outBuf = await imageProc.enhance(buffer, type);
-                }
-              } catch {
-                outBuf = await imageProc.enhance(buffer, type);
-              }
-            } else {
-              outBuf = await imageProc.enhance(buffer, type);
+                adapterResult = await adapter.enhanceImage(dataUrl, type);
+              } catch { /* Use local Sharp enhancement below. */ }
             }
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_enhanced_${Date.now()}.png`, { ...options, latencyMs: Date.now() - actionStartedAt, provider });
+            const resolved = await resolveAdapterImageResult(adapterResult, () => imageProc.enhance(buffer, type),
+              `Sharp local enhance (${type})`);
+            const savedResult = await this.saveCanvasAction(target, action, resolved.buffer, `pixel_pilot_enhanced_${Date.now()}.png`,
+              { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
+            const modeLabel = resolved.provenance.provider === 'runware' ? 'Runware' :
+              resolved.provenance.mode === 'basic' ? 'Sharp cơ bản' : 'nguồn chưa xác định';
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
               nodeId: savedResult.nodeId,
-              savedPath: savedResult.relativePath
+              savedPath: savedResult.relativePath,
+              message: `Làm nét ảnh bằng ${modeLabel}.`
             });
-            vscode.window.showInformationMessage(`✨ Khử mờ & Làm nét HDR thành công: ${savedResult.relativePath}`);
+            vscode.window.showInformationMessage(`✨ Làm nét ảnh bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'mask') {
             const maskResult = await new ComfyUIAdapter().extractMask(dataUrl);
-            const provider = maskResult.outputImageUri ? 'comfyui' : 'sharp';
-            const outBuf = maskResult.outputImageUri
-              ? Buffer.from(maskResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
-              : await imageProc.extractMask(buffer);
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_mask_${Date.now()}.png`, { ...options, latencyMs: Date.now() - actionStartedAt, provider });
+            const resolved = await resolveAdapterImageResult(maskResult, () => imageProc.extractMask(buffer), 'Local binary mask (corner-color heuristic)');
+            const savedResult = await this.saveCanvasAction(target, action, resolved.buffer, `pixel_pilot_mask_${Date.now()}.png`,
+              { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
+            const modeLabel = resolved.provenance.mode === 'model' ? 'model ComfyUI' :
+              resolved.provenance.mode === 'basic' ? 'xử lý cơ bản' : 'nguồn chưa xác định';
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
               nodeId: savedResult.nodeId,
-              savedPath: savedResult.relativePath
+              savedPath: savedResult.relativePath,
+              message: `Trích xuất mask bằng ${modeLabel}.`
             });
-            vscode.window.showInformationMessage(`✨ Trích xuất Mask thành công: ${savedResult.relativePath}`);
+            vscode.window.showInformationMessage(`✨ Trích xuất mask bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'canny' || action === 'edgeDetection') {
             const cannyResult = await new ComfyUIAdapter().detectEdges(dataUrl, 'canny');
-            const provider = cannyResult.outputImageUri ? 'comfyui' : 'sharp';
-            const outBuf = cannyResult.outputImageUri
-              ? Buffer.from(cannyResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
-              : await imageProc.detectEdges(buffer, 'canny');
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_canny_${Date.now()}.png`, { ...options, latencyMs: Date.now() - actionStartedAt, provider });
+            const resolved = await resolveAdapterImageResult(cannyResult, () => imageProc.detectEdges(buffer, 'canny'), 'Local Sobel edge detector');
+            const savedResult = await this.saveCanvasAction(target, action, resolved.buffer, `pixel_pilot_canny_${Date.now()}.png`,
+              { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
+            const modeLabel = resolved.provenance.mode === 'model' ? 'ComfyUI Canny' :
+              resolved.provenance.mode === 'basic' ? 'Sobel cơ bản' : 'nguồn chưa xác định';
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
               nodeId: savedResult.nodeId,
-              savedPath: savedResult.relativePath
+              savedPath: savedResult.relativePath,
+              message: `Dò biên bằng ${modeLabel}.`
             });
-            vscode.window.showInformationMessage(`✨ Dò biên Canny thành công: ${savedResult.relativePath}`);
+            vscode.window.showInformationMessage(`✨ Dò biên bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'lineart' || action === 'lineExtraction') {
             const outBuf = await imageProc.detectEdges(buffer, 'lineart');
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_lineart_${Date.now()}.png`, { ...options, latencyMs: Date.now() - actionStartedAt, provider: 'sharp' });
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_lineart_${Date.now()}.png`,
+              { ...options, latencyMs: Date.now() - actionStartedAt, provider: 'sharp', mode: 'basic', model: 'Local Sobel line art' });
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
@@ -723,81 +724,99 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`✨ Trích xuất Lineart thành công: ${savedResult.relativePath}`);
           } else if (action === 'depth') {
             const depthResult = await new ComfyUIAdapter().detectEdges(dataUrl, 'depth');
-            const provider = depthResult.outputImageUri ? 'comfyui' : 'sharp';
-            const outBuf = depthResult.outputImageUri
-              ? Buffer.from(depthResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
-              : await imageProc.detectEdges(buffer, 'depth');
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_depth_${Date.now()}.png`, { ...options, latencyMs: Date.now() - actionStartedAt, provider });
+            const resolved = await resolveAdapterImageResult(depthResult, () => imageProc.detectEdges(buffer, 'depth'), 'Local luminance-based depth approximation');
+            const savedResult = await this.saveCanvasAction(target, action, resolved.buffer, `pixel_pilot_depth_${Date.now()}.png`,
+              { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
+            const modeLabel = resolved.provenance.mode === 'model' ? 'Depth Anything V2' :
+              resolved.provenance.mode === 'basic' ? 'ước lượng độ sáng cơ bản' : 'nguồn chưa xác định';
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
               nodeId: savedResult.nodeId,
-              savedPath: savedResult.relativePath
+              savedPath: savedResult.relativePath,
+              message: `Tạo ảnh độ sâu bằng ${modeLabel}.`
             });
-            vscode.window.showInformationMessage(`✨ Tạo bản đồ độ sâu 3D thành công: ${savedResult.relativePath}`);
+            vscode.window.showInformationMessage(`✨ Tạo ảnh độ sâu bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'extend') {
             const direction = options?.direction || 'all';
             const extendResult = await new ComfyUIAdapter().extendCanvas(dataUrl, direction);
-            const provider = extendResult.outputImageUri ? 'comfyui' : 'sharp';
-            const outBuf = extendResult.outputImageUri
-              ? Buffer.from(extendResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
-              : await imageProc.extendCanvas(buffer, direction);
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_extended_${Date.now()}.png`, { ...options, latencyMs: Date.now() - actionStartedAt, provider });
+            const resolved = await resolveAdapterImageResult(extendResult, () => imageProc.extendCanvas(buffer, direction), 'Local canvas expansion (solid border)');
+            const savedResult = await this.saveCanvasAction(target, action, resolved.buffer, `pixel_pilot_extended_${Date.now()}.png`,
+              { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
+            const modeLabel = resolved.provenance.mode === 'model' ? 'model ComfyUI' :
+              resolved.provenance.mode === 'basic' ? 'viền màu cơ bản' : 'nguồn chưa xác định';
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
               nodeId: savedResult.nodeId,
-              savedPath: savedResult.relativePath
+              savedPath: savedResult.relativePath,
+              message: `Mở rộng khung bằng ${modeLabel}.`
             });
-            vscode.window.showInformationMessage(`✨ Mở rộng khung hình thành công: ${savedResult.relativePath}`);
+            vscode.window.showInformationMessage(`✨ Mở rộng khung bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'caption') {
             const captionResult = await new ComfyUIAdapter().generateCaption(dataUrl);
             const captionText = captionResult.textResult || await imageProc.generateCaption(buffer);
-            vscode.window.showInformationMessage(`📝 AI Caption: ${captionText}`);
-            this.recordCanvasCaption(target, captionText);
-            this.postToWebview({ command: 'actionComplete', sessionId: target.sessionId, nodeId: target.parentId });
+            const isModelCaption = Boolean(captionResult.textResult && /^Florence-2\b/.test(captionResult.metrics.model));
+            const captionMode = isModelCaption ? 'Florence-2' : 'metadata ảnh cục bộ';
+            const captionMetrics: NodeMetrics = {
+              model: isModelCaption ? captionResult.metrics.model : 'Local image metadata description (Sharp; no visual understanding)',
+              latencyMs: Date.now() - actionStartedAt, costUsd: 0, costStatus: 'estimated'
+            };
+            this.recordCanvasCaption(target, captionText, captionMetrics);
+            this.postToWebview({ command: 'actionComplete', sessionId: target.sessionId, nodeId: target.parentId,
+              message: `Mô tả ảnh bằng ${captionMode}.` });
+            vscode.window.showInformationMessage(`📝 Mô tả bằng ${captionMode}: ${captionText}`);
           } else if (action === 'recolor') {
             const subject = options?.subject || 'hair';
             const color = options?.color || 'cyan';
             const outBuf = await imageProc.recolor(buffer, subject, color);
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_recolor_${Date.now()}.png`, { ...options, latencyMs: Date.now() - actionStartedAt, provider: 'sharp' });
+            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_recolor_${Date.now()}.png`, {
+              ...options, latencyMs: Date.now() - actionStartedAt, provider: 'local-hybrid', mode: 'model',
+              model: 'Python ONNX selective mask + ComfyUI foreground + Sharp recolor', costUsd: 0, costStatus: 'estimated'
+            });
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
               nodeId: savedResult.nodeId,
-              savedPath: savedResult.relativePath
+              savedPath: savedResult.relativePath,
+              message: 'Đổi màu chọn lọc bằng ONNX, ComfyUI và Sharp.'
             });
             vscode.window.showInformationMessage(`✨ Đổi màu ${subject} (${color}) thành công: ${savedResult.relativePath}`);
           } else if (action === 'styleTransfer') {
             const style = options?.style || 'anime';
             const styleResult = await new ComfyUIAdapter().styleTransfer(dataUrl, style);
-            const provider = styleResult.outputImageUri ? 'comfyui' : 'sharp';
-            const outBuf = styleResult.outputImageUri
-              ? Buffer.from(styleResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
-              : await imageProc.styleTransfer(buffer, style);
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_style_${style}_${Date.now()}.png`, { ...options, latencyMs: Date.now() - actionStartedAt, provider });
+            const resolved = await resolveAdapterImageResult(styleResult, () => imageProc.styleTransfer(buffer, style), `Local style filter (${style})`);
+            const savedResult = await this.saveCanvasAction(target, action, resolved.buffer, `pixel_pilot_style_${style}_${Date.now()}.png`,
+              { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
+            const modeLabel = resolved.provenance.mode === 'model' ? 'model ComfyUI' :
+              resolved.provenance.mode === 'basic' ? 'bộ lọc cục bộ' : 'nguồn chưa xác định';
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
               nodeId: savedResult.nodeId,
-              savedPath: savedResult.relativePath
+              savedPath: savedResult.relativePath,
+              message: `Chuyển phong cách bằng ${modeLabel}.`
             });
-            vscode.window.showInformationMessage(`✨ Chuyển phong cách ${style} thành công: ${savedResult.relativePath}`);
+            vscode.window.showInformationMessage(`✨ Chuyển phong cách ${style} bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'vectorize') {
             const { svgString, previewBuffer } = await imageProc.vectorize(buffer);
-            const savedResult = await this.saveCanvasAction(target, action, Buffer.from(svgString, 'utf-8'), `pixel_pilot_vector_${Date.now()}.svg`, { ...options, latencyMs: Date.now() - actionStartedAt, provider: 'sharp' }, previewBuffer);
+            const savedResult = await this.saveCanvasAction(target, action, Buffer.from(svgString, 'utf-8'), `pixel_pilot_vector_${Date.now()}.svg`, {
+              ...options, latencyMs: Date.now() - actionStartedAt, provider: 'sharp', mode: 'basic',
+              model: 'Local 48x64 color-quantized SVG tracer (Sharp)', costUsd: 0, costStatus: 'estimated'
+            }, previewBuffer);
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
               nodeId: savedResult.nodeId,
-              savedPath: savedResult.relativePath
+              savedPath: savedResult.relativePath,
+              message: 'SVG đã tạo bằng phương pháp lượng tử hóa ảnh cục bộ.'
             });
-            vscode.window.showInformationMessage(`✨ Vector hóa SVG thành công: ${savedResult.relativePath}`);
+            vscode.window.showInformationMessage(`✨ SVG lượng tử hóa ảnh cục bộ: ${savedResult.relativePath}`);
           } else if (action === 'inpaint') {
             let maskBuffer: Buffer | undefined;
             if (options?.maskDataUrl) {
@@ -807,19 +826,20 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const inpaintResult = maskBuffer
               ? await new ComfyUIAdapter().inpaint(dataUrl, options.maskDataUrl, options?.prompt || 'natural detailed restoration matching the surrounding image')
               : undefined;
-            const provider = inpaintResult?.outputImageUri ? 'comfyui' : 'sharp';
-            const outBuf = inpaintResult?.outputImageUri
-              ? Buffer.from(inpaintResult.outputImageUri.replace(/^data:image\/\w+;base64,/, ''), 'base64')
-              : await imageProc.inpaint(buffer, maskBuffer);
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_inpaint_${Date.now()}.png`, { ...options, latencyMs: Date.now() - actionStartedAt, provider });
+            const resolved = await resolveAdapterImageResult(inpaintResult, () => imageProc.inpaint(buffer, maskBuffer), 'Local Content-Aware Inpainting');
+            const savedResult = await this.saveCanvasAction(target, action, resolved.buffer, `pixel_pilot_inpaint_${Date.now()}.png`,
+              { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
+            const modeLabel = resolved.provenance.mode === 'model' ? 'model ComfyUI' :
+              resolved.provenance.mode === 'basic' ? 'điền vùng cơ bản' : 'nguồn chưa xác định';
             this.postToWebview({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
               nodeId: savedResult.nodeId,
-              savedPath: savedResult.relativePath
+              savedPath: savedResult.relativePath,
+              message: `Inpaint hoàn tất bằng ${modeLabel}.`
             });
-            vscode.window.showInformationMessage(`✨ Inpaint & Tẩy vật thể hoàn tất: ${savedResult.relativePath}`);
+            vscode.window.showInformationMessage(`✨ Inpaint bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'imageToCode') {
             const codeGen = CodeGenService.getInstance();
             const codeRes = await codeGen.generateCodeFromImage({

@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { randomUUID } from 'crypto';
 import { IAIProvider } from '../ai/IAIProvider';
+import { backgroundRemovalProvenance } from '../ai/BackgroundRemovalProvenance';
 import { OperationType } from '../session/types';
 
 export interface BatchItemResult {
@@ -12,6 +13,9 @@ export interface BatchItemResult {
   success: boolean;
   error?: string;
   latencyMs: number;
+  provider?: string;
+  mode?: 'model' | 'basic' | 'unknown';
+  model?: string;
 }
 
 export interface BatchSummary {
@@ -135,6 +139,7 @@ export class BatchProcessor {
 
             let outBuffer: Buffer | null = null;
             let outExt = 'png';
+            let provenance: Pick<BatchItemResult, 'provider' | 'mode' | 'model'> = {};
 
             switch (operation) {
               case 'remove_background': {
@@ -142,6 +147,8 @@ export class BatchProcessor {
                 if (res.success && res.outputImageUri) {
                   outBuffer = this.extractBuffer(res.outputImageUri);
                   outExt = 'png';
+                  const invokedProvider = /^Runware\b/i.test(this.aiProvider.name) ? 'runware' : 'comfyui';
+                  provenance = backgroundRemovalProvenance(res, invokedProvider);
                 } else {
                   throw new Error(res.error || 'Lỗi tách nền');
                 }
@@ -154,6 +161,7 @@ export class BatchProcessor {
                   const svgData = res.textResult || (this.extractBuffer(res.outputImageUri!)?.toString('utf-8') || '');
                   outBuffer = Buffer.from(svgData, 'utf-8');
                   outExt = 'svg';
+                  provenance.model = res.metrics?.model;
                 } else {
                   throw new Error(res.error || 'Lỗi Vectorize');
                 }
@@ -165,6 +173,12 @@ export class BatchProcessor {
                 if (res.success && res.outputImageUri) {
                   outBuffer = this.extractBuffer(res.outputImageUri);
                   outExt = 'png';
+                  const model = res.metrics?.model;
+                  const isComfyModel = Boolean(model && /^ComfyUI\b/i.test(model));
+                  const isSharpBasic = Boolean(model && /^Sharp Lanczos3 \+ sharpen upscale\b/i.test(model));
+                  provenance = { model,
+                    provider: isSharpBasic ? 'sharp' : isComfyModel ? 'comfyui' : /^Runware\b/i.test(this.aiProvider.name) ? 'runware' : 'unknown',
+                    mode: isSharpBasic ? 'basic' : isComfyModel || /^Runware\b/i.test(this.aiProvider.name) ? 'model' : 'unknown' };
                 } else {
                   throw new Error(res.error || 'Lỗi Upscale');
                 }
@@ -186,7 +200,8 @@ export class BatchProcessor {
                 filePath: imgUri.fsPath,
                 outputPath: outFilePath,
                 success: true,
-                latencyMs: Date.now() - itemStart
+                latencyMs: Date.now() - itemStart,
+                ...provenance
               });
               try { await persistManifest(); } catch (error: any) { manifestError = error?.message || String(error); }
             }

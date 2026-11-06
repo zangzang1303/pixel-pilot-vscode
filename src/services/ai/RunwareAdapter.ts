@@ -239,6 +239,7 @@ export class RunwareAdapter implements IAIProvider {
    * 2. Upscale (2x / 4x Super-Resolution)
    */
   public async upscale(imageInput: string, factor: 2 | 4): Promise<AIResult> {
+    const startedAt = Date.now();
     try {
       const img = this.normalizeImageInput(imageInput);
       const taskUUID = crypto.randomUUID();
@@ -279,9 +280,10 @@ export class RunwareAdapter implements IAIProvider {
             success: true,
             outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
             metrics: {
-              model: `Super-Resolution ${factor}x (Lanczos3 + CAS Sharpness)`,
-              latencyMs: 50,
-              costUsd: 0
+              model: `Sharp Lanczos3 + sharpen upscale ${factor}x`,
+              latencyMs: Date.now() - startedAt,
+              costUsd: 0,
+              costStatus: 'estimated'
             }
           };
         } catch {}
@@ -469,9 +471,11 @@ export class RunwareAdapter implements IAIProvider {
           success: true,
           outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
           metrics: {
-            model: `Local ControlNet Preprocessor (${method.toUpperCase()})`,
+            model: method === 'depth' ? 'Local luminance-based depth approximation'
+              : method === 'lineart' ? 'Local Sobel line art' : 'Local Sobel edge detector',
             latencyMs: 35,
-            costUsd: 0
+            costUsd: 0,
+            costStatus: 'estimated'
           }
         };
       } catch {}
@@ -664,9 +668,10 @@ export class RunwareAdapter implements IAIProvider {
             success: true,
             outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
             metrics: {
-              model: `Style Transfer (${style.toUpperCase()} - Local Precision)`,
+              model: `Local style filter (${style})`,
               latencyMs: 45,
-              costUsd: 0
+              costUsd: 0,
+              costStatus: 'estimated'
             }
           };
         } catch {}
@@ -683,6 +688,7 @@ export class RunwareAdapter implements IAIProvider {
    * 11. AI Image Enhancement & Color Grade
    */
   public async enhanceImage(imageInput: string, type: 'clarity' | 'hdr' | 'face_restore' | 'vintage' = 'clarity'): Promise<AIResult> {
+    const startedAt = Date.now();
     const enhancePrompts: Record<string, string> = {
       clarity: 'ultra sharp detail, 8k uhd, crystal clear focus, high fidelity, deblur',
       hdr: 'high dynamic range HDR lighting, vibrant cinematic color grading, balanced shadows, vivid highlights',
@@ -732,9 +738,10 @@ export class RunwareAdapter implements IAIProvider {
             success: true,
             outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
             metrics: {
-              model: `HDR Clarity & Contrast (${type.toUpperCase()} Remaster)`,
-              latencyMs: 40,
-              costUsd: 0
+              model: `Sharp local enhance (${type})`,
+              latencyMs: Date.now() - startedAt,
+              costUsd: 0,
+              costStatus: 'estimated'
             }
           };
         } catch {}

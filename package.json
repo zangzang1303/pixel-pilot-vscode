@@ -84,7 +84,7 @@
       },
       {
         "command": "pixelPilot.removeBackground",
-        "title": "Pixel Pilot: Remove Background (BiRefNet)",
+        "title": "Pixel Pilot: Remove Background",
         "category": "Pixel Pilot"
       },
       {

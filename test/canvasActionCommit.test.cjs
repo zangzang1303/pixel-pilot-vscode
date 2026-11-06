@@ -80,9 +80,11 @@ test('late caption attaches to the pinned image without creating an edit', () =>
   }));
   const target = service.capture();
   const second = sessions.createSession('second.png');
-  const caption = service.recordCaption(target, 'A sample image');
+  const metrics = { model: 'Local image metadata description (Sharp; no visual understanding)', latencyMs: 12, costUsd: 0, costStatus: 'estimated' };
+  const caption = service.recordCaption(target, 'A sample image', metrics);
   assert.equal(caption.nodeId, first.rootNodeId);
   assert.equal(sessions.getSession(first.sessionId).messages.at(-1).text, 'A sample image');
+  assert.deepEqual(sessions.getSession(first.sessionId).messages.at(-1).metrics, metrics);
   assert.equal(sessions.getSession(second.sessionId).messages.length, 1);
   assert.deepEqual(Object.keys(sessions.getSession(first.sessionId).nodes), [first.rootNodeId]);
 });

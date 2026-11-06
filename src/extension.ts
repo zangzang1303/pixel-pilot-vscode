@@ -274,8 +274,8 @@ export function activate(context: vscode.ExtensionContext) {
       const choice = await vscode.window.showQuickPick(
         [
           {
-            label: '✂️ Tách nền 1-Click (Remove Background - BiRefNet)',
-            description: 'Tách nền trong suốt chất lượng cao cho toàn bộ ảnh',
+            label: '✂️ Tách nền hàng loạt',
+            description: 'Dùng model nếu sẵn có; nếu không, dùng tách nền cơ bản',
             op: 'remove_background' as OperationType
           },
           {
@@ -284,8 +284,8 @@ export function activate(context: vscode.ExtensionContext) {
             op: 'vectorize' as OperationType
           },
           {
-            label: '⚡ Upscale 2x Siêu nét (Upscale 2x)',
-            description: 'Tăng gấp đôi độ phân giải bằng mô hình Super-Resolution',
+            label: '⚡ Phóng to ảnh 2x',
+            description: 'Dùng model nếu sẵn có; nếu không, dùng Sharp Lanczos3 + sharpen',
             op: 'upscale' as OperationType
           }
         ],
@@ -300,7 +300,9 @@ export function activate(context: vscode.ExtensionContext) {
 
       // 4. Configure Provider
       let runwareBatch = false;
-      if (!isComfyOnline) {
+      const comfyReadyForOperation = isComfyOnline &&
+        (choice.op !== 'remove_background' || Boolean(await comfy.getAvailableRmbgNode()));
+      if (!comfyReadyForOperation) {
         const key = await provider.getSecretManager().getApiKey();
         if (key && key.trim().length > 10) {
           provider.getRunwareAdapter().setApiKey(key);
@@ -330,8 +332,10 @@ export function activate(context: vscode.ExtensionContext) {
 
       // 6. Report
       const batchActions = summary.failed > 0 ? ['Retry failed', 'Open output folder'] : ['Open output folder'];
+      const basicCount = summary.results.filter(result => result.success && result.mode === 'basic').length;
+      const modeSummary = choice.op === 'remove_background' ? ` ${basicCount} ảnh dùng tách nền cơ bản.` : '';
       const action = await vscode.window.showInformationMessage(
-        `Batch complete: ${summary.succeeded}/${summary.total} succeeded (${(summary.totalTimeMs / 1000).toFixed(1)}s). Manifest: ${summary.manifestPath}${summary.manifestError ? ` (manifest update warning: ${summary.manifestError})` : ''}`,
+        `Batch complete: ${summary.succeeded}/${summary.total} succeeded (${(summary.totalTimeMs / 1000).toFixed(1)}s).${modeSummary} Manifest: ${summary.manifestPath}${summary.manifestError ? ` (manifest update warning: ${summary.manifestError})` : ''}`,
         ...batchActions
       );
 
@@ -369,7 +373,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('pixelPilot.removeBackground', async (uri?: vscode.Uri) => {
       await vscode.commands.executeCommand('workbench.view.extension.pixel-pilot');
       if (uri) {
-        await provider.loadFileAndExecute(uri.fsPath, 'remove_background', 'Tách nền 1-Click (BiRefNet SOTA)');
+        await provider.loadFileAndExecute(uri.fsPath, 'remove_background', 'Tách nền');
       }
     })
   );
@@ -390,7 +394,7 @@ export function activate(context: vscode.ExtensionContext) {
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: `Pixel Pilot: Upscaling "${path.basename(uri.fsPath)}" (2x Lanczos3 Super-Resolution)...`,
+          title: `Pixel Pilot: Upscaling "${path.basename(uri.fsPath)}" (2x Sharp Lanczos3)...`,
           cancellable: false
         },
         async () => {

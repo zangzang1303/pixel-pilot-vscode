@@ -1,6 +1,6 @@
 import { SessionManager } from './SessionManager';
 import { SessionCommitService } from './SessionCommitService';
-import { OperationType } from './types';
+import { NodeMetrics, OperationType } from './types';
 
 export interface CanvasActionTarget {
   sessionId: string;
@@ -69,13 +69,13 @@ export class CanvasActionCommitService {
     });
   }
 
-  public recordCaption(target: CanvasActionTarget, caption: string) {
+  public recordCaption(target: CanvasActionTarget, caption: string, metrics?: NodeMetrics) {
     if (!caption.trim()) throw new Error('Caption is empty.');
     if (!this.sessions.getSession(target.sessionId)?.nodes[target.parentId]) {
       throw new Error('The target session or image no longer exists.');
     }
     return this.sessions.addMessage(target.sessionId, {
-      sender: 'assistant', text: caption, nodeId: target.parentId, operation: 'caption'
+      sender: 'assistant', text: caption, nodeId: target.parentId, operation: 'caption', metrics
     });
   }
 }
