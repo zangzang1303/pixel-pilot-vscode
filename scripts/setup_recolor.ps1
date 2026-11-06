@@ -1,13 +1,8 @@
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $runtimeDir = Join-Path $projectRoot '.pixelpilot_runtime'
-$pythonCandidates = if ($env:PIXEL_PILOT_PYTHON) {
-    @($env:PIXEL_PILOT_PYTHON)
-} else {
-    @('C:\AI\ComfyUI\.venv\Scripts\python.exe', 'D:\ComfyUI_windows_portable\python_embeded\python.exe')
-}
-$python = $pythonCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-if (-not $python) { throw 'ComfyUI Python was not found. Set PIXEL_PILOT_PYTHON to the correct python.exe.' }
+$python = $env:PIXEL_PILOT_PYTHON
+if (-not $python -or -not (Test-Path -LiteralPath $python)) { throw 'Set PIXEL_PILOT_PYTHON to the correct python.exe before setting up recolor.' }
 New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
 
 if (-not (Test-Path -LiteralPath (Join-Path $runtimeDir 'onnxruntime\__init__.py'))) {

@@ -178,23 +178,52 @@ export class ComfyUIAdapter implements IAIProvider {
    * Dynamically query ComfyUI for background removal node class
    */
   public async getAvailableRmbgNode(): Promise<string | null> {
+    const status = await this.getRmbgSetupStatus();
+    return status.node === 'RemoveBackground' && status.model !== 'available' ? null : status.node;
+  }
+
+  private getRmbgModelNames(data: any): string[] | null {
+    const input = data?.LoadBackgroundRemovalModel?.input?.required?.bg_removal_name;
+    const choices = Array.isArray(input?.[0]) ? input[0] : input?.[1]?.options;
+    return Array.isArray(choices) ? choices.filter((name: unknown): name is string => typeof name === 'string' && name.trim().length > 0) : null;
+  }
+
+  /** A node can be installed while its selectable foreground model is missing. */
+  public async getRmbgSetupStatus(): Promise<{
+    node: string | null;
+    model: 'available' | 'missing' | 'unknown';
+    modelName?: string;
+    modelIssue?: string;
+    error?: string;
+  }> {
     try {
       const res = await fetch(`${this.baseUrl}/object_info`, {
         signal: AbortSignal.timeout(2000)
       });
-      if (res.ok) {
-        const data = (await res.json()) as any;
-        const nativeModels = data?.LoadBackgroundRemovalModel?.input?.required?.bg_removal_name?.[1]?.options;
-        if (data?.RemoveBackground && Array.isArray(nativeModels) && nativeModels.length > 0) {
-          return 'RemoveBackground';
+      if (!res.ok) return { node: null, model: 'unknown', error: `ComfyUI object_info HTTP ${res.status}.` };
+      const data = (await res.json()) as any;
+      if (data?.RemoveBackground) {
+        if (!data.LoadBackgroundRemovalModel) {
+          return { node: 'RemoveBackground', model: 'missing', modelIssue: 'Thiếu node LoadBackgroundRemovalModel.' };
         }
-        if (data?.ImageRemBg) return 'ImageRemBg';
-        if (data?.BRNet) return 'BRNet';
-        if (data?.BiRefNet) return 'BiRefNet';
-        if (data?.RMBG) return 'RMBG';
+        const models = this.getRmbgModelNames(data);
+        if (models?.length) {
+          return {
+            node: 'RemoveBackground', model: 'available',
+            modelName: models.find(name => /birefnet/i.test(name)) || models[0]
+          };
+        }
+        return models === null
+          ? { node: 'RemoveBackground', model: 'unknown' }
+          : { node: 'RemoveBackground', model: 'missing', modelIssue: 'Danh sách foreground model rỗng.' };
       }
-    } catch {}
-    return null;
+      for (const node of ['ImageRemBg', 'BRNet', 'BiRefNet', 'RMBG']) {
+        if (data?.[node]) return { node, model: 'unknown' };
+      }
+      return { node: null, model: 'unknown' };
+    } catch (error: any) {
+      return { node: null, model: 'unknown', error: error?.message || String(error) };
+    }
   }
 
   /**
@@ -231,7 +260,7 @@ export class ComfyUIAdapter implements IAIProvider {
         const modelInfo = await fetch(`${this.baseUrl}/object_info/LoadBackgroundRemovalModel`);
         if (!modelInfo.ok) throw new Error('Cannot query background removal models');
         const modelData = (await modelInfo.json()) as any;
-        const models = modelData?.LoadBackgroundRemovalModel?.input?.required?.bg_removal_name?.[1]?.options;
+        const models = this.getRmbgModelNames(modelData);
         const modelName = models?.find((name: string) => /birefnet/i.test(name)) || models?.[0];
         if (!modelName) throw new Error('No background removal model installed');
 
@@ -404,7 +433,7 @@ export class ComfyUIAdapter implements IAIProvider {
       try {
         if (await this.getAvailableRmbgNode() === 'RemoveBackground') {
           const modelInfo = await fetch(`${this.baseUrl}/object_info/LoadBackgroundRemovalModel`);
-          const models = (await modelInfo.json() as any)?.LoadBackgroundRemovalModel?.input?.required?.bg_removal_name?.[1]?.options;
+          const models = this.getRmbgModelNames(await modelInfo.json());
           const modelName = models?.find((name: string) => /birefnet/i.test(name)) || models?.[0];
           if (modelName) {
             const upload = await this.uploadImage(buf);

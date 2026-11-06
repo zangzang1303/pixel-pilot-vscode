@@ -19,6 +19,7 @@ Trạng thái tại lúc bắt đầu triển khai theo kế hoạch beta. “C�
 | Image-to-code | CodeGenService/LLM tùy cấu hình | Cloud/local model tùy provider | LLM key/model hoặc local runtime | Partial; safety/build-quality chưa accepted | T20, release scope decision |
 | Batch | BatchProcessor gọi IAIProvider | Batch hiện chọn ComfyUI hoặc Runware ở extension command; một số action có fallback | Workspace trust; consent/offline nếu Runware; file output | Trust recheck trước provider/write, cloud consent, cancel boundary, collision-safe output, per-run JSON manifest và retry-failed API đã code/test; 10-image/provider UI acceptance chưa chạy | T02/T15 (code slice), T20 |
 | Copilot tools/plans | AgentToolRegistry, CopilotOrchestrator, planners | Core v2 và các ingress legacy chưa hoàn toàn thống nhất | Runtime/provider từng tool | Core code + fixtures; không suy ra UI/provider pass | T06–T12, T20 |
+| Setup Doctor | Extension command | Kiểm tra riêng dependencies của Sharp, ComfyUI, recolor, InvokeAI hoặc Runware key; phân biệt node/loader/model ComfyUI và hash ONNX; không gọi cloud | Chỉ dependencies của task được chọn | Implemented; probe fixture 5/5 và lint/type-check pass, Extension Host/runtime acceptance chưa chạy | T22 |
 
 ## Quy tắc cập nhật
 

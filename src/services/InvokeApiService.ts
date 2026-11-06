@@ -130,15 +130,15 @@ export class InvokeApiService {
   /**
    * Fetch available models from InvokeAI (SD 1.5, SDXL, Flux, etc.)
    */
-  public async getModels(): Promise<InvokeModel[]> {
+  public async getModels(timeout = 120000): Promise<InvokeModel[]> {
     try {
       // InvokeAI v2/v3/v4 models endpoints
       let modelsData: any = null;
       try {
-        const res = await this.client.get('/api/v2/models/?model_type=main');
+        const res = await this.client.get('/api/v2/models/?model_type=main', { timeout });
         modelsData = res.data;
       } catch {
-        const res = await this.client.get('/api/v1/models/');
+        const res = await this.client.get('/api/v1/models/', { timeout });
         modelsData = res.data;
       }
 
@@ -147,7 +147,7 @@ export class InvokeApiService {
       // picker so generation cannot be queued with a known-broken model.
       const missingKeys = new Set<string>();
       try {
-        const missingResponse = await this.client.get('/api/v2/models/missing');
+        const missingResponse = await this.client.get('/api/v2/models/missing', { timeout: Math.min(timeout, 3000) });
         const missingList = Array.isArray(missingResponse.data)
           ? missingResponse.data
           : missingResponse.data?.models;

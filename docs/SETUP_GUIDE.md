@@ -39,7 +39,9 @@ Khởi động InvokeAI cục bộ, cấu hình `pixelPilot.invokeAIServerUrl` n
 
 ### Recolor chọn lọc
 
-Đường chạy semantic recolor cần Python với NumPy/Pillow/ONNX Runtime, `selfie_multiclass.onnx` và ComfyUI có `RemoveBackground` cùng foreground model phù hợp (kiểm tra qua `/object_info`). Trên máy phát triển Windows, `scripts/setup_recolor.ps1` thiết lập model ONNX và xác minh SHA-256; nếu ComfyUI venv thiếu pip, script dùng Python hệ thống khi cùng phiên bản ABI để cài wheel vào `.pixelpilot_runtime`, rồi xác minh import bằng ComfyUI Python. Script có thể tải/cài dependency, nên chỉ chạy khi bạn muốn thiết lập tính năng này. Đặt `PIXEL_PILOT_PYTHON` tới đúng `python.exe` trước khi chạy. VSIX không đóng gói model hay Python. Khi thiếu prerequisite, recolor phải báo không khả dụng, không trả ảnh gốc như kết quả thành công.
+Chạy **Pixel Pilot: Chẩn đoán cấu hình theo tác vụ** từ Command Palette để kiểm tra đúng các phụ thuộc cần cho một tác vụ. Chẩn đoán chỉ kết nối server local khi bạn chọn tác vụ tương ứng; lựa chọn Runware chỉ kiểm tra key trong SecretStorage và không gửi request cloud.
+
+Đường semantic recolor cần Python với ONNX Runtime, `selfie_multiclass.onnx` và ComfyUI có node/model tách nền phù hợp. Cấu hình `pixelPilot.recolorPythonPath` tới đúng `python.exe` (hoặc đặt `PIXEL_PILOT_PYTHON`). Sau khi xác minh nguồn model, chạy trong PowerShell: `$env:PIXEL_PILOT_PYTHON = 'C:\duong-dan\python.exe'; .\scripts\setup_recolor.ps1`. Script có thể tải model và cài dependency; VSIX không đóng gói Python hay model. Doctor kiểm tra SHA-256 của ONNX model, phân biệt node ComfyUI thiếu với node đã cài nhưng danh sách model rỗng. Với custom node không công bố model qua API, doctor báo *UNVERIFIED*; smoke provider mới xác nhận toàn bộ đường chạy.
 
 ## 4. Kiểm thử package
 
@@ -58,7 +60,7 @@ Install smoke kiểm tra VSIX trong profile cô lập trên máy hiện tại, g
 | Webview không hiện | Chạy `npm.cmd run build`, reload Extension Development Host, xem Output/Developer Tools. |
 | Tool AI báo unavailable | Kiểm tra server, model/custom node, offline mode và capability của chính tool. |
 | Cloud bị từ chối | Kiểm tra Workspace Trust, consent, key trong SecretStorage và kết nối provider. |
-| Recolor báo thiếu model | Xác minh `PIXEL_PILOT_PYTHON`, `.pixelpilot_runtime/selfie_multiclass.onnx` và ComfyUI foreground model. |
+| Recolor báo thiếu model | Chạy Setup Doctor cho recolor; xác minh `pixelPilot.recolorPythonPath`, `.pixelpilot_runtime/selfie_multiclass.onnx` và ComfyUI foreground model. |
 | Provider trả lỗi/hết credit | Kiểm tra thông báo lỗi và tài khoản provider; không coi ảnh gốc hoặc placeholder là kết quả đã chỉnh sửa. |
 
 Trạng thái đã xác minh và giới hạn hiện tại: [COPILOT_IMPLEMENTATION_PROGRESS.md](COPILOT_IMPLEMENTATION_PROGRESS.md).

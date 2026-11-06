@@ -2,6 +2,10 @@
 
 Ngày lập: 05/11/2026. Phiên bản kế hoạch: 1.0.
 
+### Cập nhật thực hiện — 06/11/2026
+
+Đã có lát cắt triển khai T21 (runner và baseline local bước đầu; cần lặp lại phép đo ổn định trước tối ưu) và T22 (Setup Doctor, chưa có nghiệm thu tương tác). T23 có VSIX candidate qua build/kiểm tra cấu trúc nhưng chưa qua cài đặt, update/migration hoặc VM sạch. T24, kiểm thử chất lượng bằng bộ ảnh có quyền và đánh giá người dùng vẫn đang mở; chưa đạt mục tiêu final.
+
 ## 1. Đích cuối cùng
 
 **Final là bản phát hành ổn định có thể cài đặt, sử dụng, nâng cấp và bàn giao**, với đầy đủ các nhóm chức năng đã chốt trong tài liệu này, kết quả kiểm chứng tái lập và quy trình bảo trì sau phát hành.

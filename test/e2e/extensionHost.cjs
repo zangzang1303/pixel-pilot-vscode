@@ -14,7 +14,8 @@ async function run() {
     'pixelPilot.openSidebar',
     'pixel-pilot.upscaleImage',
     'pixelPilot.removeBackground',
-    'pixelPilot.clearApiKey'
+    'pixelPilot.clearApiKey',
+    'pixelPilot.diagnoseSetup'
   ]) {
     assert.ok(registered.has(command), `Expected command to be registered: ${command}`);
   }
@@ -39,6 +40,11 @@ async function run() {
   await vscode.commands.executeCommand('pixelPilot.removeBackground');
   await vscode.commands.executeCommand('pixelPilot.vectorizeImage');
   await vscode.commands.executeCommand('pixel-pilot.upscaleImage');
+
+  // A task ID runs only that diagnostic and returns the same report shown to users.
+  // Sharp is local and needs no provider or credential in this isolated profile.
+  const setupReport = await vscode.commands.executeCommand('pixelPilot.diagnoseSetup', 'sharp');
+  assert.match(setupReport, /\[PASS\] Sharp/);
 }
 
 module.exports = { run };

@@ -9,6 +9,7 @@ Tài liệu này mô tả kịch bản demo **có điều kiện**. Không trìn
 3. Chạy `npm.cmd run check` và `npm.cmd run package:vsix:install-smoke`. Kiểm tra từng provider/model thực tế sẽ dùng, gồm capability theo tool.
 4. Nếu demo cloud, chủ sở hữu key tự cấu hình trong SecretStorage và chấp thuận gửi dữ liệu/chi phí. Không ghi key lên màn hình, slide hoặc log.
 5. Chuẩn bị một lượt offline/no-model để cho thấy trạng thái *unavailable* có lý do. Fixture/mock chỉ được giới thiệu là mô phỏng.
+6. Dùng lệnh **Pixel Pilot: Chẩn đoán cấu hình theo tác vụ** để kiểm tra riêng tác vụ/provider sẽ trình bày; lưu nội dung Output `Pixel Pilot Setup Doctor` cùng ghi chú môi trường. Lệnh không gọi dịch vụ cloud.
 
 ## Kịch bản 3–5 phút
 

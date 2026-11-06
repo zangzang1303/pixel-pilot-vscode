@@ -224,3 +224,28 @@ Working-tree checks after T01?T07 slices and FLUX preview apply/discard wiring:
 - `test/e2e/extensionHost.cjs` now asserts a visible `Pixel Pilot - AI Studio` tab after opening Studio. On Windows development workspace, VS Code 1.85.2, Node 22.11.0, `PIXEL_PILOT_E2E_DISABLE_ELECTRON_SANDBOX=1 npm.cmd run test:e2e` PASS; activation, command registration, visible Studio tab, and no-image command handling all completed in an isolated profile. `npm.cmd run lint` PASS; `npm.cmd run check` PASS, 145/145.
 - The default Electron sandbox run remains blocked before extension assertions: Windows denies sandbox setup for the E2E profile Cache/Network directories and renderer exits 49. The diagnostic flag disables the Electron sandbox and GPU for this test process only; it does not count as standard-sandbox or clean-VM acceptance. No provider was called.
 - This still is not UI critical-flow E2E: Canvas input, mask/box coordinates, preview/apply/discard, cancellation, session/rollback, and export require interactive acceptance. No release candidate hash is associated with this test-only change.
+
+
+### T22 Setup Doctor implementation slice — 06/11/2026
+
+- Added the `Pixel Pilot: Chẩn đoán cấu hình theo tác vụ` command for Sharp, ComfyUI background removal, selective recolor, InvokeAI generation, and Runware key presence. It checks only selected task dependencies; Runware diagnostics read SecretStorage without sending a cloud request or displaying the key.
+- Added `pixelPilot.recolorPythonPath` and removed machine-specific Python paths from the runtime and setup script. The recolor diagnostic checks Python/ONNX Runtime, script/model files, ComfyUI reachability, and supported background-removal node presence.
+- The ComfyUI probe now reports node, model loader, and foreground model separately. It recognizes both supported model-choice metadata shapes; a custom node without exposed choices is marked `UNVERIFIED`. The doctor verifies the pinned ONNX model SHA-256 and checks the Python runtime asynchronously. `test/comfyRmbgSetup.test.cjs` PASS 5/5, `test/providerCatalog.test.cjs` PASS 5/5; `npm.cmd run lint` PASS. No live provider was called.
+- The Extension Host smoke was prepared to invoke the Sharp doctor task and inspect its report, but did not reach extension assertions: the runner needs VS Code 1.85.2 and its download failed with network `EACCES`. Automatic approval review rejected a network-enabled E2E rerun because testing and downloading VS Code had not been explicitly requested. No test pass or VSIX hash is claimed from this attempt.
+- T22 remains partial: interactive task-by-task acceptance on configured and missing-dependency environments is outstanding; metadata does not prove foreground-model output quality. T23 clean Windows VM, T24 pilot, licensed quality dataset/ratings, and interactive UI acceptance also remain open.
+
+
+### T21 local performance benchmark — 06/11/2026
+
+- Added `scripts/benchmark-performance.cjs` and `npm.cmd run benchmark:performance`. It measures a deterministic 3840×2160 Sharp pipeline, ArtifactStore write/dedup/read, and 100 persisted SessionManager operation nodes plus reload. Reports include latency p50/p95, RSS samples, disk usage, runtime/CPU details, and input/output hashes; output reports are unique and Git-ignored by default.
+- Added run instructions in [`benchmark/PERFORMANCE_BENCHMARK.md`](../benchmark/PERFORMANCE_BENCHMARK.md). The benchmark command compiles the extension and does not call an AI provider.
+- Captured a baseline on Windows 11 build 22621, Intel Core i7-12650H, Node 24.11.1, Sharp 0.35.5: 4K pipeline p50 1,559 ms / p95 2,577 ms (5 samples); RSS p50/p95/peak 226.3/228.1/228.3 MiB; 100-node mutation p50/p95 2.19/3.91 ms; reload 4.80 ms; temporary disk 3.74 MiB. Full machine-specific report: [`windows-dev-20261106.json`](../benchmark/performance-evidence/windows-dev-20261106.json).
+- This is an initial local baseline, not an optimization or T21 acceptance: five samples make p95 equal the observed maximum, separate concurrency experiments had inconsistent latency, and image quality/clean-VM acceptance is separate. No production image algorithm or Sharp concurrency setting was changed.
+- Additional 20-sample local runs: default 16-thread Sharp p50/p95 2,302/2,642 ms, RSS p95 307.4 MiB; 4 threads 2,297/3,230 ms, RSS p95 134.9 MiB; 8 threads 2,512/3,179 ms, RSS p95 186.2 MiB. Output SHA-256 matches across all profiles. Reports and limits are in [`PERFORMANCE_BENCHMARK.md`](../benchmark/PERFORMANCE_BENCHMARK.md). Runs used separate processes, and UI responsiveness/two-hour endurance are not measured; production concurrency remains unchanged.
+
+
+### T23 VSIX structural candidate — 06/11/2026
+
+- `npm.cmd run package:vsix -- -OutputDirectory artifacts/beta-candidate-20261106` PASS: webview build, Host compile and archive structural validation. Candidate rebuilt after the model-loader diagnosis change: `artifacts/beta-candidate-20261106/pixel-pilot-vscode-1.1.0.vsix`, 13,499,209 bytes, SHA-256 `0227CB5E7439D914254FA816037180727FBB1D62B9B30FFF96B7F61855EBE195`.
+- Source base is `779bbb5` with uncommitted T21/T22 changes in the working tree. The hash identifies this local artifact, not a frozen release commit.
+- Isolated installation, Extension Host assertions, interactive workflows, update/migration, and clean Windows VM acceptance were not completed for this candidate. T23 remains partial; this structural result does not close its release gate.

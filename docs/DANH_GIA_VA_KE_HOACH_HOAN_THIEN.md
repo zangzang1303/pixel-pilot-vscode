@@ -2,6 +2,14 @@
 
 Ngày đánh giá: 05/11/2026, múi giờ Asia/Saigon.
 
+### Cập nhật tiến độ — 06/11/2026
+
+Đã triển khai lát cắt T22 gồm Setup Doctor chọn tác vụ, kiểm tra phụ thuộc local tương ứng và đường dẫn Python cấu hình được cho recolor. Probe ComfyUI nay phân biệt node, model loader và model, kiểm tra ONNX model theo hash và chạy Python import bất đồng bộ. Kiểm tra fixture probe 5/5, ProviderCatalog 5/5, lint/type-check pass. Extension Host E2E chưa chạy được vì môi trường chặn tải VS Code test host; acceptance tương tác vẫn mở, nên T22 partial. T23 VM Windows sạch, T24 pilot, UI E2E quan trọng và quality acceptance với dữ liệu có quyền vẫn cần hoàn tất trước khi kết luận sẵn sàng phát hành.
+
+Runner T21 đã được chạy và lưu baseline có hash cho pipeline ảnh 4K, ArtifactStore và phiên 100 node. Lượt đầu 5 mẫu cho pipeline p50/p95 1.559/2.578 giây, RSS p95/đỉnh 228,1/228,3 MiB và ghi node p50/p95 2,19/3,91 ms. Ba lượt 20 mẫu ở Sharp concurrency 16/4/8 có hash đầu ra giống nhau; 4 luồng giảm RSS đáng kể nhưng p95 ảnh tăng. Các lượt chạy riêng tiến trình, chưa đo phản hồi UI và phiên 2 giờ, nên chưa chọn tối ưu production. Xem JSON và phạm vi đo trong release evidence; T21 vẫn partial.
+
+Đã build và kiểm tra cấu trúc VSIX candidate T23 cục bộ, có đường dẫn, kích thước và SHA-256 trong release evidence. Cây nguồn vẫn chưa commit; candidate chưa qua cài đặt profile cô lập, Extension Host, nâng cấp/migration hoặc Windows VM sạch, nên T23 chưa nghiệm thu.
+
 ## 1. Kết luận điều hành
 
 Pixel Pilot có nền tảng của một **prototype nâng cao, đủ để thử nghiệm có hướng dẫn**, với định vị rõ: trợ lý xử lý tài nguyên ảnh ngay trong VS Code cho lập trình viên. Chưa đủ bằng chứng để kết luận sẵn sàng phát hành rộng rãi.

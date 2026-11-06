@@ -44,7 +44,8 @@
     "onCommand:pixelPilot.removeBackground",
     "onCommand:pixelPilot.vectorizeImage",
     "onCommand:pixelPilot.batchProcessFolder",
-    "onCommand:pixelPilot.startComfyUI"
+    "onCommand:pixelPilot.startComfyUI",
+    "onCommand:pixelPilot.diagnoseSetup"
   ],
   "contributes": {
     "viewsContainers": {
@@ -120,6 +121,11 @@
         "command": "pixelPilot.startComfyUI",
         "title": "Pixel Pilot: Khởi động ComfyUI Local GPU (Port 8188)",
         "category": "Pixel Pilot"
+      },
+      {
+        "command": "pixelPilot.diagnoseSetup",
+        "title": "Pixel Pilot: Chẩn đoán cấu hình theo tác vụ",
+        "category": "Pixel Pilot"
       }
     ],
     "menus": {
@@ -159,6 +165,11 @@
           "default": "http://127.0.0.1:9090",
           "description": "Local InvokeAI server instance URL (default: http://127.0.0.1:9090)."
         },
+        "pixelPilot.recolorPythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to python.exe with ONNX Runtime for selective recolor. Leave empty to use PIXEL_PILOT_PYTHON."
+        },
         "pixelPilot.offlineMode": {
           "type": "boolean",
           "default": false,
@@ -195,6 +206,7 @@
     "web:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-web.ps1",
     "build": "npm run build:webview && npm run compile",
     "lint": "node scripts/lint.cjs",
+    "benchmark:performance": "npm run compile && node scripts/benchmark-performance.cjs",
     "test": "npm run compile && node scripts/run-tests.cjs",
     "test:e2e": "npm run build && node scripts/run-vscode-e2e.cjs",
     "test:e2e:vsix": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-vsix-e2e.ps1",

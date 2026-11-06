@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-06T14:29:08.326Z",
+  "scope": "Local Sharp 4K pipeline, ArtifactStore persistence/dedup/read, SessionManager persistence/reload at 100 operation nodes. No AI provider is called.",
+  "environment": {
+    "platform": "win32 10.0.22621",
+    "architecture": "x64",
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12650H",
+    "logicalCores": 16,
+    "totalMemoryBytes": 16849293312,
+    "node": "v24.11.1",
+    "sharpConcurrency": 16,
+    "sharp": {
+      "aom": "3.15.1",
+      "archive": "3.8.9",
+      "cairo": "1.18.6",
+      "cgif": "0.5.4",
+      "exif": "0.6.26",
+      "expat": "2.8.5",
+      "ffi": "3.8.0",
+      "fontconfig": "2.18.3",
+      "freetype": "2.14.3",
+      "fribidi": "1.0.17",
+      "glib": "2.90.0",
+      "harfbuzz": "14.5.0",
+      "heif": "1.23.5",
+      "highway": "1.4.0",
+      "imagequant": "2.4.1",
+      "lcms": "2.19.1",
+      "mozjpeg": "0826579",
+      "pango": "1.58.2",
+      "pixman": "0.46.4",
+      "png": "1.6.58",
+      "proxy-libintl": "0.5",
+      "rsvg": "2.63.2",
+      "tiff": "4.7.2",
+      "uhdr": "2.0.2",
+      "vips": "8.18.7",
+      "webp": "1.6.0",
+      "xml2": "2.15.4",
+      "zlib-ng": "2.3.3",
+      "sharp": "0.35.5"
+    }
+  },
+  "input": {
+    "dimensions": "3840x2160",
+    "bytes": 19173239,
+    "sha256": "453034db3ada6405e847e1161d97a7888f5c7388e0770df80b39cebaa2ed7df3"
+  },
+  "iterations": 20,
+  "imagePipeline": {
+    "timing": {
+      "samples": 20,
+      "minMs": 1446.65,
+      "medianMs": 2301.72,
+      "p95Ms": 2641.74,
+      "maxMs": 2682.11
+    },
+    "outputDimensions": "3840x2160",
+    "outputBytes": 3773992,
+    "outputSha256": "ac2a9e0d20f0524f613d9188d56751e61bc3b57727c3a72bd5c696a328873096"
+  },
+  "artifactStore": {
+    "firstStoreMs": 12.18,
+    "duplicateStoreMs": 1.99,
+    "readMs": 4.01,
+    "deduplicated": true,
+    "storedBytes": 3773992,
+    "manifestBytes": 466
+  },
+  "session": {
+    "nodeCount": 101,
+    "mutationTotal": {
+      "samples": 100,
+      "minMs": 1.01,
+      "medianMs": 1.98,
+      "p95Ms": 2.93,
+      "maxMs": 3.39
+    },
+    "reloadMs": 3.14,
+    "persistedBytes": 144428
+  },
+  "resources": {
+    "rssBeforeBytes": 50536448,
+    "rssAfterBytes": 321396736,
+    "rssDeltaBytes": 270860288,
+    "sampledRssBytes": {
+      "samples": 123,
+      "p50Bytes": 319000576,
+      "p95Bytes": 322281472,
+      "peakBytes": 322506752
+    },
+    "heapUsedBeforeBytes": 7550616,
+    "heapUsedAfterBytes": 10554832,
+    "artifactStorageBytes": 3774458,
+    "sessionStorageBytes": 144428,
+    "temporaryStorageBytes": 3918886
+  },
+  "interpretation": "This is a local implementation baseline, not provider latency, image-quality acceptance, a clean-VM result, or a comparison against a prior optimized revision."
+}

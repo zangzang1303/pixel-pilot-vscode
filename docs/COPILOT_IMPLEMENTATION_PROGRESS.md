@@ -1,5 +1,7 @@
 # Pixel Pilot Copilot — Báo cáo tiến độ triển khai
 
+> Cập nhật bổ sung 06/11/2026: Setup Doctor theo tác vụ và cấu hình Python recolor đã được triển khai; probe ComfyUI fixture và lint/type-check pass, acceptance tương tác chưa chạy. Runner T21 cho ảnh 4K, ArtifactStore và phiên 100 node đã chạy trên máy dev, gồm baseline và ba lượt 20 mẫu theo concurrency; chưa đo UI/phiên dài để chọn tối ưu. T23 đã có VSIX build/cấu trúc với hash, chưa qua install/VM sạch. Xem [release evidence](COPILOT_RELEASE_EVIDENCE.md), các mục T21–T23. Các trạng thái cũ trong báo cáo này mô tả những hạng mục Copilot đã ghi nhận trước các ticket beta T01–T24.
+
 Ngày cập nhật: **28/10/2026 (Asia/Saigon)**. Báo cáo này đối chiếu trực tiếp với [COPILOT_DEVELOPMENT_PLAN.md](COPILOT_DEVELOPMENT_PLAN.md). Trạng thái **một phần** không được xem là đạt acceptance/release gate nếu chưa có smoke provider thật ngoài môi trường fixture.
 
 ## Tóm tắt trung thực

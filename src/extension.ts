@@ -2,6 +2,10 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { execFile } from 'child_process';
+import { createHash } from 'crypto';
+import { promisify } from 'util';
+import sharp from 'sharp';
 import { PixelPilotViewProvider } from './providers/PixelPilotViewProvider';
 import { BatchProcessor } from './services/batch/BatchProcessor';
 import { OperationType } from './services/session/types';
@@ -13,6 +17,8 @@ import { ComfyUIAdapter } from './services/ai/ComfyUIAdapter';
 import { PriorityToolExecutors } from './services/tools/PriorityToolExecutors';
 import { PolicyService } from './services/security/PolicyService';
 
+const execFileAsync = promisify(execFile);
+
 export function activate(context: vscode.ExtensionContext) {
   console.log('✨ Pixel Pilot Enterprise Vision Studio is now active!');
 
@@ -21,6 +27,15 @@ export function activate(context: vscode.ExtensionContext) {
 
   const invokeApi = new InvokeApiService();
   const policy = new PolicyService();
+  const setupDoctorOutput = vscode.window.createOutputChannel('Pixel Pilot Setup Doctor');
+  context.subscriptions.push(setupDoctorOutput);
+  const loadRecolorPythonPath = () => {
+    ImageProcessor.setRecolorPythonPath(vscode.workspace.getConfiguration('pixelPilot').get<string>('recolorPythonPath', ''));
+  };
+  loadRecolorPythonPath();
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+    if (event.affectsConfiguration('pixelPilot.recolorPythonPath')) loadRecolorPythonPath();
+  }));
 
   // 1. Register the Sidebar Webview Provider
   const provider = new PixelPilotViewProvider(context);
@@ -43,6 +58,112 @@ export function activate(context: vscode.ExtensionContext) {
       await vscode.commands.executeCommand('workbench.view.extension.pixel-pilot');
     })
   );
+
+  // Diagnose only the dependencies selected by the user; this command never calls a cloud provider.
+  context.subscriptions.push(vscode.commands.registerCommand('pixelPilot.diagnoseSetup', async (taskId?: string) => {
+    const tasks = [
+      { label: 'Tác vụ cơ bản (Sharp)', value: 'sharp' },
+      { label: 'Tách nền cục bộ (ComfyUI)', value: 'comfy' },
+      { label: 'Đổi màu chọn lọc (Python / ONNX / ComfyUI)', value: 'recolor' },
+      { label: 'Sinh ảnh (InvokeAI)', value: 'invoke' },
+      { label: 'Runware cloud (API key)', value: 'runware' }
+    ];
+    const task = taskId
+      ? tasks.find(candidate => candidate.value === taskId)
+      : await vscode.window.showQuickPick(tasks, { placeHolder: 'Chọn tác vụ cần kiểm tra. Chỉ các phụ thuộc liên quan sẽ được kiểm tra.' });
+    if (taskId && !task) throw new Error(`Unknown Setup Doctor task: ${taskId}`);
+    if (!task) return;
+
+    const lines: string[] = [`Pixel Pilot Setup Doctor — ${task.label}`, `Thời điểm: ${new Date().toISOString()}`, ''];
+    const report = (ok: boolean, name: string, detail: string, fix?: string) => {
+      lines.push(`${ok ? '[PASS]' : '[NEEDS SETUP]'} ${name}: ${detail}`);
+      if (!ok && fix) lines.push(`  Cách khắc phục: ${fix}`);
+    };
+
+    if (task.value === 'sharp') {
+      try {
+        const probe = await sharp({ create: { width: 1, height: 1, channels: 4, background: '#000000' } }).png().toBuffer();
+        await ImageProcessor.getInstance().processImage(probe, { format: 'png' });
+        report(true, 'Sharp', 'Đã xử lý ảnh PNG kiểm tra cục bộ.');
+      } catch (error: any) {
+        report(false, 'Sharp', error?.message || String(error), 'Cài lại Pixel Pilot từ VSIX phù hợp với hệ điều hành và kiến trúc hiện tại.');
+      }
+    }
+
+    if (task.value === 'comfy' || task.value === 'recolor') {
+      const comfy = new ComfyUIAdapter();
+      const online = await comfy.ping();
+      report(online, `ComfyUI ${comfy.getBaseUrl()}`, online ? 'Server phản hồi.' : 'Không kết nối được server.', 'Khởi động ComfyUI hoặc cấu hình server tại địa chỉ mặc định http://127.0.0.1:8188.');
+      if (online) {
+        const setup = await comfy.getRmbgSetupStatus();
+        if (setup.error) report(false, 'ComfyUI object_info', setup.error, 'Kiểm tra server và API /object_info.');
+        else {
+          report(Boolean(setup.node), 'Node tách nền', setup.node ? `Tìm thấy node ${setup.node}.` : 'Không tìm thấy node tách nền được hỗ trợ.', 'Cài custom node tách nền tương thích và khởi động lại ComfyUI.');
+          if (setup.model === 'available') report(true, 'Model tách nền ComfyUI', `Tìm thấy ${setup.modelName}.`);
+          else if (setup.model === 'missing') report(false, 'Model tách nền ComfyUI', setup.modelIssue || 'Không tìm thấy model.', 'Cài LoadBackgroundRemovalModel và foreground model tương thích, sau đó khởi động lại ComfyUI.');
+          else if (setup.node) lines.push('[UNVERIFIED] Model tách nền ComfyUI: node này không công bố danh sách model qua object_info. Chạy smoke provider local để xác nhận weights và workflow.');
+        }
+      }
+    }
+
+    if (task.value === 'recolor') {
+      const root = context.extensionPath;
+      const python = ImageProcessor.getRecolorPythonPath();
+      const pythonExists = Boolean(python && fs.existsSync(python));
+      report(pythonExists, 'Python', pythonExists ? 'Đường dẫn cấu hình tồn tại.' : 'Chưa cấu hình hoặc không tìm thấy python.exe.', 'Đặt pixelPilot.recolorPythonPath trong Settings hoặc biến PIXEL_PILOT_PYTHON.');
+      const scriptExists = fs.existsSync(path.join(root, 'scripts', 'recolor_mask.py'));
+      report(scriptExists, 'Mask script', scriptExists ? 'recolor_mask.py có sẵn.' : 'Không tìm thấy script.', 'Cài lại extension từ VSIX đầy đủ.');
+      const modelPath = path.join(root, '.pixelpilot_runtime', 'selfie_multiclass.onnx');
+      if (fs.existsSync(modelPath)) {
+        const expectedHash = '35EC1ECD9EE7F85073C99C00020B7F6751B69506EEACF683BC8665F6117F85B0';
+        try {
+          const actualHash = createHash('sha256').update(await fs.promises.readFile(modelPath)).digest('hex').toUpperCase();
+          report(actualHash === expectedHash, 'ONNX model', actualHash === expectedHash ? 'Model có SHA-256 đúng phiên bản đã ghim.' : `SHA-256 không khớp: ${actualHash}.`, 'Chạy scripts/setup_recolor.ps1 để tải lại model đúng hash.');
+        } catch (error: any) {
+          report(false, 'ONNX model', error?.message || String(error), 'Kiểm tra quyền đọc model rồi chạy lại Setup Doctor.');
+        }
+      } else report(false, 'ONNX model', 'Chưa có model tại .pixelpilot_runtime/selfie_multiclass.onnx.', 'Chạy scripts/setup_recolor.ps1 sau khi xác minh nguồn tải và hash model.');
+      if (pythonExists) {
+        const runtimeDir = path.join(root, '.pixelpilot_runtime');
+        try {
+          const runtime = await execFileAsync(python, ['-c', 'import onnxruntime; print(onnxruntime.__version__)'], {
+            encoding: 'utf8', timeout: 5000, windowsHide: true,
+            env: { ...process.env, PYTHONPATH: [runtimeDir, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter) }
+          });
+          report(true, 'ONNX Runtime', `Import được phiên bản ${runtime.stdout.trim()}.`);
+        } catch (error: any) {
+          report(false, 'ONNX Runtime', error?.stderr?.trim() || error?.message || String(error), 'Chạy scripts/setup_recolor.ps1 với đúng Python; script thiết lập runtime vào .pixelpilot_runtime.');
+        }
+      }
+    }
+
+    if (task.value === 'invoke') {
+      const online = await invokeApi.ping();
+      report(online, `InvokeAI ${invokeApi.getBaseUrl()}`, online ? 'Server phản hồi.' : 'Không kết nối được server.', 'Khởi động InvokeAI hoặc chỉnh pixelPilot.invokeAIServerUrl.');
+      if (online) {
+        const models = await invokeApi.getModels(5000);
+        report(models.length > 0, 'Model sinh ảnh', models.length ? `Tìm thấy ${models.length} model khả dụng.` : 'Server chưa có model dùng được.', 'Cài hoặc kích hoạt main model trong InvokeAI Model Manager.');
+      }
+    }
+
+    if (task.value === 'runware') {
+      const key = await provider.getSecretManager().getApiKey();
+      report(Boolean(key?.trim() && key.trim().length > 10), 'Runware API key', key?.trim() && key.trim().length > 10 ? 'Key đã lưu trong SecretStorage (giá trị không hiển thị).' : 'Chưa cấu hình key hợp lệ về độ dài.', 'Chạy Pixel Pilot: Configure AI API Key để lưu key.');
+      lines.push('Ghi chú: chẩn đoán không gửi request cloud; tác vụ thực tế sẽ yêu cầu consent và cần tài khoản/provider phù hợp.');
+    }
+
+    lines.push('', lines.some(line => line.startsWith('[NEEDS SETUP]'))
+      ? 'Kết luận: Có phụ thuộc cần thiết lập hoặc sửa.'
+      : lines.some(line => line.startsWith('[UNVERIFIED]'))
+        ? 'Kết luận: Các kiểm tra xác định đã đạt; còn model cần xác minh bằng workflow local.'
+        : 'Kết luận: Các điều kiện đã kiểm tra đều đạt.');
+
+    setupDoctorOutput.clear();
+    const result = lines.join('\n');
+    setupDoctorOutput.appendLine(result);
+    setupDoctorOutput.show(true);
+    return result;
+  }));
 
   const broadcastApiKeyStatus = async () => {
     const key = await provider.getSecretManager().getApiKey();
