@@ -6,6 +6,12 @@ Ngày lập: 05/11/2026. Phiên bản kế hoạch: 1.0.
 
 Đã có lát cắt triển khai T21 (runner và baseline local bước đầu; cần lặp lại phép đo ổn định trước tối ưu) và T22 (Setup Doctor, chưa có nghiệm thu tương tác). T23 có VSIX candidate qua build/kiểm tra cấu trúc nhưng chưa qua cài đặt, update/migration hoặc VM sạch. T24, kiểm thử chất lượng bằng bộ ảnh có quyền và đánh giá người dùng vẫn đang mở; chưa đạt mục tiêu final.
 
+### Cập nhật thực hiện — 07/11/2026
+
+Các lát cắt T12/T14/F04/F06 đã sửa provenance và nhãn model/basic trên Canvas, Batch và Studio; Studio bỏ executor ảnh trùng lặp. Fallback Runware sang Sharp giữ chi phí `unknown` khi không có số liệu provider, còn một số latency adapter đã được đo thực. Build, 165/165 unit/contract tests và lint pass. Đây chưa phải nghiệm thu final: run service chưa bao phủ mọi ingress, chưa có provider/UI live, holdout quality, clean Windows VM, update/migration hoặc pilot.
+
+Rà tiếp S12/S08/S15 đã chặn false-success: mask cục bộ không bị thay bằng cutout khi lỗi; mở rộng khung bằng viền màu không bị trình bày như outpaint model; caption thiếu chữ không còn dùng placeholder. Chi phí provider đã báo vẫn được giữ trên caption fallback. Build và 170/170 test pass. S08 vẫn cần một model outpaint khả thi và đánh giá ảnh thực; không tính kết quả viền màu là hoàn thành chức năng final.
+
 ## 1. Đích cuối cùng
 
 **Final là bản phát hành ổn định có thể cài đặt, sử dụng, nâng cấp và bàn giao**, với đầy đủ các nhóm chức năng đã chốt trong tài liệu này, kết quả kiểm chứng tái lập và quy trình bảo trì sau phát hành.

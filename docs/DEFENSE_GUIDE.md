@@ -16,12 +16,14 @@ Tài liệu này mô tả kịch bản demo **có điều kiện**. Không trìn
 | Bước | Thao tác | Điều cần quan sát |
 | --- | --- | --- |
 | 1. Mở ảnh | Mở Sidebar hoặc Studio, nạp PNG/JPEG fixture. | Ảnh hiển thị và session/node gắn đúng ảnh. |
-| 2. Phân tích và sửa | Chọn một tool đã probe sẵn. Nếu demo remove background bằng ComfyUI/Runware, ghi provider và model được dùng. | Tool run có tiến độ, kết quả khác ảnh gốc và provenance rõ. Nếu provider thiếu, UI báo unavailable. |
+| 2. Phân tích và sửa | Chọn một tool đã probe sẵn. Nếu demo remove background bằng ComfyUI/Runware, ghi provider và model được dùng. | Tool run có tiến độ, kết quả khác ảnh gốc và provenance rõ. Khi thiếu model, nếu tác vụ có xử lý cơ bản thì UI phải ghi rõ mode; tác vụ chỉ hỗ trợ model báo unavailable. |
 | 3. So sánh | Mở before/after, xem ảnh gốc và preview; chọn áp dụng hoặc hủy. | Preview và apply là hai trạng thái khác nhau; hủy không thay đổi session. |
 | 4. Lịch sử | Chọn node trước đó, tạo một nhánh chỉnh sửa khác. | DAG quay về artifact đã lưu, không gọi lại provider chỉ để undo/branch. |
-| 5. Giới hạn | Bật offline mode hoặc ngắt provider. | Cloud không được gọi; tool thiếu model báo lỗi rõ, không trả placeholder như thành công. |
+| 5. Giới hạn | Bật offline mode hoặc ngắt provider. | Cloud không được gọi; tool thiếu model báo lỗi hoặc chuyển sang xử lý cơ bản với nhãn rõ, không trả placeholder như thành công. |
 
 Inpaint chỉ nên demo khi mask và provider hỗ trợ thật. Recolor chọn lọc cần Python/ONNX/ComfyUI foreground model và chưa có bằng chứng chất lượng bảo vệ da trên tập đại diện. Vectorize cần kiểm tra SVG đầu ra với fixture cụ thể; không khẳng định mọi ảnh bitmap đều thành vector chính xác.
+
+Nếu demo mở rộng khung qua RunwareAdapter, giới thiệu đó là thêm viền màu cục bộ, không phải outpaint bằng model. Mask từ adapter này cũng là tách nhị phân cục bộ. Chỉ trình bày outpaint/model mask khi đúng provider/model và ảnh đầu ra đã được kiểm chứng riêng.
 
 ## Cách nói về số liệu
 
@@ -31,7 +33,7 @@ Inpaint chỉ nên demo khi mask và provider hỗ trợ thật. Recolor chọn 
 
 ## Câu hỏi phản biện thường gặp
 
-**Mất Internet có dùng được không?** Các thao tác Sharp cục bộ và provider chạy trên máy có thể tiếp tục nếu dependency sẵn sàng. Tool chỉ có cloud hoặc thiếu model sẽ báo không khả dụng. Offline mode chặn cloud; không tự động đổi sang kết quả mô phỏng.
+**Mất Internet có dùng được không?** Các thao tác Sharp cục bộ và provider chạy trên máy có thể tiếp tục nếu dependency sẵn sàng. Tác vụ chỉ có cloud/model sẽ báo không khả dụng; tác vụ có fallback cơ bản phải hiển thị đúng mode và giới hạn chất lượng. Offline mode chặn cloud; không tự động đổi sang kết quả mô phỏng.
 
 **DAG khác undo tuyến tính thế nào?** Một node lưu quan hệ với node cha và artifact; sau khi quay về node cũ, thao tác mới tạo nhánh. Cần mở lại session để kiểm tra persistence, và không gọi provider lại chỉ vì điều hướng lịch sử.
 

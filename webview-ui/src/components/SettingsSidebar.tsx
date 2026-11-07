@@ -389,10 +389,10 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
         {activeTab === 'edit' && (
           <div className="flex flex-col gap-3 animate-in fade-in duration-200">
             <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-              Công cụ thị giác AI (1-Click)
+              Công cụ chỉnh sửa ảnh
             </span>
 
-            {/* Tách nền SOTA BiRefNet */}
+            {/* Tách nền theo provider khả dụng */}
             <button
               onClick={() => onApplyAction('removeBackground')}
               disabled={isProcessingAction || !hasActiveImage}
@@ -402,8 +402,8 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
                 <Scissors className="w-4 h-4" />
               </div>
               <div>
-                <p className="text-xs font-semibold text-slate-200 group-hover:text-purple-300">Tách nền (BiRefNet)</p>
-                <p className="text-[10px] text-slate-400">Xóa phông trong suốt 32-bit Alpha chuẩn SOTA</p>
+                <p className="text-xs font-semibold text-slate-200 group-hover:text-purple-300">Tách nền</p>
+                <p className="text-[10px] text-slate-400">Model nếu sẵn có; nếu không dùng cách tách màu cơ bản</p>
               </div>
             </button>
 
@@ -416,7 +416,7 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
               >
                 <ZoomIn className="w-4 h-4 text-indigo-400" />
                 <span className="text-xs font-semibold text-slate-200">Phóng to 2x</span>
-                <span className="text-[9px] text-slate-400">Super Resolution</span>
+                <span className="text-[9px] text-slate-400">Model hoặc Sharp</span>
               </button>
 
               <button
@@ -426,11 +426,11 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
               >
                 <Zap className="w-4 h-4 text-cyan-400" />
                 <span className="text-xs font-semibold text-slate-200">Phóng to 4x</span>
-                <span className="text-[9px] text-slate-400">Ultra HD</span>
+                <span className="text-[9px] text-slate-400">Model hoặc Sharp</span>
               </button>
             </div>
 
-            {/* Khử mờ / Làm nét HDR */}
+            {/* Tăng nét và tương phản */}
             <button
               onClick={() => onApplyAction('enhance', { type: 'clarity' })}
               disabled={isProcessingAction || !hasActiveImage}
@@ -440,8 +440,8 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
                 <Sparkles className="w-4 h-4" />
               </div>
               <div>
-                <p className="text-xs font-semibold text-slate-200 group-hover:text-emerald-300">Khử mờ & Làm nét HDR</p>
-                <p className="text-[10px] text-slate-400">Tăng độ chi tiết và tương phản thông minh</p>
+                <p className="text-xs font-semibold text-slate-200 group-hover:text-emerald-300">Tăng nét & tương phản</p>
+                <p className="text-[10px] text-slate-400">Runware nếu sẵn có; nếu không dùng bộ lọc Sharp</p>
               </div>
             </button>
 
@@ -449,7 +449,7 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
             <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
                 <Palette className="w-3.5 h-3.5 text-pink-400" />
-                <span>Đổi màu chọn lọc (Bảo vệ da & cách ly nền)</span>
+                <span>Đổi màu chọn lọc (cần ONNX và ComfyUI)</span>
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <select
@@ -488,7 +488,7 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
             <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2">
               <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                 <Scan className="w-3.5 h-3.5 text-cyan-400" />
-                Tiền xử lý ControlNet & Phân đoạn (Preprocess)
+                Dò biên, độ sâu và mặt nạ
               </span>
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -496,8 +496,8 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
                   disabled={isProcessingAction || !hasActiveImage}
                   className="p-2 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-700/80 hover:border-cyan-500/50 text-left transition-all disabled:opacity-50"
                 >
-                  <span className="text-[11px] font-semibold text-cyan-300 block">Dò biên Canny</span>
-                  <span className="text-[9px] text-slate-400">Edge Detection</span>
+                  <span className="text-[11px] font-semibold text-cyan-300 block">Dò biên</span>
+                  <span className="text-[9px] text-slate-400">ComfyUI Canny / Sobel cơ bản</span>
                 </button>
 
                 <button
@@ -514,8 +514,8 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
                   disabled={isProcessingAction || !hasActiveImage}
                   className="p-2 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-700/80 hover:border-emerald-500/50 text-left transition-all disabled:opacity-50"
                 >
-                  <span className="text-[11px] font-semibold text-emerald-300 block">Độ sâu 3D (Depth)</span>
-                  <span className="text-[9px] text-slate-400">Spatial Depth Map</span>
+                  <span className="text-[11px] font-semibold text-emerald-300 block">Ảnh độ sâu</span>
+                  <span className="text-[9px] text-slate-400">Model / ước lượng độ sáng</span>
                 </button>
 
                 <button
@@ -523,8 +523,8 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
                   disabled={isProcessingAction || !hasActiveImage}
                   className="p-2 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-700/80 hover:border-amber-500/50 text-left transition-all disabled:opacity-50"
                 >
-                  <span className="text-[11px] font-semibold text-amber-300 block">Mặt nạ AI (Mask)</span>
-                  <span className="text-[9px] text-slate-400">Binary Segmentation</span>
+                  <span className="text-[11px] font-semibold text-amber-300 block">Mặt nạ nhị phân</span>
+                  <span className="text-[9px] text-slate-400">Model / tách màu cơ bản</span>
                 </button>
               </div>
             </div>
@@ -533,7 +533,7 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
             <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-col gap-2">
               <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                 <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
-                Mở rộng khung hình (Extend / Outpaint)
+                Mở rộng khung (model hoặc viền màu)
               </span>
               <div className="grid grid-cols-3 gap-1.5">
                 <button
@@ -560,7 +560,7 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
               </div>
             </div>
 
-            {/* AI Caption & Alt Text */}
+            {/* Caption model hoặc metadata */}
             <button
               onClick={() => onApplyAction('caption')}
               disabled={isProcessingAction || !hasActiveImage}
@@ -570,8 +570,8 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
                 <Eye className="w-4 h-4" />
               </div>
               <div>
-                <p className="text-xs font-semibold text-slate-200 group-hover:text-teal-300">Tạo mô tả ảnh AI (Caption)</p>
-                <p className="text-[10px] text-slate-400">Phân tích thị giác, sinh Alt-text & mô tả nội dung</p>
+                <p className="text-xs font-semibold text-slate-200 group-hover:text-teal-300">Mô tả ảnh</p>
+                <p className="text-[10px] text-slate-400">Florence-2 nếu có; nếu không chỉ mô tả metadata</p>
               </div>
             </button>
 
@@ -583,8 +583,8 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
                 onChange={(e) => setSelectedStyle(e.target.value)}
                 className="bg-slate-900 border border-slate-700 rounded-lg p-1.5 text-[11px] text-slate-200"
               >
-                <option value="anime">Anime Makoto Shinkai</option>
-                <option value="pixar">3D Animation Pixar</option>
+                <option value="anime">Minh họa anime</option>
+                <option value="pixar">Hoạt hình 3D</option>
                 <option value="cyberpunk">Cyberpunk Neon</option>
                 <option value="sketch">Phác thảo bút chì</option>
                 <option value="pixel">Pixel Art 16-bit</option>
@@ -608,8 +608,8 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
                 <FileCode className="w-4 h-4" />
               </div>
               <div>
-                <p className="text-xs font-semibold text-slate-200 group-hover:text-yellow-300">Vector hóa (SVG)</p>
-                <p className="text-[10px] text-slate-400">Chuyển ảnh Raster thành Vector đa lớp vô hạn</p>
+                <p className="text-xs font-semibold text-slate-200 group-hover:text-yellow-300">Tạo SVG từ ảnh</p>
+                <p className="text-[10px] text-slate-400">Lượng tử hóa ảnh; chưa phải tracing đường nét</p>
               </div>
             </button>
           </div>

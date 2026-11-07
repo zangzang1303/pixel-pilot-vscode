@@ -292,6 +292,7 @@ export const App: React.FC = () => {
         case 'operationCompleted':
           setIsProcessingAction(false);
           setIsChatThinking(false);
+          if (message.message) setToast({ kind: 'success', message: message.message });
           break;
 
         case 'copilotProgress':

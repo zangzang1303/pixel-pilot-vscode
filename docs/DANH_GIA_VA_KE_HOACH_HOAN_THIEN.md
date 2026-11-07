@@ -10,6 +10,12 @@ Runner T21 đã được chạy và lưu baseline có hash cho pipeline ảnh 4K
 
 Đã build và kiểm tra cấu trúc VSIX candidate T23 cục bộ, có đường dẫn, kích thước và SHA-256 trong release evidence. Cây nguồn vẫn chưa commit; candidate chưa qua cài đặt profile cô lập, Extension Host, nâng cấp/migration hoặc Windows VM sạch, nên T23 chưa nghiệm thu.
 
+### Cập nhật tiến độ — 07/11/2026
+
+T12/T14 đã tiến thêm: Studio chuyển các thao tác ảnh trùng lặp về host chung; Canvas và Batch ghi rõ provider/model/mode cho các nhánh tách nền, upscale, mask, depth, style và inpaint. Fallback Sharp sau Runware không còn bị ghi là kết quả model; trường hợp cloud không trả chi phí giữ trạng thái `unknown`. Thời gian của ComfyUI tách nền/upscale và fallback Runware liên quan được đo thay cho hằng số. Nhãn nút ảnh đã giảm các cam kết vượt quá engine thực. `npm.cmd run check` PASS 165/165, lint PASS. Đây là bằng chứng code/fixture; các phát hiện F04–F07 chưa đóng khi thiếu UI/provider live, chất lượng ảnh, cài đặt VM sạch và nghiệm thu theo task.
+
+Rà tiếp contract cho thấy Runware mask là xử lý cục bộ và extend chưa có outpaint model trên đường này. Đã bỏ fallback mask sang cutout khi lỗi và bỏ inpaint giả làm mở rộng ảnh; cả hai nhánh ghi đúng local/basic. Caption Runware thiếu chữ chuyển sang metadata cục bộ thay vì placeholder, đồng thời giữ chi phí thực nếu provider đã trả. Fixture không upload và kiểm tra kích thước pass; toàn bộ `npm.cmd run check` PASS 170/170, lint PASS. F05/F06 giảm rủi ro false-success nhưng chưa đóng vì những provider/ingress khác và nghiệm thu thực tế còn mở.
+
 ## 1. Kết luận điều hành
 
 Pixel Pilot có nền tảng của một **prototype nâng cao, đủ để thử nghiệm có hướng dẫn**, với định vị rõ: trợ lý xử lý tài nguyên ảnh ngay trong VS Code cho lập trình viên. Chưa đủ bằng chứng để kết luận sẵn sàng phát hành rộng rãi.

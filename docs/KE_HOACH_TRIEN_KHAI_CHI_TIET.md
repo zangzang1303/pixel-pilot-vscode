@@ -354,3 +354,14 @@ Ba quyết định nhóm cần chốt ở buổi D1: gán tên thật cho A/B/C,
 - Mask, dò biên, depth, extend, style và inpaint cùng phân biệt model ComfyUI với xử lý Sharp cục bộ theo `metrics.model`; DAG và toast ghi đúng nguồn thực tế. Nhãn depth/Sobel/outpaint basic phản ánh thuật toán trong `ImageProcessor`.
 - Caption metadata được phân biệt với Florence-2 và lưu model/thời gian trong message; recolor ghi pipeline ONNX + ComfyUI + Sharp; SVG ghi thuật toán lượng tử hóa cục bộ.
 - Studio bỏ executor ảnh cũ; `applyAction`, alias cũ và nút Upscale riêng đều chuyển tới host chung. `npm.cmd run check` PASS 161/161; `npm.cmd run lint` PASS. T12/T14 chưa nghiệm thu: còn các ingress/adapter khác, đo latency trực tiếp, và xác nhận UI/provider live.
+
+### T14 progress — timing, billing và nhãn fallback — 07/11/2026
+
+- Canvas Enhance/Runware Upscale ghi đúng Sharp/basic khi adapter dùng fallback. Runware fallback sau lần gọi cloud thiếu giá trị chi phí giữ `unknown`; Batch manifest ghi status chi phí theo ảnh. ComfyUI tách nền/upscale và fallback Runware liên quan dùng thời gian đo thực thay hằng số.
+- Nhãn nút Studio/Sidebar mô tả model hoặc basic, bỏ cam kết BiRefNet, super-resolution, depth 3D, caption AI và SVG tracing cho các đường chưa bảo đảm. Hướng dẫn bảo vệ phân biệt unavailable với fallback basic có nhãn.
+- `npm.cmd run check` PASS 165/165; `npm.cmd run lint` PASS. T12/T14 vẫn partial: các adapter/ingress chưa đo và chuẩn hóa hết, UI/provider live và chất lượng ảnh chưa nghiệm thu. T20/T23/T24 còn phụ thuộc môi trường và người dùng thử.
+
+### T12/T14 follow-up — mask/extend contract — 07/11/2026
+
+- Runware mask là tách nhị phân cục bộ; lỗi không chuyển thành ảnh cutout báo thành công. Runware extend là mở viền màu cục bộ, tăng kích thước thật, không gọi inpaint với ảnh nguồn làm mask. Ingress không yêu cầu cloud consent cho hai tác vụ chỉ chạy local và thông báo mode khi hoàn tất.
+- Runware caption thiếu nội dung chuyển sang mô tả metadata cục bộ có nhãn, không tạo placeholder; nếu provider đã trả chi phí thực thì giữ lại số đó. `npm.cmd run check` PASS 170/170; `npm.cmd run lint` PASS. Đây là fixture/contract verification. Model outpaint theo S08/F08, UI live, chất lượng ảnh, clean VM và pilot vẫn chưa nghiệm thu.

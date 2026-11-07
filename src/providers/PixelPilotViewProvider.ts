@@ -2221,7 +2221,9 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     let res: AIResult;
 
     try {
-      await this.policy.requireCloudConsent('Runware', message.operationLabel || op);
+      if (op !== 'mask' && op !== 'extend') {
+        await this.policy.requireCloudConsent('Runware', message.operationLabel || op);
+      }
       switch (op) {
         case 'remove_background':
           res = await this.runwareAdapter.removeBackground(realInput);
@@ -2282,9 +2284,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       if (res.success) {
         if (op === 'caption') {
           if (!res.textResult) throw new Error('Caption provider returned no text.');
-          this.sessionManager.addMessage(session.sessionId, { sender: 'assistant', text: res.textResult, nodeId: parentNode.nodeId });
+          this.sessionManager.addMessage(session.sessionId, { sender: 'assistant', text: res.textResult,
+            nodeId: parentNode.nodeId, operation: 'caption', metrics: res.metrics });
           this.broadcastSessionState();
-          this.postToWebview({ type: 'operationCompleted', operation: op });
+          this.postToWebview({ type: 'operationCompleted', operation: op,
+            message: /^Local\b/.test(res.metrics.model) ? 'Mô tả chỉ dựa trên metadata ảnh.' : 'Mô tả ảnh bằng Runware.' });
           return;
         }
         if (!res.outputImageUri) throw new Error('Provider returned no image artifact.');
@@ -2298,7 +2302,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           this.uriToPathMap.set(displayUri, committed.outputImageUri);
         }
         this.broadcastSessionState();
-        this.postToWebview({ type: 'operationCompleted', operation: op });
+        const modeLabel = /^(Local|Sharp)\b/i.test(res.metrics.model) ? 'xử lý cơ bản' :
+          /^Runware\b/i.test(res.metrics.model) ? 'Runware' : /^ComfyUI\b/i.test(res.metrics.model) ? 'ComfyUI' : 'nguồn chưa xác định';
+        this.postToWebview({ type: 'operationCompleted', operation: op,
+          message: `${message.operationLabel || op} hoàn tất bằng ${modeLabel}.` });
       } else {
         const errorText = res.error || 'Không có engine AI phù hợp đang hoạt động.';
         console.warn(`[PixelPilot] AI operation unavailable: ${errorText}`);

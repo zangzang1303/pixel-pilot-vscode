@@ -40,3 +40,16 @@ Trạng thái tại lúc bắt đầu triển khai theo kế hoạch beta. “C�
 - Canvas mask, dò biên, depth, mở rộng khung, style và inpaint nay lưu đúng `provider/mode/model` từ kết quả adapter. Fallback cục bộ hiện rõ trong toast; depth cơ bản được gọi là ước lượng theo độ sáng, dò biên cơ bản là Sobel, mở rộng khung cơ bản là viền màu.
 - Caption cục bộ được gọi là mô tả metadata, không phải nhận diện hình ảnh; nguồn và thời gian được lưu trong tin nhắn lịch sử. Canvas recolor ghi pipeline ONNX + ComfyUI + Sharp; SVG ghi rõ cách lượng tử hóa cục bộ.
 - Studio `applyAction`, tên lệnh cũ và nút Upscale riêng cùng đi qua host chung. Khối executor ảnh trùng lặp đã bỏ. Các nhánh Canvas/Explorer khác và việc chuyển toàn bộ task sang run service vẫn còn mở; chưa có xác nhận UI/provider live.
+
+### Tiếp tục F04/F06 và T14 — 07/11/2026
+
+- Canvas Enhance và Runware Upscale giờ phân biệt kết quả Runware với fallback Sharp theo model thực tế. Batch manifest giữ `costUsd/costStatus` từng ảnh khi adapter cung cấp; fallback sau một lần gọi cloud thiếu thông tin thanh toán được ghi `unknown`, không suy ra 0 USD.
+- ComfyUI remove-background/upscale và fallback Runware upscale/enhance đo thời gian lời gọi thay cho các hằng số cũ. Nhãn fallback Runware style, edge/depth, upscale, enhance phản ánh thuật toán Sharp thực tế.
+- Các nút trong Studio/Sidebar đã bỏ lời hứa BiRefNet, super-resolution, depth 3D, caption AI và SVG tracing khi đường fallback cơ bản có thể chạy. Đây là sửa nhãn và contract trong code; provider live, chất lượng ảnh và UI acceptance vẫn chưa có bằng chứng.
+
+### Kiểm tra contract mask/extend — 07/11/2026
+
+- `RunwareAdapter.extractMask` thực hiện tách mask cục bộ; khi lỗi trả failure, không thay bằng ảnh cutout rồi báo thành công. `RunwareAdapter.extendCanvas` chỉ thực hiện mở rộng bằng viền màu cục bộ và trả đúng kích thước mới; chưa có outpaint model trên đường này.
+- Runware caption thiếu văn bản không còn dùng placeholder “Graphic asset”; adapter chuyển sang mô tả metadata cục bộ với nhãn và trạng thái chi phí phù hợp.
+- Ingress Runware không yêu cầu cloud consent cho hai tác vụ hiện chỉ chạy cục bộ. Kết quả hoàn tất nêu mode thực tế; caption fallback lưu metrics và báo rõ chỉ dùng metadata. Kiểm tra fixture xác nhận không upload, mask đúng kích thước và extension tăng chiều rộng.
+- Outpaint bằng model trong phạm vi final S08/F08 vẫn cần provider thật, bộ ảnh chất lượng và nghiệm thu UI. Không coi xử lý viền màu là đạt mục đó.

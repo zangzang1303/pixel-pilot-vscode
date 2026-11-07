@@ -16,6 +16,8 @@ export interface BatchItemResult {
   provider?: string;
   mode?: 'model' | 'basic' | 'unknown';
   model?: string;
+  costUsd?: number;
+  costStatus?: 'actual' | 'estimated' | 'unknown';
 }
 
 export interface BatchSummary {
@@ -139,7 +141,7 @@ export class BatchProcessor {
 
             let outBuffer: Buffer | null = null;
             let outExt = 'png';
-            let provenance: Pick<BatchItemResult, 'provider' | 'mode' | 'model'> = {};
+            let provenance: Pick<BatchItemResult, 'provider' | 'mode' | 'model' | 'costUsd' | 'costStatus'> = {};
 
             switch (operation) {
               case 'remove_background': {
@@ -148,7 +150,8 @@ export class BatchProcessor {
                   outBuffer = this.extractBuffer(res.outputImageUri);
                   outExt = 'png';
                   const invokedProvider = /^Runware\b/i.test(this.aiProvider.name) ? 'runware' : 'comfyui';
-                  provenance = backgroundRemovalProvenance(res, invokedProvider);
+                  provenance = { ...backgroundRemovalProvenance(res, invokedProvider),
+                    costUsd: res.metrics?.costUsd, costStatus: res.metrics?.costStatus };
                 } else {
                   throw new Error(res.error || 'Lỗi tách nền');
                 }
@@ -162,6 +165,8 @@ export class BatchProcessor {
                   outBuffer = Buffer.from(svgData, 'utf-8');
                   outExt = 'svg';
                   provenance.model = res.metrics?.model;
+                  provenance.costUsd = res.metrics?.costUsd;
+                  provenance.costStatus = res.metrics?.costStatus;
                 } else {
                   throw new Error(res.error || 'Lỗi Vectorize');
                 }
@@ -176,7 +181,7 @@ export class BatchProcessor {
                   const model = res.metrics?.model;
                   const isComfyModel = Boolean(model && /^ComfyUI\b/i.test(model));
                   const isSharpBasic = Boolean(model && /^Sharp Lanczos3 \+ sharpen upscale\b/i.test(model));
-                  provenance = { model,
+                  provenance = { model, costUsd: res.metrics?.costUsd, costStatus: res.metrics?.costStatus,
                     provider: isSharpBasic ? 'sharp' : isComfyModel ? 'comfyui' : /^Runware\b/i.test(this.aiProvider.name) ? 'runware' : 'unknown',
                     mode: isSharpBasic ? 'basic' : isComfyModel || /^Runware\b/i.test(this.aiProvider.name) ? 'model' : 'unknown' };
                 } else {

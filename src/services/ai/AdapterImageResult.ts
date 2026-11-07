@@ -16,8 +16,10 @@ export async function resolveAdapterImageResult(
   basicModel: string
 ): Promise<{ buffer: Buffer; provenance: ImageResultProvenance }> {
   if (!result?.success || !result.outputImageUri) {
+    const uncertainCloudCost = /^Runware\b/i.test(result?.metrics?.model || '') && result?.metrics?.costStatus === 'unknown';
     return { buffer: await basicFallback(), provenance: {
-      provider: 'sharp', mode: 'basic', model: basicModel, costUsd: 0, costStatus: 'estimated'
+      provider: 'sharp', mode: 'basic', model: basicModel,
+      costUsd: uncertainCloudCost ? undefined : 0, costStatus: uncertainCloudCost ? 'unknown' : 'estimated'
     } };
   }
 

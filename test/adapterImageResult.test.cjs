@@ -81,11 +81,13 @@ test('Runware credit failures return labeled Sharp upscale and enhance results',
   for (const [response, model] of cases) {
     assert.equal(response.success, true);
     assert.equal(response.metrics.model, model);
-    assert.equal(response.metrics.costStatus, 'estimated');
+    assert.equal(response.metrics.costStatus, 'unknown');
+    assert.equal(response.metrics.costUsd, undefined);
     assert.ok(response.metrics.latencyMs >= 15, 'Fallback latency should include the delayed provider attempt.');
     const resolved = await resolveAdapterImageResult(response, async () => { throw new Error('unexpected fallback'); }, model);
     assert.equal(resolved.provenance.provider, 'sharp');
     assert.equal(resolved.provenance.mode, 'basic');
+    assert.equal(resolved.provenance.costStatus, 'unknown');
   }
 });
 
@@ -114,6 +116,19 @@ test('Runware output retains provider and unknown billing when cost is omitted',
   );
   assert.equal(result.provenance.provider, 'runware');
   assert.equal(result.provenance.mode, 'model');
+  assert.equal(result.provenance.costUsd, undefined);
+  assert.equal(result.provenance.costStatus, 'unknown');
+});
+
+test('failed Runware result keeps billing unknown after Sharp fallback', async () => {
+  const buffer = Buffer.from(image.split(',')[1], 'base64');
+  const result = await resolveAdapterImageResult(
+    { success: false, metrics: { model: 'Runware Enhance (hdr)', latencyMs: 0, costStatus: 'unknown' }, error: 'provider failed' },
+    async () => buffer,
+    'Sharp local enhance (hdr)'
+  );
+  assert.equal(result.provenance.provider, 'sharp');
+  assert.equal(result.provenance.mode, 'basic');
   assert.equal(result.provenance.costUsd, undefined);
   assert.equal(result.provenance.costStatus, 'unknown');
 });

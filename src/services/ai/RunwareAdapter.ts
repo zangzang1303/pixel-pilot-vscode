@@ -282,8 +282,7 @@ export class RunwareAdapter implements IAIProvider {
             metrics: {
               model: `Sharp Lanczos3 + sharpen upscale ${factor}x`,
               latencyMs: Date.now() - startedAt,
-              costUsd: 0,
-              costStatus: 'estimated'
+              costStatus: 'unknown'
             }
           };
         } catch {}
@@ -411,6 +410,7 @@ export class RunwareAdapter implements IAIProvider {
    * 5. Extract Binary Mask
    */
   public async extractMask(imageInput: string): Promise<AIResult> {
+    const startedAt = Date.now();
     try {
       const buf = this.getBufferFromInput(imageInput);
       const maskBuf = await ImageProcessor.getInstance().extractMask(buf);
@@ -418,13 +418,18 @@ export class RunwareAdapter implements IAIProvider {
         success: true,
         outputImageUri: `data:image/png;base64,${maskBuf.toString('base64')}`,
         metrics: {
-          model: 'AI Binary Mask Segmenter',
-          latencyMs: 30,
-          costUsd: 0
+          model: 'Local binary mask (corner-color heuristic)',
+          latencyMs: Date.now() - startedAt,
+          costUsd: 0,
+          costStatus: 'estimated'
         }
       };
     } catch (err: any) {
-      return this.removeBackground(imageInput);
+      return {
+        success: false,
+        metrics: { model: 'Local binary mask (corner-color heuristic)', latencyMs: Date.now() - startedAt, costUsd: 0, costStatus: 'estimated' },
+        error: err.message || String(err)
+      };
     }
   }
 
@@ -474,8 +479,7 @@ export class RunwareAdapter implements IAIProvider {
             model: method === 'depth' ? 'Local luminance-based depth approximation'
               : method === 'lineart' ? 'Local Sobel line art' : 'Local Sobel edge detector',
             latencyMs: 35,
-            costUsd: 0,
-            costStatus: 'estimated'
+            costStatus: 'unknown'
           }
         };
       } catch {}
@@ -491,6 +495,7 @@ export class RunwareAdapter implements IAIProvider {
    * 7. Image Caption & Alt Text
    */
   public async generateCaption(imageInput: string): Promise<AIResult> {
+    let fallbackCost: { costUsd?: number; costStatus: 'actual' | 'unknown' } = { costStatus: 'unknown' };
     try {
       const img = this.normalizeImageInput(imageInput);
       const taskUUID = crypto.randomUUID();
@@ -505,7 +510,11 @@ export class RunwareAdapter implements IAIProvider {
 
       const { data, latencyMs } = await this.dispatchTasks(payload);
       const res = this.selectTaskResult(data, taskUUID);
-      const captionText = res.text || res.caption || (typeof res === 'string' ? res : 'Graphic asset');
+      fallbackCost = this.reportedCostMetrics(res);
+      const captionText = typeof res?.text === 'string' && res.text.trim() ? res.text.trim()
+        : typeof res?.caption === 'string' && res.caption.trim() ? res.caption.trim()
+        : typeof res === 'string' ? res.trim() : '';
+      if (!captionText) throw new Error('Runware caption response did not contain text.');
 
       return {
         success: true,
@@ -513,7 +522,7 @@ export class RunwareAdapter implements IAIProvider {
         metrics: {
           model: 'Runware Vision Captioner',
           latencyMs,
-          ...this.reportedCostMetrics(res)
+          ...fallbackCost
         }
       };
     } catch (err: any) {
@@ -527,8 +536,7 @@ export class RunwareAdapter implements IAIProvider {
           metrics: {
             model: 'Local image metadata description (Sharp; no visual understanding)',
             latencyMs: Date.now() - localStartedAt,
-            costUsd: 0,
-            costStatus: 'estimated'
+            ...fallbackCost
           }
         };
       } catch {}
@@ -543,21 +551,18 @@ export class RunwareAdapter implements IAIProvider {
   /**
    * 8. Extend Canvas
    */
-  public async extendCanvas(imageInput: string, direction: 'all' | 'horizontal' | 'vertical' = 'all', prompt?: string): Promise<AIResult> {
-    try {
-      const res = await this.inpaint(imageInput, imageInput, prompt || 'seamless environment extension');
-      if (res.success && res.outputImageUri) return res;
-    } catch {}
+  public async extendCanvas(imageInput: string, direction: 'all' | 'horizontal' | 'vertical' = 'all', _prompt?: string): Promise<AIResult> {
+    const startedAt = Date.now();
     try {
       const buf = this.getBufferFromInput(imageInput);
       const outBuf = await ImageProcessor.getInstance().extendCanvas(buf, direction);
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
-        metrics: { model: 'Canvas Outpainting Expansion', latencyMs: 40, costUsd: 0 }
+        metrics: { model: 'Local canvas expansion (solid border)', latencyMs: Date.now() - startedAt, costUsd: 0, costStatus: 'estimated' }
       };
     } catch (e: any) {
-      return { success: false, metrics: { model: 'Extend Canvas', latencyMs: 0, costStatus: 'unknown' }, error: e.message };
+      return { success: false, metrics: { model: 'Local canvas expansion (solid border)', latencyMs: Date.now() - startedAt, costUsd: 0, costStatus: 'estimated' }, error: e.message || String(e) };
     }
   }
 
@@ -670,8 +675,7 @@ export class RunwareAdapter implements IAIProvider {
             metrics: {
               model: `Local style filter (${style})`,
               latencyMs: 45,
-              costUsd: 0,
-              costStatus: 'estimated'
+              costStatus: 'unknown'
             }
           };
         } catch {}
@@ -740,8 +744,7 @@ export class RunwareAdapter implements IAIProvider {
             metrics: {
               model: `Sharp local enhance (${type})`,
               latencyMs: Date.now() - startedAt,
-              costUsd: 0,
-              costStatus: 'estimated'
+              costStatus: 'unknown'
             }
           };
         } catch {}

@@ -67,7 +67,7 @@ test('batch manifest identifies Sharp upscale fallback', async () => {
     const processor = new BatchProcessor({
       name: 'ComfyUI Local GPU',
       upscale: async () => ({ success: true, outputImageUri: output,
-        metrics: { model: 'Sharp Lanczos3 + sharpen upscale 2x' } })
+        metrics: { model: 'Sharp Lanczos3 + sharpen upscale 2x', costStatus: 'unknown' } })
     });
     const summary = await processor.executeBatch([{ fsPath: imagePath }], 'upscale', path.join(root, 'output'));
     assert.equal(summary.succeeded, 1);
@@ -75,6 +75,8 @@ test('batch manifest identifies Sharp upscale fallback', async () => {
     assert.equal(item.provider, 'sharp');
     assert.equal(item.mode, 'basic');
     assert.equal(item.model, 'Sharp Lanczos3 + sharpen upscale 2x');
+    assert.equal(item.costStatus, 'unknown');
+    assert.equal(item.costUsd, undefined);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
