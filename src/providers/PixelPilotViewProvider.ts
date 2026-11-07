@@ -50,6 +50,11 @@ const VALID_UI_ACTIONS = new Set([
   'lineart', 'lineExtraction', 'depth', 'extend', 'caption', 'recolor',
   'styleTransfer', 'vectorize', 'inpaint', 'fluxBoxEdit', 'imageToCode', 'ocr', 'compress', 'exportIcons'
 ]);
+const CANCELABLE_CANVAS_ACTIONS = new Set([
+  'removeBackground', 'upscale', 'enhance', 'mask', 'canny', 'edgeDetection',
+  'lineart', 'lineExtraction', 'depth', 'extend', 'recolor', 'styleTransfer',
+  'vectorize', 'inpaint', 'fluxBoxEdit'
+]);
 
 export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'pixelPilot.sidebarView';
@@ -67,6 +72,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   private runLifecycle = new RunLifecycleService();
   private readonly telemetry = new SafeTelemetry();
   private webviewBridge = new WebviewBridge();
+  private readonly activeCanvasActionIds = new Set<string>();
   private readonly canvasActionControllers = new Map<string, AbortController>();
   private readonly cancelledCanvasActionIds = new Set<string>();
   private readonly previews = new PreviewService<{ target: CanvasActionTarget; action: string; output: Buffer; fileName: string; options: Record<string, unknown> }, { dataUrl: string; savedPath: string; sessionId: string; nodeId: string; metrics: { model: string; latencyMs: number; costUsd?: number; costStatus: 'actual' | 'estimated' | 'unknown' } }>();
@@ -200,21 +206,26 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     output: Buffer,
     fileName: string,
     options?: Record<string, unknown>,
-    preview?: Buffer
+    preview?: Buffer,
+    signal?: AbortSignal
   ) {
+    if (signal?.aborted) throw new Error('Operation cancelled.');
     const png = await sharp(preview || output).png().toBuffer();
+    if (signal?.aborted) throw new Error('Operation cancelled.');
     const exportBuffer = fileName.endsWith('.svg') ? output : png;
     if (fileName.endsWith('.svg')) validateImageBuffer(exportBuffer, 'image/svg+xml');
     const maskUri = typeof options?.maskDataUrl === 'string'
       ? await this.assetStorage.saveToCache(options.maskDataUrl)
       : undefined;
+    if (signal?.aborted) throw new Error('Operation cancelled.');
     const saved = await FileSystemUtils.saveImageToWorkspace(exportBuffer, fileName);
     const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
     try {
+      if (signal?.aborted) throw new Error('Operation cancelled.');
       const node = await this.canvasCommit.commit(target, action, dataUrl, {
         ...options,
         exportPath: saved.relativePath
-      }, maskUri);
+      }, maskUri, signal);
       this.broadcastSessionState();
       return { ...saved, dataUrl, sessionId: target.sessionId, nodeId: node.nodeId };
     } catch (commitError) {
@@ -498,33 +509,43 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
       case 'applyAction': {
         const { action, dataUrl, options } = message;
-        const actionRequestId = typeof message.requestId === 'string' ? message.requestId : undefined;
+        const clientRequestId = typeof message.requestId === 'string' && message.requestId.trim()
+          ? message.requestId : undefined;
+        const actionRequestId = clientRequestId || `legacy-canvas-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
         let actionController: AbortController | undefined;
         let actionStartedAt = 0;
+        const postActionEvent = (event: Record<string, unknown>) =>
+          this.postToWebview({ ...event, requestId: clientRequestId });
+        if (this.activeCanvasActionIds.has(actionRequestId)) {
+          // The original request owns its terminal event. A repeated message must not start another edit.
+          break;
+        }
         if (!dataUrl) {
           vscode.window.showWarningMessage('Chưa có ảnh trên Canvas để xử lý.');
-          this.postToWebview({ command: 'actionError', message: 'No image' });
+          postActionEvent({ command: 'actionError', message: 'No image' });
           break;
         }
 
         if (typeof action !== 'string' || !VALID_UI_ACTIONS.has(action)) {
-          this.postToWebview({ command: 'actionError', message: 'Unsupported image action.' });
+          postActionEvent({ command: 'actionError', message: 'Unsupported image action.' });
           break;
         }
-        if (action === 'fluxBoxEdit' && !actionRequestId) {
-          this.postToWebview({ command: 'actionError', message: 'FLUX edit requires a request ID.' });
-          break;
-        }
-        if (action === 'fluxBoxEdit' && actionRequestId) {
+        this.activeCanvasActionIds.add(actionRequestId);
+        if (CANCELABLE_CANVAS_ACTIONS.has(action)) {
           actionController = new AbortController();
           this.canvasActionControllers.set(actionRequestId, actionController);
         }
+        const saveAction = (
+          target: CanvasActionTarget, action: string, output: Buffer, fileName: string,
+          options?: Record<string, unknown>, preview?: Buffer
+        ) => this.saveCanvasAction(target, action, output, fileName, options, preview, actionController?.signal);
 
         try {
           const target = this.captureCanvasAction({ sessionId: message.sessionId, parentId: message.nodeId });
           await this.policy.requireTrustedWorkspace('Image editing');
+          if (actionController?.signal.aborted) throw new Error('Operation cancelled.');
           actionStartedAt = Date.now();
-          this.postToWebview({ command: 'actionStarted', label: `Đang thực hiện ${action}...` });
+          postActionEvent({ command: 'actionStarted', label: `Đang thực hiện ${action}...` });
           const decodedInput = decodeImageInput(dataUrl);
           const buffer = decodedInput.buffer;
           const imageProc = ImageProcessor.getInstance();
@@ -553,7 +574,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               sourceRevision: session?.currentNodeId || '',
               payload: { target, action, output, fileName: `pixel_pilot_flux_box_${Date.now()}.png`, options: editOptions }
             });
-            this.postToWebview({ command: 'previewReady', previewUrl: `data:image/png;base64,${output.toString('base64')}`,
+            postActionEvent({ command: 'previewReady', previewUrl: `data:image/png;base64,${output.toString('base64')}`,
               originalUrl: dataUrl, operationLabel: 'FLUX.3 Klein box edit', planId: preview.previewId });
           } else if (action === 'removeBackground') {
             let outBuf: Buffer | undefined;
@@ -588,12 +609,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             }
             if (!outBuf) outBuf = await imageProc.removeBackground(buffer);
 
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_cutout_${Date.now()}.png`, {
+            const savedResult = await saveAction(target, action, outBuf, `pixel_pilot_cutout_${Date.now()}.png`, {
               ...options, latencyMs: Date.now() - actionStartedAt, ...provenance
             });
             const modeLabel = provenance.mode === 'basic' ? 'xử lý cơ bản' :
               provenance.provider === 'runware' ? 'Runware' : provenance.provider === 'comfyui' ? 'ComfyUI' : 'nguồn chưa xác định';
-            this.postToWebview({
+            postActionEvent({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
@@ -638,12 +659,12 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               }
             }
             if (!outBuf) outBuf = await imageProc.upscale(buffer, factor);
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`, {
+            const savedResult = await saveAction(target, action, outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`, {
               ...options, latencyMs: Date.now() - actionStartedAt, ...provenance
             });
             const modeLabel = provenance.mode === 'basic' ? 'Sharp (Lanczos3 + sharpen)' :
               provenance.provider === 'runware' ? 'Runware' : provenance.provider === 'comfyui' ? 'ComfyUI' : 'nguồn chưa xác định';
-            this.postToWebview({
+            postActionEvent({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
@@ -665,11 +686,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             }
             const resolved = await resolveAdapterImageResult(adapterResult, () => imageProc.enhance(buffer, type),
               `Sharp local enhance (${type})`);
-            const savedResult = await this.saveCanvasAction(target, action, resolved.buffer, `pixel_pilot_enhanced_${Date.now()}.png`,
+            const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_enhanced_${Date.now()}.png`,
               { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
             const modeLabel = resolved.provenance.provider === 'runware' ? 'Runware' :
               resolved.provenance.mode === 'basic' ? 'Sharp cơ bản' : 'nguồn chưa xác định';
-            this.postToWebview({
+            postActionEvent({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
@@ -681,11 +702,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           } else if (action === 'mask') {
             const maskResult = await new ComfyUIAdapter().extractMask(dataUrl);
             const resolved = await resolveAdapterImageResult(maskResult, () => imageProc.extractMask(buffer), 'Local binary mask (corner-color heuristic)');
-            const savedResult = await this.saveCanvasAction(target, action, resolved.buffer, `pixel_pilot_mask_${Date.now()}.png`,
+            const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_mask_${Date.now()}.png`,
               { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
             const modeLabel = resolved.provenance.mode === 'model' ? 'model ComfyUI' :
               resolved.provenance.mode === 'basic' ? 'xử lý cơ bản' : 'nguồn chưa xác định';
-            this.postToWebview({
+            postActionEvent({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
@@ -697,11 +718,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           } else if (action === 'canny' || action === 'edgeDetection') {
             const cannyResult = await new ComfyUIAdapter().detectEdges(dataUrl, 'canny');
             const resolved = await resolveAdapterImageResult(cannyResult, () => imageProc.detectEdges(buffer, 'canny'), 'Local Sobel edge detector');
-            const savedResult = await this.saveCanvasAction(target, action, resolved.buffer, `pixel_pilot_canny_${Date.now()}.png`,
+            const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_canny_${Date.now()}.png`,
               { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
             const modeLabel = resolved.provenance.mode === 'model' ? 'ComfyUI Canny' :
               resolved.provenance.mode === 'basic' ? 'Sobel cơ bản' : 'nguồn chưa xác định';
-            this.postToWebview({
+            postActionEvent({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
@@ -712,9 +733,9 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`✨ Dò biên bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'lineart' || action === 'lineExtraction') {
             const outBuf = await imageProc.detectEdges(buffer, 'lineart');
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_lineart_${Date.now()}.png`,
+            const savedResult = await saveAction(target, action, outBuf, `pixel_pilot_lineart_${Date.now()}.png`,
               { ...options, latencyMs: Date.now() - actionStartedAt, provider: 'sharp', mode: 'basic', model: 'Local Sobel line art' });
-            this.postToWebview({
+            postActionEvent({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
@@ -725,11 +746,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           } else if (action === 'depth') {
             const depthResult = await new ComfyUIAdapter().detectEdges(dataUrl, 'depth');
             const resolved = await resolveAdapterImageResult(depthResult, () => imageProc.detectEdges(buffer, 'depth'), 'Local luminance-based depth approximation');
-            const savedResult = await this.saveCanvasAction(target, action, resolved.buffer, `pixel_pilot_depth_${Date.now()}.png`,
+            const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_depth_${Date.now()}.png`,
               { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
             const modeLabel = resolved.provenance.mode === 'model' ? 'Depth Anything V2' :
               resolved.provenance.mode === 'basic' ? 'ước lượng độ sáng cơ bản' : 'nguồn chưa xác định';
-            this.postToWebview({
+            postActionEvent({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
@@ -742,11 +763,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const direction = options?.direction || 'all';
             const extendResult = await new ComfyUIAdapter().extendCanvas(dataUrl, direction);
             const resolved = await resolveAdapterImageResult(extendResult, () => imageProc.extendCanvas(buffer, direction), 'Local canvas expansion (solid border)');
-            const savedResult = await this.saveCanvasAction(target, action, resolved.buffer, `pixel_pilot_extended_${Date.now()}.png`,
+            const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_extended_${Date.now()}.png`,
               { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
             const modeLabel = resolved.provenance.mode === 'model' ? 'model ComfyUI' :
               resolved.provenance.mode === 'basic' ? 'viền màu cơ bản' : 'nguồn chưa xác định';
-            this.postToWebview({
+            postActionEvent({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
@@ -765,18 +786,18 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               latencyMs: Date.now() - actionStartedAt, costUsd: 0, costStatus: 'estimated'
             };
             this.recordCanvasCaption(target, captionText, captionMetrics);
-            this.postToWebview({ command: 'actionComplete', sessionId: target.sessionId, nodeId: target.parentId,
+            postActionEvent({ command: 'actionComplete', sessionId: target.sessionId, nodeId: target.parentId,
               message: `Mô tả ảnh bằng ${captionMode}.` });
             vscode.window.showInformationMessage(`📝 Mô tả bằng ${captionMode}: ${captionText}`);
           } else if (action === 'recolor') {
             const subject = options?.subject || 'hair';
             const color = options?.color || 'cyan';
             const outBuf = await imageProc.recolor(buffer, subject, color);
-            const savedResult = await this.saveCanvasAction(target, action, outBuf, `pixel_pilot_recolor_${Date.now()}.png`, {
+            const savedResult = await saveAction(target, action, outBuf, `pixel_pilot_recolor_${Date.now()}.png`, {
               ...options, latencyMs: Date.now() - actionStartedAt, provider: 'local-hybrid', mode: 'model',
               model: 'Python ONNX selective mask + ComfyUI foreground + Sharp recolor', costUsd: 0, costStatus: 'estimated'
             });
-            this.postToWebview({
+            postActionEvent({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
@@ -789,11 +810,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const style = options?.style || 'anime';
             const styleResult = await new ComfyUIAdapter().styleTransfer(dataUrl, style);
             const resolved = await resolveAdapterImageResult(styleResult, () => imageProc.styleTransfer(buffer, style), `Local style filter (${style})`);
-            const savedResult = await this.saveCanvasAction(target, action, resolved.buffer, `pixel_pilot_style_${style}_${Date.now()}.png`,
+            const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_style_${style}_${Date.now()}.png`,
               { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
             const modeLabel = resolved.provenance.mode === 'model' ? 'model ComfyUI' :
               resolved.provenance.mode === 'basic' ? 'bộ lọc cục bộ' : 'nguồn chưa xác định';
-            this.postToWebview({
+            postActionEvent({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
@@ -804,11 +825,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`✨ Chuyển phong cách ${style} bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'vectorize') {
             const { svgString, previewBuffer } = await imageProc.vectorize(buffer);
-            const savedResult = await this.saveCanvasAction(target, action, Buffer.from(svgString, 'utf-8'), `pixel_pilot_vector_${Date.now()}.svg`, {
+            const savedResult = await saveAction(target, action, Buffer.from(svgString, 'utf-8'), `pixel_pilot_vector_${Date.now()}.svg`, {
               ...options, latencyMs: Date.now() - actionStartedAt, provider: 'sharp', mode: 'basic',
               model: 'Local 48x64 color-quantized SVG tracer (Sharp)', costUsd: 0, costStatus: 'estimated'
             }, previewBuffer);
-            this.postToWebview({
+            postActionEvent({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
@@ -827,11 +848,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               ? await new ComfyUIAdapter().inpaint(dataUrl, options.maskDataUrl, options?.prompt || 'natural detailed restoration matching the surrounding image')
               : undefined;
             const resolved = await resolveAdapterImageResult(inpaintResult, () => imageProc.inpaint(buffer, maskBuffer), 'Local Content-Aware Inpainting');
-            const savedResult = await this.saveCanvasAction(target, action, resolved.buffer, `pixel_pilot_inpaint_${Date.now()}.png`,
+            const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_inpaint_${Date.now()}.png`,
               { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
             const modeLabel = resolved.provenance.mode === 'model' ? 'model ComfyUI' :
               resolved.provenance.mode === 'basic' ? 'điền vùng cơ bản' : 'nguồn chưa xác định';
-            this.postToWebview({
+            postActionEvent({
               command: 'actionComplete',
               dataUrl: savedResult.dataUrl,
               sessionId: savedResult.sessionId,
@@ -848,7 +869,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               framework: options?.framework || 'react-tailwind'
             });
             await codeGen.openInEditor(codeRes.code, codeRes.suggestedFileName);
-            this.postToWebview({ command: 'actionComplete' });
+            postActionEvent({ command: 'actionComplete' });
             vscode.window.showInformationMessage(`✅ Đã sinh mã ${codeRes.framework} và mở trong editor!`);
           } else if (action === 'ocr') {
             const ocrService = OCRService.getInstance();
@@ -856,18 +877,18 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             if (ocrRes.fullText) {
               await vscode.env.clipboard.writeText(ocrRes.fullText);
             }
-            this.postToWebview({ command: 'actionComplete' });
+            postActionEvent({ command: 'actionComplete' });
             if (ocrRes.fullText) vscode.window.showInformationMessage(`📋 OCR: Đã copy ${ocrRes.fullText.length} ký tự vào Clipboard.`);
             else vscode.window.showInformationMessage('OCR không phát hiện văn bản trong ảnh.');
           } else if (action === 'compress') {
             const comp = await imageProc.processImage(buffer, { format: options?.format || 'webp', quality: options?.quality || 85 });
             const savedResult = await FileSystemUtils.saveImageToWorkspace(comp, `pixel_pilot_compressed_${Date.now()}.${options?.format || 'webp'}`);
-            this.postToWebview({ command: 'actionComplete', savedPath: savedResult.relativePath, sessionId: target.sessionId, nodeId: target.parentId });
+            postActionEvent({ command: 'actionComplete', savedPath: savedResult.relativePath, sessionId: target.sessionId, nodeId: target.parentId });
             vscode.window.showInformationMessage(`💾 Đã nén thành công (${(comp.byteLength / 1024).toFixed(1)} KB): ${savedResult.relativePath}`);
           } else if (action === 'exportIcons') {
             const icons = await imageProc.exportIcons(buffer);
             const bundle = await FileSystemUtils.saveIconBundle(icons, `pixel_pilot_icons_${Date.now()}`);
-            this.postToWebview({ command: 'actionComplete', savedPath: bundle.relativeDirectory, sessionId: target.sessionId, nodeId: target.parentId });
+            postActionEvent({ command: 'actionComplete', savedPath: bundle.relativeDirectory, sessionId: target.sessionId, nodeId: target.parentId });
             const choice = await vscode.window.showInformationMessage(
               `✅ Đã xuất ${bundle.files.length} icon PNG vào ${bundle.relativeDirectory}`,
               'Mở thư mục'
@@ -880,12 +901,13 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           }
         } catch (err: any) {
           const wasCancelled = actionRequestId ? this.cancelledCanvasActionIds.delete(actionRequestId) : false;
-          if (wasCancelled) this.postToWebview({ command: 'actionCancelled', requestId: actionRequestId });
+          if (wasCancelled) postActionEvent({ command: 'actionCancelled' });
           else {
-            this.postToWebview({ command: 'actionError', message: err.message });
+            postActionEvent({ command: 'actionError', message: err.message });
             vscode.window.showErrorMessage(`Lỗi ${action}: ${err.message}`);
           }
         } finally {
+          this.activeCanvasActionIds.delete(actionRequestId);
           if (actionRequestId) this.canvasActionControllers.delete(actionRequestId);
           if (actionRequestId) this.cancelledCanvasActionIds.delete(actionRequestId);
         }

@@ -365,3 +365,9 @@ Ba quyết định nhóm cần chốt ở buổi D1: gán tên thật cho A/B/C,
 
 - Runware mask là tách nhị phân cục bộ; lỗi không chuyển thành ảnh cutout báo thành công. Runware extend là mở viền màu cục bộ, tăng kích thước thật, không gọi inpaint với ảnh nguồn làm mask. Ingress không yêu cầu cloud consent cho hai tác vụ chỉ chạy local và thông báo mode khi hoàn tất.
 - Runware caption thiếu nội dung chuyển sang mô tả metadata cục bộ có nhãn, không tạo placeholder; nếu provider đã trả chi phí thực thì giữ lại số đó. `npm.cmd run check` PASS 170/170; `npm.cmd run lint` PASS. Đây là fixture/contract verification. Model outpaint theo S08/F08, UI live, chất lượng ảnh, clean VM và pilot vẫn chưa nghiệm thu.
+
+### T06/T08 progress — hủy và định danh tác vụ Canvas — 07/11/2026
+
+- Mọi `applyAction` gửi từ UI có request ID; Host bỏ qua request ID đang chạy trùng, gắn ID vào sự kiện bắt đầu/kết thúc/lỗi/preview, còn UI khóa bấm lặp và bỏ qua sự kiện không thuộc tác vụ hiện tại. Client cũ thiếu ID vẫn được Host xử lý.
+- Nút hủy mở rộng từ FLUX box sang các thao tác chỉnh ảnh Canvas. Các thao tác này kiểm tra tín hiệu hủy trước bước lưu, sau xử lý ảnh, sau lưu mask, sau xuất file và trong bước lưu artifact; nếu hủy trước commit thì file xuất được dọn và DAG không thêm node. Provider không hỗ trợ AbortSignal có thể vẫn tiếp tục tính toán hoặc tính phí sau khi client hủy.
+- `npm.cmd run check` PASS 172/172; `npm.cmd run lint` PASS. Test mới xác nhận hủy trong lúc lưu artifact không tạo edit node. T06/T08 vẫn partial: chưa có terminal state/dedupe bền sau reload, chưa truyền hủy qua mọi adapter/ingress, chưa thử double click/cancel/preview trên UI thật và chưa nghiệm thu provider live.

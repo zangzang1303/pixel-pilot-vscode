@@ -43,6 +43,7 @@ export class SessionCommitService {
     const session = this.sessions.getSession(input.sessionId);
     const parent = session?.nodes[input.parentId];
     if (!session || !parent) throw new Error('The target session or parent node no longer exists.');
+    if (input.signal?.aborted) throw new Error('Operation cancelled.');
 
     const outputPath = await this.assets.saveToCache(input.result.outputImageUri);
     if (input.signal?.aborted) throw new Error('Operation cancelled.');

@@ -53,6 +53,12 @@ interface HistoryNodeSummary {
   outputImageUri?: string;
 }
 
+const CANCELABLE_CANVAS_ACTIONS = new Set([
+  'removeBackground', 'upscale', 'enhance', 'mask', 'canny', 'edgeDetection',
+  'lineart', 'lineExtraction', 'depth', 'extend', 'recolor', 'styleTransfer',
+  'vectorize', 'inpaint', 'fluxBoxEdit'
+]);
+
 export const App: React.FC = () => {
   // Navigation State
   const [activeTab, setActiveTab] = useState<StudioTab>('generate');
@@ -92,7 +98,7 @@ export const App: React.FC = () => {
   const [isProcessingAction, setIsProcessingAction] = useState<boolean>(false);
   const [processingLabel, setProcessingLabel] = useState<string>('');
   const [cancelableActionId, setCancelableActionId] = useState<string | null>(null);
-  const cancelableActionRef = useRef<string | null>(null);
+  const activeActionRequestRef = useRef<string | null>(null);
 
   // Active Image & Saved path
   const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
@@ -135,6 +141,9 @@ export const App: React.FC = () => {
       if (!message || (!message.command && !message.type)) return;
 
       const cmd = message.command || message.type;
+      const isForeignActionEvent = () => activeActionRequestRef.current
+        ? message.requestId !== activeActionRequestRef.current
+        : Boolean(message.requestId);
 
       switch (cmd) {
         case 'pingResult':
@@ -236,15 +245,17 @@ export const App: React.FC = () => {
 
         case 'actionStarted':
         case 'UPDATE_AI_PROGRESS':
+          if (isForeignActionEvent()) break;
           setIsProcessingAction(true);
           setProcessingLabel(message.label || message.payload?.status || 'Đang xử lý AI...');
           break;
 
         case 'actionComplete':
         case 'AI_ACTION_SUCCESS':
+          if (isForeignActionEvent()) break;
           setIsProcessingAction(false);
           setCancelableActionId(null);
-          cancelableActionRef.current = null;
+          activeActionRequestRef.current = null;
           setPreviewState(null);
           const isCurrentResult = !message.sessionId || (
             message.sessionId === activeSessionIdRef.current &&
@@ -269,28 +280,30 @@ export const App: React.FC = () => {
 
         case 'actionError':
         case 'AI_ACTION_ERROR':
+          if (isForeignActionEvent()) break;
           setIsProcessingAction(false);
           setCancelableActionId(null);
-          cancelableActionRef.current = null;
+          activeActionRequestRef.current = null;
           setToast({ kind: 'error', message: message.message || message.payload?.error || 'Không thể hoàn tất thao tác ảnh.' });
           break;
 
         case 'actionCancelled':
+          if (isForeignActionEvent()) break;
           setIsProcessingAction(false);
           setCancelableActionId(null);
-          cancelableActionRef.current = null;
-          setToast({ kind: 'info', message: 'FLUX edit cancelled; no preview was applied.' });
+          activeActionRequestRef.current = null;
+          setToast({ kind: 'info', message: 'Đã hủy thao tác ảnh; kết quả chưa được áp dụng.' });
           break;
 
         case 'operationFailed':
-          setIsProcessingAction(false);
+          if (!activeActionRequestRef.current) setIsProcessingAction(false);
           setIsChatThinking(false);
           dispatchChatRun({ type: 'fail', error: message.error || 'Agent could not complete the request.' });
           setToast({ kind: 'error', message: message.error || 'Agent không thể hoàn tất yêu cầu.' });
           break;
 
         case 'operationCompleted':
-          setIsProcessingAction(false);
+          if (!activeActionRequestRef.current) setIsProcessingAction(false);
           setIsChatThinking(false);
           if (message.message) setToast({ kind: 'success', message: message.message });
           break;
@@ -308,9 +321,11 @@ export const App: React.FC = () => {
 
         case 'previewReady':
         case 'plan.preview_ready':
+          if (cmd === 'previewReady' && isForeignActionEvent()) break;
+          if (cmd === 'plan.preview_ready' && activeActionRequestRef.current) break;
           setIsProcessingAction(false);
           setCancelableActionId(null);
-          cancelableActionRef.current = null;
+          if (cmd === 'previewReady') activeActionRequestRef.current = null;
           if (message.previewUrl || message.result?.outputImageUri) {
             setPreviewState({
               previewUrl: message.previewUrl || message.result?.outputImageUri,
@@ -432,12 +447,13 @@ export const App: React.FC = () => {
       return;
     }
     if (!currentImageUrl && action !== 'openImage') return;
+    if (activeActionRequestRef.current) return;
 
     setIsProcessingAction(true);
     setProcessingLabel(`Đang thực hiện ${action}...`);
     const requestId = `canvas-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    if (action === 'fluxBoxEdit') {
-      cancelableActionRef.current = requestId;
+    activeActionRequestRef.current = requestId;
+    if (CANCELABLE_CANVAS_ACTIONS.has(action) && !vscode.isBrowserDemo()) {
       setCancelableActionId(requestId);
     }
 
@@ -562,8 +578,12 @@ export const App: React.FC = () => {
         processingLabel={processingLabel}
         canCancelAction={Boolean(cancelableActionId)}
         onCancelAction={() => {
-          const requestId = cancelableActionRef.current;
-          if (requestId) vscode.postMessage({ command: 'cancelCanvasAction', requestId });
+          const requestId = activeActionRequestRef.current;
+          if (requestId) {
+            setCancelableActionId(null);
+            setProcessingLabel('Đang hủy thao tác ảnh...');
+            vscode.postMessage({ command: 'cancelCanvasAction', requestId });
+          }
         }}
         onOpenImage={handleOpenImage}
         sessions={sessions}

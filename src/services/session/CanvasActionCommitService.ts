@@ -41,7 +41,7 @@ export class CanvasActionCommitService {
     return { sessionId: session.sessionId, parentId: session.currentNodeId };
   }
 
-  public async commit(target: CanvasActionTarget, action: string, outputImageUri: string, options?: Record<string, unknown>, maskUri?: string) {
+  public async commit(target: CanvasActionTarget, action: string, outputImageUri: string, options?: Record<string, unknown>, maskUri?: string, signal?: AbortSignal) {
     const definition = IMAGE_ACTIONS[action];
     if (!definition) throw new Error(`Unsupported image edit: ${action}`);
     const { maskDataUrl: _maskDataUrl, ...params } = options || {};
@@ -55,6 +55,7 @@ export class CanvasActionCommitService {
       intent: { label: definition.label },
       prompt: typeof options?.prompt === 'string' ? options.prompt : undefined,
       maskUri,
+      signal,
       params: { ...params, source: 'canvas_button' },
       result: {
         success: true,

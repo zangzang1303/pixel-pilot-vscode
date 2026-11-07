@@ -56,6 +56,35 @@ test('failed canvas artifact write does not create an edit node', async () => {
   assert.deepEqual(Object.keys(sessions.getActiveSession().nodes), [session.rootNodeId]);
 });
 
+test('cancelled canvas edit does not commit after artifact persistence finishes', async () => {
+  const sessions = new SessionManager();
+  const session = sessions.createSession('source.png');
+  const controller = new AbortController();
+  let finishWrite;
+  const service = new CanvasActionCommitService(sessions, new SessionCommitService(sessions, {
+    saveToCache: () => new Promise(resolve => { finishWrite = resolve; })
+  }));
+  const pending = service.commit(service.capture(), 'inpaint', image, {}, undefined, controller.signal);
+  controller.abort();
+  finishWrite('late-result.png');
+  await assert.rejects(pending, /cancelled/i);
+  assert.deepEqual(Object.keys(sessions.getSession(session.sessionId).nodes), [session.rootNodeId]);
+});
+
+test('pre-cancelled canvas edit skips artifact persistence', async () => {
+  const sessions = new SessionManager();
+  const session = sessions.createSession('source.png');
+  const controller = new AbortController();
+  controller.abort();
+  let writes = 0;
+  const service = new CanvasActionCommitService(sessions, new SessionCommitService(sessions, {
+    saveToCache: async () => { writes += 1; return 'unused.png'; }
+  }));
+  await assert.rejects(() => service.commit(service.capture(), 'inpaint', image, {}, undefined, controller.signal), /cancelled/i);
+  assert.equal(writes, 0);
+  assert.deepEqual(Object.keys(sessions.getSession(session.sessionId).nodes), [session.rootNodeId]);
+});
+
 test('canvas action keeps the mask reference and excludes raw mask data from params', async () => {
   const sessions = new SessionManager();
   sessions.createSession('source.png');
