@@ -439,32 +439,40 @@ export class ComfyUIAdapter implements IAIProvider {
   /**
    * 4. Inpaint / Generative Edit
    */
-  public async inpaint(imageInput: string, maskInput: string, prompt: string): Promise<AIResult> {
+  public async inpaint(imageInput: string, maskInput: string, prompt: string, signal?: AbortSignal): Promise<AIResult> {
+    this.throwIfCancelled(signal);
     const buf = this.getBufferFromInput(imageInput);
     let maskBuf: Buffer | undefined;
     if (maskInput) {
       maskBuf = this.getBufferFromInput(maskInput);
     }
-    if (maskBuf && await this.hasDiffusionCheckpoint()) {
+    if (maskBuf && await this.hasDiffusionCheckpoint(signal)) {
+      this.throwIfCancelled(signal);
       try {
         const original = await sharp(buf).metadata();
         const source = await sharp(buf).resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true }).removeAlpha().png().toBuffer();
         const dimensions = await sharp(source).metadata();
         const mask = await sharp(maskBuf).resize(dimensions.width!, dimensions.height!, { fit: 'fill' }).extractChannel('alpha').threshold(20).png().toBuffer();
-        const imageUpload = await this.uploadImage(source);
-        const maskUpload = await this.uploadImage(mask);
+        this.throwIfCancelled(signal);
+        const imageUpload = await this.uploadImage(source, undefined, signal);
+        const maskUpload = await this.uploadImage(mask, undefined, signal);
         const workflow = this.diffusionWorkflow(imageUpload.name, prompt?.trim() || 'natural detailed restoration, matching the surrounding scene', true, maskUpload.name);
-        const { outputImages } = await this.executeWorkflow(workflow, 180000);
+        const { outputImages } = await this.executeWorkflow(workflow, 180000, signal);
+        this.throwIfCancelled(signal);
         const generated = await sharp(outputImages[0]).resize(original.width!, original.height!).removeAlpha().png().toBuffer();
         const fullMask = await sharp(maskBuf).resize(original.width!, original.height!, { fit: 'fill' }).extractChannel('alpha').threshold(20).png().toBuffer();
         const overlay = await sharp(generated).joinChannel(fullMask).png().toBuffer();
         const result = await sharp(buf).composite([{ input: overlay, left: 0, top: 0 }]).png().toBuffer();
+        this.throwIfCancelled(signal);
         return { success: true, outputImageUri: `data:image/png;base64,${result.toString('base64')}`, metrics: { model: 'Stable Diffusion 1.5 GPU inpaint', latencyMs: 0, costUsd: 0 } };
       } catch {
+        this.throwIfCancelled(signal);
         // Use local fill when the diffusion workflow cannot finish.
       }
     }
+    this.throwIfCancelled(signal);
     const outBuf = await ImageProcessor.getInstance().inpaint(buf, maskBuf);
+    this.throwIfCancelled(signal);
     return {
       success: true,
       outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
@@ -837,11 +845,12 @@ export class ComfyUIAdapter implements IAIProvider {
     };
   }
 
-  private async hasDiffusionCheckpoint(): Promise<boolean> {
-    if (!await this.ping()) return false;
+  private async hasDiffusionCheckpoint(signal?: AbortSignal): Promise<boolean> {
+    if (!await this.ping(signal)) return false;
     try {
-      const response = await fetch(`${this.baseUrl}/object_info/CheckpointLoaderSimple`, { signal: AbortSignal.timeout(2000) });
+      const response = await fetchWithTimeout(`${this.baseUrl}/object_info/CheckpointLoaderSimple`, { signal }, 2000);
       const options = ((await response.json()) as any)?.CheckpointLoaderSimple?.input?.required?.ckpt_name?.[0];
+      this.throwIfCancelled(signal);
       return Array.isArray(options) && options.includes('v1-5-pruned-emaonly.safetensors');
     } catch { return false; }
   }

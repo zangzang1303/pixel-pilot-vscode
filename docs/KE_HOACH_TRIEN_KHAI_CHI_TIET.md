@@ -407,3 +407,9 @@ Ba quyết định nhóm cần chốt ở buổi D1: gán tên thật cho A/B/C,
 - ComfyUI tách nền/upscale nhận tín hiệu hủy qua probe, upload, submit workflow, polling và tải ảnh. Sau hủy không fallback Sharp hoặc nhận kết quả muộn. Extension dừng chờ; job đã vào queue ComfyUI có thể còn chạy trên server, chưa có bằng chứng hủy server-side.
 - Batch mở file output với quyền tạo mới riêng và dọn file ghi dở khi lỗi hoặc hủy giữa lúc ghi; output của mục đã thành công được giữ. Fixture kiểm tra hủy upload, hủy khi chờ poll và hủy trong lúc ghi file dở.
 - `npm.cmd run check` PASS 185/185, lint PASS. VSIX mới qua kiểm tra cấu trúc và install smoke profile cô lập; đường dẫn/hash tại [release evidence](COPILOT_RELEASE_EVIDENCE.md). T07/T15 vẫn partial do thiếu ComfyUI/UI live, xác nhận race đa process và kiểm thử lỗi I/O thực; vectorize chưa dừng thuật toán cục bộ giữa chừng.
+
+### T07/T12 tiếp tục — hủy Canvas Inpaint — 08/11/2026
+
+- Canvas Inpaint truyền signal qua kiểm tra checkpoint, upload ảnh và mask, submit workflow, polling và tải kết quả ComfyUI; sau hủy không chạy local fill hoặc commit kết quả muộn. Canvas tách nền/upscale và Copilot tách nền/upscale cũng chuyển signal sẵn có xuống ComfyUI.
+- Fixture hủy upload Inpaint xác nhận không chạy fallback cục bộ. `npm.cmd run check` PASS 186/186, lint PASS. VSIX mới qua kiểm tra cấu trúc và install smoke profile cô lập; hash và trạng thái source tại [release evidence](COPILOT_RELEASE_EVIDENCE.md).
+- T07/T12 vẫn partial: Runware Inpaint đường cũ và một số ComfyUI action khác chưa có hủy xuyên transport; job đã vào queue ComfyUI có thể vẫn chạy. Cần nghiệm thu UI/provider live và các gate final khác.

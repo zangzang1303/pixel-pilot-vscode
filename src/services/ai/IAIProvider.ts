@@ -22,7 +22,7 @@ export interface IAIProvider {
   /**
    * Chỉnh sửa ảnh theo vùng vẽ mask và câu lệnh văn bản (Inpaint / Generative Fill)
    */
-  inpaint(imageInput: string, maskInput: string, prompt: string): Promise<AIResult>;
+  inpaint(imageInput: string, maskInput: string, prompt: string, signal?: AbortSignal): Promise<AIResult>;
 
   /**
    * Trích xuất mặt nạ phân vùng nhị phân (Binary Mask Extraction)

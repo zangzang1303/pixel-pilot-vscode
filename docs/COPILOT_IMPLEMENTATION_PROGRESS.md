@@ -112,3 +112,7 @@ Batch đã chuyển tín hiệu hủy của VS Code tới request Runware tách 
 ### ComfyUI cancellation và Batch output — 08/11/2026
 
 ComfyUI tách nền/upscale đã nhận signal qua các bước probe, upload, submit workflow, polling và tải ảnh. Hủy không chạy fallback Sharp; job đã xếp hàng trên server có thể vẫn tiếp tục. Batch dọn file output ghi dở nếu bị hủy trong lúc ghi. Kiểm tra toàn dự án PASS 185/185, lint PASS; VSIX mới qua kiểm tra cấu trúc và cài profile cô lập. Hash và giới hạn tại [release evidence](COPILOT_RELEASE_EVIDENCE.md). B28/B29 cùng các gate final vẫn mở vì còn UI/provider live, clean VM, update/migration, holdout chất lượng và pilot.
+
+### Canvas Inpaint cancellation — 08/11/2026
+
+Canvas Inpaint đã truyền tín hiệu hủy qua ComfyUI từ bước kiểm tra model đến tải kết quả; hủy không chạy local fill hoặc ghi node muộn. Canvas và Copilot tách nền/upscale cũng chuyển signal tới ComfyUI. `npm.cmd run check` PASS 186/186, lint PASS; VSIX mới cài thử trong profile cô lập đạt. Xem [release evidence](COPILOT_RELEASE_EVIDENCE.md) để đối chiếu hash và source commit. B28/B29 và các gate final vẫn mở do thiếu provider/UI live, clean VM, update/migration, holdout chất lượng và pilot.

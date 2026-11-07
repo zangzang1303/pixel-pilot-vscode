@@ -579,10 +579,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               provider: 'sharp', mode: 'basic', model: 'Native background removal (corner-color)'
             };
             const comfy = new ComfyUIAdapter();
-            const comfyReady = await comfy.ping() && Boolean(await comfy.getAvailableRmbgNode());
+            const comfyReady = await comfy.ping(actionSignal) && Boolean(await comfy.getAvailableRmbgNode(actionSignal));
+            if (actionSignal?.aborted) throw new Error('Operation cancelled.');
             if (comfyReady) {
               try {
-                const res = await comfy.removeBackground(dataUrl);
+                const res = await comfy.removeBackground(dataUrl, { signal: actionSignal });
                 if (actionSignal?.aborted) throw new Error('Operation cancelled.');
                 if (res.success && res.outputImageUri) {
                   outBuf = decodeImageInput(res.outputImageUri).buffer;
@@ -637,10 +638,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             };
             if (!options?.forceLocal) {
               const comfy = new ComfyUIAdapter();
-              const comfyOnline = await comfy.ping();
+              const comfyOnline = await comfy.ping(actionSignal);
+              if (actionSignal?.aborted) throw new Error('Operation cancelled.');
               if (comfyOnline) {
                 try {
-                  const res = await comfy.upscale(dataUrl, factor);
+                  const res = await comfy.upscale(dataUrl, factor, actionSignal);
                   if (actionSignal?.aborted) throw new Error('Operation cancelled.');
                   if (res.success && res.outputImageUri) {
                     outBuf = decodeImageInput(res.outputImageUri).buffer;
@@ -876,7 +878,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               maskBuffer = Buffer.from(maskB64, 'base64');
             }
             const inpaintResult = maskBuffer
-              ? await new ComfyUIAdapter().inpaint(dataUrl, options.maskDataUrl, options?.prompt || 'natural detailed restoration matching the surrounding image')
+              ? await new ComfyUIAdapter().inpaint(dataUrl, options.maskDataUrl, options?.prompt || 'natural detailed restoration matching the surrounding image', actionSignal)
               : undefined;
             const resolved = await resolveAdapterImageResult(inpaintResult, () => imageProc.inpaint(buffer, maskBuffer), 'Local Content-Aware Inpainting');
             const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_inpaint_${Date.now()}.png`,
@@ -1937,7 +1939,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           });
         }
         if (runSignal?.aborted) throw new Error('Operation cancelled.');
-        result = await adapter.removeBackground(image);
+        result = await adapter.removeBackground(image, { signal: runSignal });
         break;
       }
       case 'replace_bg': {
@@ -1975,7 +1977,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         result = await adapter.replaceBackground(image, intent.promptText || prompt);
         break;
       }
-      case 'upscale': result = await adapter.upscale(image, intent.factor === 4 ? 4 : 2); break;
+      case 'upscale': result = await adapter.upscale(image, intent.factor === 4 ? 4 : 2, runSignal); break;
       case 'mask': result = await adapter.extractMask(image); break;
       case 'canny': result = await adapter.detectEdges(image, 'canny'); break;
       case 'lineart': result = await adapter.detectEdges(image, 'lineart'); break;
