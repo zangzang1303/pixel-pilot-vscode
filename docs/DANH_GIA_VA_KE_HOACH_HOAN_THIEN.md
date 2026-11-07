@@ -16,6 +16,8 @@ T12/T14 đã tiến thêm: Studio chuyển các thao tác ảnh trùng lặp v�
 
 Rà tiếp contract cho thấy Runware mask là xử lý cục bộ và extend chưa có outpaint model trên đường này. Đã bỏ fallback mask sang cutout khi lỗi và bỏ inpaint giả làm mở rộng ảnh; cả hai nhánh ghi đúng local/basic. Caption Runware thiếu chữ chuyển sang metadata cục bộ thay vì placeholder, đồng thời giữ chi phí thực nếu provider đã trả. Fixture không upload và kiểm tra kích thước pass; toàn bộ `npm.cmd run check` PASS 170/170, lint PASS. F05/F06 giảm rủi ro false-success nhưng chưa đóng vì những provider/ingress khác và nghiệm thu thực tế còn mở.
 
+Lát cắt tiếp theo bổ sung receipt cho request Canvas, đưa lệnh Upscale cũ vào cùng Host, truyền hủy Runware tách nền/Upscale xuống transport, kiểm tra lại offline/trust sau cloud consent và bảo vệ file xuất trùng tên. Bộ kiểm tra đạt 178/178; VSIX mới qua kiểm tra cấu trúc và cài profile cô lập. `provider:smoke:local` chưa chạy được vì `ECONNREFUSED 127.0.0.1:8188`. Các mục UI E2E, provider thật, quality holdout, VM sạch, update/migration và pilot vẫn là blocker trước khi tuyên bố hoàn thành.
+
 ## 1. Kết luận điều hành
 
 Pixel Pilot có nền tảng của một **prototype nâng cao, đủ để thử nghiệm có hướng dẫn**, với định vị rõ: trợ lý xử lý tài nguyên ảnh ngay trong VS Code cho lập trình viên. Chưa đủ bằng chứng để kết luận sẵn sàng phát hành rộng rãi.
@@ -242,3 +244,11 @@ Mục tiêu đề xuất trên máy nghiệm thu được ghi cấu hình:
 Ưu tiên tiếp theo dựa trên pilot: nếu người dùng chủ yếu chuẩn bị asset, đầu tư batch/export presets và tích hợp dự án; nếu chủ yếu chỉnh đối tượng, đầu tư mask/box, compare và model routing. Chỉ mở rộng nhiều model hoặc giao diện web thành sản phẩm riêng khi có người dùng và tiêu chí nghiệm thu tương ứng.
 
 Mốc hoàn thiện cần đạt là: **người dùng mới cài được, làm xong công việc chính, hiểu kết quả và chi phí, khôi phục được dữ liệu, và nhóm có bằng chứng tái lập cho toàn bộ lời hứa của bản phát hành.**
+
+### Đánh giá tiếp theo — 08/11/2026
+
+Đã mở rộng hủy xuống transport Runware cho Canvas Enhance và Copilot thay nền; đường fallback dừng sau hủy. Xuất icon giữ tên thư mục riêng trong cùng Host, tránh ghi đè thư mục cũ và dọn file ghi dở. `npm.cmd run check` PASS 180/180, lint PASS; VSIX ngày 08/11 qua install smoke profile cô lập. F04–F07 và gate phát hành chưa đóng: cần xác nhận với provider/UI thực, holdout chất lượng, VM sạch, update/migration và pilot. Chi tiết candidate và giới hạn bằng chứng tại [release evidence](COPILOT_RELEASE_EVIDENCE.md).
+
+Batch đã nhận tín hiệu hủy từ VS Code cho tách nền/upscale; request Runware có thể abort và kết quả provider trả muộn bị bỏ trước khi ghi output. `npm.cmd run check` PASS 182/182, lint PASS; candidate mới qua install smoke profile cô lập. T07/T15 vẫn partial vì chưa nghiệm thu UI/provider live và ComfyUI/vectorize chưa dừng tác vụ nội bộ theo signal. Xem [release evidence](COPILOT_RELEASE_EVIDENCE.md) để đối chiếu hash candidate mới.
+
+Tiến độ tiếp theo: ComfyUI tách nền/upscale nay nhận signal ở upload, workflow và polling; Batch dọn output ghi dở khi hủy lúc ghi. `npm.cmd run check` PASS 185/185, lint PASS; candidate mới qua install smoke profile cô lập. T07/T15 vẫn partial vì chưa xác nhận trên ComfyUI/UI thật và job server đã xếp hàng có thể tiếp tục; các gate phát hành khác vẫn mở. Hash và phạm vi tại [release evidence](COPILOT_RELEASE_EVIDENCE.md).

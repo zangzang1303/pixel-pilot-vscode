@@ -12,6 +12,7 @@ import { ContextBuilder } from '../services/copilot/ContextBuilder';
 import { PriorityToolRunService } from '../services/copilot/PriorityToolRunService';
 import { PlannedPrioritySequenceService } from '../services/copilot/PlannedPrioritySequenceService';
 import { ExecutionEngine } from '../services/execution/ExecutionEngine';
+import { CanvasActionRunService, fingerprintCanvasAction } from '../services/execution/CanvasActionRunService';
 import { CopilotError } from '../services/execution/errors';
 import { ArtifactStore } from '../services/storage/ArtifactStore';
 import { CopilotOrchestrator } from '../services/copilot/CopilotOrchestrator';
@@ -72,9 +73,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
   private runLifecycle = new RunLifecycleService();
   private readonly telemetry = new SafeTelemetry();
   private webviewBridge = new WebviewBridge();
-  private readonly activeCanvasActionIds = new Set<string>();
-  private readonly canvasActionControllers = new Map<string, AbortController>();
-  private readonly cancelledCanvasActionIds = new Set<string>();
+  private readonly canvasActionRuns = new CanvasActionRunService();
   private readonly previews = new PreviewService<{ target: CanvasActionTarget; action: string; output: Buffer; fileName: string; options: Record<string, unknown> }, { dataUrl: string; savedPath: string; sessionId: string; nodeId: string; metrics: { model: string; latencyMs: number; costUsd?: number; costStatus: 'actual' | 'estimated' | 'unknown' } }>();
   private runwareAdapter: RunwareAdapter;
   private secretManager: SecretManager;
@@ -455,55 +454,14 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       }
 
       case 'upscale': {
-        try {
-          const { dataUrl, factor } = message;
-          if (!dataUrl) {
-            vscode.window.showWarningMessage('Chưa có ảnh để phóng to.');
-            break;
-          }
-
-          const target = this.captureCanvasAction({ sessionId: message.sessionId, parentId: message.nodeId });
-          await this.requireCanvasWorkspaceTrust();
-          const upscaleStartedAt = Date.now();
-
-          this.postToWebview({ command: 'upscaleStarted' });
-          const buffer = decodeImageInput(dataUrl).buffer;
-          const targetFactor = factor === 4 ? 4 : 2;
-          const imageProc = ImageProcessor.getInstance();
-
-          this.postToWebview({
-            command: 'upscaleProgress',
-            status: `Đang phóng to ${targetFactor}x bằng Sharp Lanczos3...`,
-            percentage: 50
-          });
-
-          const upscaledBuf = await imageProc.upscale(buffer, targetFactor);
-
-          const savedResult = await this.saveCanvasAction(target, 'upscale',
-            upscaledBuf,
-            `pixel_pilot_upscaled_${targetFactor}x_${Date.now()}.png`,
-            { factor: targetFactor, provider: 'sharp', mode: 'basic', model: `Sharp Lanczos3 + sharpen upscale ${targetFactor}x`,
-              latencyMs: Date.now() - upscaleStartedAt, costUsd: 0, costStatus: 'estimated' }
-          );
-
-          if (this.isCanvasTargetCurrent({ sessionId: target.sessionId, parentId: savedResult.nodeId })) {
-            await FileSystemUtils.autoInsertImageSnippet(savedResult.relativePath, `Upscaled ${targetFactor}x Image`);
-          }
-
-          this.postToWebview({
-            command: 'upscaleComplete',
-            dataUrl: savedResult.dataUrl,
-            sessionId: savedResult.sessionId,
-            nodeId: savedResult.nodeId,
-            savedPath: savedResult.relativePath,
-            message: `Phóng to ${targetFactor}x bằng Sharp Lanczos3 + sharpen.`
-          });
-
-          vscode.window.showInformationMessage(`✨ Phóng to ${targetFactor}x thành công: ${savedResult.relativePath}`);
-        } catch (err: any) {
-          this.postToWebview({ command: 'upscaleError', message: err.message });
-          vscode.window.showErrorMessage(`Upscale error: ${err.message}`);
-        }
+        // Legacy button/Studio messages use the same pinned, cancellable Canvas run.
+        await this.handleMessage({
+          ...message,
+          command: 'applyAction',
+          action: 'upscale',
+          options: { ...message.options, factor: message.factor === 4 ? 4 : 2,
+            forceLocal: true, insertSnippet: true }
+        });
         break;
       }
 
@@ -512,14 +470,27 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
         const clientRequestId = typeof message.requestId === 'string' && message.requestId.trim()
           ? message.requestId : undefined;
         const actionRequestId = clientRequestId || `legacy-canvas-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-        let actionController: AbortController | undefined;
         let actionStartedAt = 0;
-        const postActionEvent = (event: Record<string, unknown>) =>
+        let runStarted = false;
+        const postActionEvent = (event: Record<string, unknown>): void => {
+          if (runStarted) {
+            const state = event.command === 'actionComplete' ? 'succeeded'
+              : event.command === 'actionError' ? 'failed'
+                : event.command === 'actionCancelled' ? 'cancelled'
+                  : event.command === 'previewReady' ? 'awaiting_apply' : undefined;
+            if (state && !this.canvasActionRuns.finish(actionRequestId, state,
+              typeof event.planId === 'string' ? event.planId : undefined)) {
+              if (state !== 'cancelled' && this.canvasActionRuns.wasCancelled(actionRequestId)) {
+                if (state === 'awaiting_apply' && typeof event.planId === 'string') {
+                  this.previews.discard(event.planId);
+                }
+                postActionEvent({ command: 'actionCancelled' });
+              }
+              return;
+            }
+          }
           this.postToWebview({ ...event, requestId: clientRequestId });
-        if (this.activeCanvasActionIds.has(actionRequestId)) {
-          // The original request owns its terminal event. A repeated message must not start another edit.
-          break;
-        }
+        };
         if (!dataUrl) {
           vscode.window.showWarningMessage('Chưa có ảnh trên Canvas để xử lý.');
           postActionEvent({ command: 'actionError', message: 'No image' });
@@ -530,20 +501,46 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           postActionEvent({ command: 'actionError', message: 'Unsupported image action.' });
           break;
         }
-        this.activeCanvasActionIds.add(actionRequestId);
-        if (CANCELABLE_CANVAS_ACTIONS.has(action)) {
-          actionController = new AbortController();
-          this.canvasActionControllers.set(actionRequestId, actionController);
+        let fingerprint: string;
+        try {
+          fingerprint = fingerprintCanvasAction({
+            action, dataUrl, sessionId: message.sessionId, nodeId: message.nodeId, options
+          });
+        } catch {
+          postActionEvent({ command: 'actionError', message: 'Invalid image action options.' });
+          break;
         }
+        const begin = this.canvasActionRuns.begin(actionRequestId, fingerprint, CANCELABLE_CANVAS_ACTIONS.has(action));
+        if (begin.kind === 'conflict') {
+          this.postToWebview({ command: 'actionConflict', requestId: clientRequestId,
+            message: 'Request ID was reused with different image, action, or options.' });
+          break;
+        }
+        if (begin.kind === 'existing') {
+          if (begin.state === 'awaiting_apply' && begin.previewId) {
+            const pending = this.previews.get(begin.previewId);
+            if (pending && pending.expiresAt > Date.now()) {
+              this.postToWebview({ command: 'previewReady', requestId: clientRequestId,
+                previewUrl: `data:image/png;base64,${pending.payload.output.toString('base64')}`,
+                originalUrl: dataUrl, operationLabel: 'FLUX.3 Klein box edit', planId: begin.previewId });
+              break;
+            }
+          }
+          this.postToWebview({ command: 'actionStatus', requestId: clientRequestId, state: begin.state });
+          if (begin.state === 'succeeded') this.broadcastSessionState();
+          break;
+        }
+        runStarted = true;
+        const actionSignal = this.canvasActionRuns.signal(actionRequestId);
         const saveAction = (
           target: CanvasActionTarget, action: string, output: Buffer, fileName: string,
           options?: Record<string, unknown>, preview?: Buffer
-        ) => this.saveCanvasAction(target, action, output, fileName, options, preview, actionController?.signal);
+        ) => this.saveCanvasAction(target, action, output, fileName, options, preview, actionSignal);
 
         try {
           const target = this.captureCanvasAction({ sessionId: message.sessionId, parentId: message.nodeId });
           await this.policy.requireTrustedWorkspace('Image editing');
-          if (actionController?.signal.aborted) throw new Error('Operation cancelled.');
+          if (actionSignal?.aborted) throw new Error('Operation cancelled.');
           actionStartedAt = Date.now();
           postActionEvent({ command: 'actionStarted', label: `Đang thực hiện ${action}...` });
           const decodedInput = decodeImageInput(dataUrl);
@@ -558,8 +555,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               throw new Error('Thiếu vùng chọn hoặc mô tả chỉnh sửa FLUX.3 Klein.');
             }
             await this.policy.requireCloudConsent('Runware', 'FLUX.3 Klein bounding box edit');
-            const result = await this.runwareAdapter.editBoundingBox(dataUrl, box, description, instruction, actionController!.signal);
-            if (actionController!.signal.aborted) throw new Error('Provider request cancelled.');
+            const result = await this.runwareAdapter.editBoundingBox(dataUrl, box, description, instruction, actionSignal);
+            if (actionSignal?.aborted) throw new Error('Provider request cancelled.');
             if (!result.success || !result.outputImageUri) throw new Error(result.error || 'FLUX.3 Klein không trả về ảnh.');
             const output = decodeImageInput(result.outputImageUri).buffer;
             const editOptions = {
@@ -586,27 +583,36 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             if (comfyReady) {
               try {
                 const res = await comfy.removeBackground(dataUrl);
+                if (actionSignal?.aborted) throw new Error('Operation cancelled.');
                 if (res.success && res.outputImageUri) {
                   outBuf = decodeImageInput(res.outputImageUri).buffer;
                   provenance = { ...backgroundRemovalProvenance(res, 'comfyui'),
                     costUsd: res.metrics.costUsd, costStatus: res.metrics.costStatus };
                 }
-              } catch { /* Use the basic local cutout below. */ }
+              } catch (error) {
+                if (actionSignal?.aborted) throw error;
+                /* Use the basic local cutout below. */
+              }
             } else {
               const runwareKey = await this.secretManager.getApiKey();
               if (runwareKey && runwareKey.trim().length > 10) {
                 await this.policy.requireCloudConsent('Runware', 'Background removal');
                 try {
                   const adapter = new RunwareAdapter(runwareKey, () => this.secretManager.getApiKey());
-                  const res = await adapter.removeBackground(dataUrl);
+                  const res = await adapter.removeBackground(dataUrl, { signal: actionSignal });
+                  if (actionSignal?.aborted) throw new Error('Operation cancelled.');
                   if (res.success && res.outputImageUri) {
                     outBuf = decodeImageInput(res.outputImageUri).buffer;
                     provenance = { ...backgroundRemovalProvenance(res, 'runware'),
                       costUsd: res.metrics.costUsd, costStatus: res.metrics.costStatus };
                   }
-                } catch { /* Use the basic local cutout below. */ }
+                } catch (error) {
+                  if (actionSignal?.aborted) throw error;
+                  /* Use the basic local cutout below. */
+                }
               }
             }
+            if (actionSignal?.aborted) throw new Error('Operation cancelled.');
             if (!outBuf) outBuf = await imageProc.removeBackground(buffer);
 
             const savedResult = await saveAction(target, action, outBuf, `pixel_pilot_cutout_${Date.now()}.png`, {
@@ -624,43 +630,55 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             });
             vscode.window.showInformationMessage(`✨ Tách nền bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'upscale') {
-            const factor = (options?.factor as 2 | 4) || 2;
+            const factor: 2 | 4 = options?.factor === 4 ? 4 : 2;
             let outBuf: Buffer | undefined;
             let provenance: { provider: string; mode: string; model: string; costUsd?: number; costStatus?: string } = {
               provider: 'sharp', mode: 'basic', model: `Sharp Lanczos3 + sharpen upscale ${factor}x`
             };
-            const comfy = new ComfyUIAdapter();
-            const comfyOnline = await comfy.ping();
-            if (comfyOnline) {
-              try {
-                const res = await comfy.upscale(dataUrl, factor);
-                if (res.success && res.outputImageUri) {
-                  outBuf = decodeImageInput(res.outputImageUri).buffer;
-                  const model = res.metrics.model;
-                  const isComfyModel = /^ComfyUI\b/i.test(model);
-                  const isSharpBasic = /^Sharp Lanczos3 \+ sharpen upscale\b/i.test(model);
-                  provenance = { provider: isComfyModel ? 'comfyui' : isSharpBasic ? 'sharp' : 'unknown',
-                    mode: isComfyModel ? 'model' : isSharpBasic ? 'basic' : 'unknown', model,
-                    costUsd: res.metrics.costUsd, costStatus: res.metrics.costStatus };
-                }
-              } catch { /* Use local Sharp upscale below. */ }
-            } else {
-              const runwareKey = await this.secretManager.getApiKey();
-              if (runwareKey && runwareKey.trim().length > 10) {
-                await this.policy.requireCloudConsent('Runware', `Upscale ${factor}x`);
+            if (!options?.forceLocal) {
+              const comfy = new ComfyUIAdapter();
+              const comfyOnline = await comfy.ping();
+              if (comfyOnline) {
                 try {
-                  const adapter = new RunwareAdapter(runwareKey, () => this.secretManager.getApiKey());
-                  const res = await adapter.upscale(dataUrl, factor);
-                  const resolved = await resolveAdapterImageResult(res, () => imageProc.upscale(buffer, factor),
-                    `Sharp Lanczos3 + sharpen upscale ${factor}x`);
-                  outBuf = resolved.buffer;
-                  provenance = resolved.provenance;
-                } catch { /* Use local Sharp upscale below. */ }
+                  const res = await comfy.upscale(dataUrl, factor);
+                  if (actionSignal?.aborted) throw new Error('Operation cancelled.');
+                  if (res.success && res.outputImageUri) {
+                    outBuf = decodeImageInput(res.outputImageUri).buffer;
+                    const model = res.metrics.model;
+                    const isComfyModel = /^ComfyUI\b/i.test(model);
+                    const isSharpBasic = /^Sharp Lanczos3 \+ sharpen upscale\b/i.test(model);
+                    provenance = { provider: isComfyModel ? 'comfyui' : isSharpBasic ? 'sharp' : 'unknown',
+                      mode: isComfyModel ? 'model' : isSharpBasic ? 'basic' : 'unknown', model,
+                      costUsd: res.metrics.costUsd, costStatus: res.metrics.costStatus };
+                  }
+                } catch (error) {
+                  if (actionSignal?.aborted) throw error;
+                  /* Use local Sharp upscale below. */
+                }
+              } else {
+                const runwareKey = await this.secretManager.getApiKey();
+                if (runwareKey && runwareKey.trim().length > 10) {
+                  await this.policy.requireCloudConsent('Runware', `Upscale ${factor}x`);
+                  try {
+                    const adapter = new RunwareAdapter(runwareKey, () => this.secretManager.getApiKey());
+                    const res = await adapter.upscale(dataUrl, factor, actionSignal);
+                    if (actionSignal?.aborted) throw new Error('Operation cancelled.');
+                    const resolved = await resolveAdapterImageResult(res, () => imageProc.upscale(buffer, factor),
+                      `Sharp Lanczos3 + sharpen upscale ${factor}x`);
+                    outBuf = resolved.buffer;
+                    provenance = resolved.provenance;
+                  } catch (error) {
+                    if (actionSignal?.aborted) throw error;
+                    /* Use local Sharp upscale below. */
+                  }
+                }
               }
             }
+            if (actionSignal?.aborted) throw new Error('Operation cancelled.');
             if (!outBuf) outBuf = await imageProc.upscale(buffer, factor);
+            const { forceLocal: _forceLocal, insertSnippet: _insertSnippet, ...upscaleOptions } = options || {};
             const savedResult = await saveAction(target, action, outBuf, `pixel_pilot_upscale_${factor}x_${Date.now()}.png`, {
-              ...options, latencyMs: Date.now() - actionStartedAt, ...provenance
+              ...upscaleOptions, factor, latencyMs: Date.now() - actionStartedAt, ...provenance
             });
             const modeLabel = provenance.mode === 'basic' ? 'Sharp (Lanczos3 + sharpen)' :
               provenance.provider === 'runware' ? 'Runware' : provenance.provider === 'comfyui' ? 'ComfyUI' : 'nguồn chưa xác định';
@@ -672,6 +690,13 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
               savedPath: savedResult.relativePath,
               message: `Phóng to ${factor}x hoàn tất bằng ${modeLabel}.`
             });
+            if (options?.insertSnippet && this.isCanvasTargetCurrent({ sessionId: target.sessionId, parentId: savedResult.nodeId })) {
+              try {
+                await FileSystemUtils.autoInsertImageSnippet(savedResult.relativePath, `Upscaled ${factor}x Image`);
+              } catch (snippetError: any) {
+                vscode.window.showWarningMessage(`Ảnh đã lưu, nhưng không thể chèn snippet: ${snippetError?.message || snippetError}`);
+              }
+            }
             vscode.window.showInformationMessage(`✨ Phóng to ${factor}x bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'enhance') {
             const type = options?.type || 'clarity';
@@ -679,11 +704,17 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const runwareKey = await this.secretManager.getApiKey();
             if (runwareKey && runwareKey.trim().length > 10) {
               await this.policy.requireCloudConsent('Runware', `Enhance ${type}`);
+              if (actionSignal?.aborted) throw new Error('Operation cancelled.');
               try {
                 const adapter = new RunwareAdapter(runwareKey, () => this.secretManager.getApiKey());
-                adapterResult = await adapter.enhanceImage(dataUrl, type);
-              } catch { /* Use local Sharp enhancement below. */ }
+                adapterResult = await adapter.enhanceImage(dataUrl, type, actionSignal);
+                if (actionSignal?.aborted) throw new Error('Operation cancelled.');
+              } catch (error) {
+                if (actionSignal?.aborted) throw error;
+                /* Use local Sharp enhancement below. */
+              }
             }
+            if (actionSignal?.aborted) throw new Error('Operation cancelled.');
             const resolved = await resolveAdapterImageResult(adapterResult, () => imageProc.enhance(buffer, type),
               `Sharp local enhance (${type})`);
             const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_enhanced_${Date.now()}.png`,
@@ -900,27 +931,19 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             throw new Error(`Unsupported image action: ${action}`);
           }
         } catch (err: any) {
-          const wasCancelled = actionRequestId ? this.cancelledCanvasActionIds.delete(actionRequestId) : false;
+          const wasCancelled = this.canvasActionRuns.wasCancelled(actionRequestId);
           if (wasCancelled) postActionEvent({ command: 'actionCancelled' });
           else {
             postActionEvent({ command: 'actionError', message: err.message });
             vscode.window.showErrorMessage(`Lỗi ${action}: ${err.message}`);
           }
-        } finally {
-          this.activeCanvasActionIds.delete(actionRequestId);
-          if (actionRequestId) this.canvasActionControllers.delete(actionRequestId);
-          if (actionRequestId) this.cancelledCanvasActionIds.delete(actionRequestId);
         }
         break;
       }
 
       case 'cancelCanvasAction': {
         const requestId = typeof message.requestId === 'string' ? message.requestId : '';
-        const controller = this.canvasActionControllers.get(requestId);
-        if (controller && !controller.signal.aborted) {
-          this.cancelledCanvasActionIds.add(requestId);
-          controller.abort();
-        }
+        this.canvasActionRuns.cancel(requestId);
         break;
       }
 
@@ -1869,6 +1892,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     const input = operation === 'generate' ? Buffer.alloc(0) : decodeImageInput(this.uriToPathMap.get(image) || image).buffer;
     let result: AIResult;
     const operationStartedAt = Date.now();
+    const runSignal = requestId ? this.runLifecycle.signal(requestId) : undefined;
     const localResult = (buffer: Buffer, model: string): AIResult => ({ success: true, outputImageUri: `data:image/png;base64,${buffer.toString('base64')}`, metrics: { model, latencyMs: 0, costUsd: 0 } });
     if (requestId) {
       this.postToWebview({
@@ -1895,9 +1919,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
                 provider: 'runware'
               });
             }
-            result = await this.runwareAdapter.removeBackground(image);
+            result = await this.runwareAdapter.removeBackground(image, { signal: runSignal });
+            if (runSignal?.aborted) throw new Error('Operation cancelled.');
             if (result.success && result.outputImageUri) break;
           } catch (cloudErr) {
+            if (runSignal?.aborted) throw cloudErr;
             console.warn('[PixelPilot] Cloud removeBackground failed, falling back to local adapter:', cloudErr);
           }
         }
@@ -1910,6 +1936,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             provider: 'sharp'
           });
         }
+        if (runSignal?.aborted) throw new Error('Operation cancelled.');
         result = await adapter.removeBackground(image);
         break;
       }
@@ -1927,9 +1954,11 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
                 provider: 'runware'
               });
             }
-            result = await this.runwareAdapter.replaceBackground(image, intent.promptText || prompt);
+            result = await this.runwareAdapter.replaceBackground(image, intent.promptText || prompt, runSignal);
+            if (runSignal?.aborted) throw new Error('Operation cancelled.');
             if (result.success && result.outputImageUri) break;
           } catch (cloudErr) {
+            if (runSignal?.aborted) throw cloudErr;
             console.warn('[PixelPilot] Cloud replaceBackground failed, falling back to local adapter:', cloudErr);
           }
         }
@@ -1942,6 +1971,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             provider: 'ai'
           });
         }
+        if (runSignal?.aborted) throw new Error('Operation cancelled.');
         result = await adapter.replaceBackground(image, intent.promptText || prompt);
         break;
       }

@@ -62,8 +62,6 @@ interface SettingsSidebarProps {
   onRefreshModels: () => void;
   onPing: () => void;
   hasActiveImage: boolean;
-  onUpscale: () => void;
-  isUpscaling: boolean;
   // New Unified Props
   activeTab: StudioTab;
   setActiveTab: (tab: StudioTab) => void;
@@ -107,8 +105,6 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
   onRefreshModels,
   onPing,
   hasActiveImage,
-  onUpscale,
-  isUpscaling,
   activeTab,
   setActiveTab,
   onApplyAction,

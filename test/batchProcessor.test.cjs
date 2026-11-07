@@ -5,11 +5,26 @@ const os = require('node:os');
 const path = require('node:path');
 const Module = require('node:module');
 
+const createCancellationToken = () => {
+  const listeners = new Set();
+  return {
+    isCancellationRequested: false,
+    onCancellationRequested(listener) {
+      listeners.add(listener);
+      return { dispose: () => listeners.delete(listener) };
+    },
+    cancel() {
+      this.isCancellationRequested = true;
+      for (const listener of listeners) listener();
+    }
+  };
+};
+
 const vscode = {
   Uri: { file: fsPath => ({ fsPath }) },
   ProgressLocation: { Notification: 1 },
   window: {
-    withProgress: async (_options, callback) => callback({ report() {} }, { isCancellationRequested: false })
+    withProgress: async (_options, callback) => callback({ report() {} }, createCancellationToken())
   },
   workspace: { fs: { readFile: uri => fs.promises.readFile(uri.fsPath) } }
 };
@@ -224,6 +239,128 @@ test('10-image batch keeps interleaved successes and retries only failed inputs'
     for (const result of first.results.filter(item => item.success)) assert.ok(fs.existsSync(result.outputPath));
     assert.ok(fs.existsSync(retry.manifestPath));
   } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('batch cancellation aborts an in-flight Runware removal and skips later inputs', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixelpilot-batch-abort-'));
+  const outputDir = path.join(root, 'output');
+  const token = createCancellationToken();
+  const originalWithProgress = vscode.window.withProgress;
+  vscode.window.withProgress = (_options, callback) => callback({ report() {} }, token);
+  let notifyStarted;
+  const started = new Promise(resolve => { notifyStarted = resolve; });
+  let calls = 0;
+  try {
+    const images = [0, 1].map(index => {
+      const filePath = path.join(root, `image${index}.png`);
+      fs.writeFileSync(filePath, `source-${index}`);
+      return { fsPath: filePath };
+    });
+    const processor = new BatchProcessor({
+      name: 'Runware',
+      removeBackground: (_image, options) => {
+        calls++;
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener('abort', () => reject(new Error('Provider request cancelled.')), { once: true });
+          notifyStarted(options.signal);
+        });
+      }
+    });
+    const pending = processor.executeBatch(images, 'remove_background', outputDir);
+    const signal = await started;
+    token.cancel();
+    const summary = await pending;
+    assert.equal(signal.aborted, true);
+    assert.equal(calls, 1);
+    assert.equal(summary.succeeded, 0);
+    assert.equal(summary.failed, 0);
+    assert.equal(summary.results.length, 0);
+    assert.equal(JSON.parse(fs.readFileSync(summary.manifestPath, 'utf8')).state, 'cancelled');
+    assert.equal(fs.existsSync(path.join(outputDir, 'image0_remove_background.png')), false);
+  } finally {
+    vscode.window.withProgress = originalWithProgress;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('batch discards a late upscale result after cancellation', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixelpilot-batch-late-'));
+  const outputDir = path.join(root, 'output');
+  const token = createCancellationToken();
+  const originalWithProgress = vscode.window.withProgress;
+  vscode.window.withProgress = (_options, callback) => callback({ report() {} }, token);
+  let notifyStarted;
+  const started = new Promise(resolve => { notifyStarted = resolve; });
+  let finishProvider;
+  try {
+    const imagePath = path.join(root, 'image.png');
+    fs.writeFileSync(imagePath, 'source');
+    const processor = new BatchProcessor({
+      name: 'ComfyUI Local GPU',
+      upscale: (_image, _factor, signal) => new Promise(resolve => {
+        finishProvider = () => resolve({ success: true, outputImageUri: output });
+        notifyStarted(signal);
+      })
+    });
+    const pending = processor.executeBatch([{ fsPath: imagePath }], 'upscale', outputDir);
+    const signal = await started;
+    token.cancel();
+    finishProvider();
+    const summary = await pending;
+    assert.equal(signal.aborted, true);
+    assert.equal(summary.succeeded, 0);
+    assert.equal(summary.failed, 0);
+    assert.equal(JSON.parse(fs.readFileSync(summary.manifestPath, 'utf8')).state, 'cancelled');
+    assert.equal(fs.existsSync(path.join(outputDir, 'image_upscale.png')), false);
+  } finally {
+    vscode.window.withProgress = originalWithProgress;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('batch removes its partial output when cancellation arrives during a write', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixelpilot-batch-partial-'));
+  const outputDir = path.join(root, 'output');
+  const token = createCancellationToken();
+  const originalWithProgress = vscode.window.withProgress;
+  const originalOpen = fs.promises.open;
+  vscode.window.withProgress = (_options, callback) => callback({ report() {} }, token);
+  let notifyPartial;
+  const partialWritten = new Promise(resolve => { notifyPartial = resolve; });
+  let resumeWrite;
+  const writeGate = new Promise(resolve => { resumeWrite = resolve; });
+  try {
+    const imagePath = path.join(root, 'image.png');
+    fs.writeFileSync(imagePath, 'source');
+    fs.promises.open = async (filePath, flags) => {
+      const handle = await originalOpen(filePath, flags);
+      if (path.basename(filePath) !== 'image_remove_background.png') return handle;
+      return {
+        writeFile: async buffer => {
+          await handle.writeFile(buffer.subarray(0, 4));
+          notifyPartial();
+          await writeGate;
+        },
+        close: () => handle.close()
+      };
+    };
+    const pending = new BatchProcessor(provider({ count: 0 })).executeBatch(
+      [{ fsPath: imagePath }], 'remove_background', outputDir
+    );
+    await partialWritten;
+    token.cancel();
+    resumeWrite();
+    const summary = await pending;
+    assert.equal(summary.succeeded, 0);
+    assert.equal(summary.failed, 0);
+    assert.equal(JSON.parse(fs.readFileSync(summary.manifestPath, 'utf8')).state, 'cancelled');
+    assert.equal(fs.existsSync(path.join(outputDir, 'image_remove_background.png')), false);
+  } finally {
+    resumeWrite();
+    fs.promises.open = originalOpen;
+    vscode.window.withProgress = originalWithProgress;
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

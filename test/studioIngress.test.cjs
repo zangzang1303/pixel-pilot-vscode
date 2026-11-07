@@ -17,4 +17,12 @@ test('Studio routes both image-action message names through the shared Copilot h
   assert.match(upscaleBlock, /await this\._copilot\.handleStudioMessage\(message\)/,
     'The separate Studio upscale button must use the shared host.');
   assert.doesNotMatch(upscaleBlock, /saveCanvasAction|ImageProcessor/, 'Studio must not retain a second upscale pipeline.');
+
+  const provider = fs.readFileSync(path.join(__dirname, '..', 'src', 'providers', 'PixelPilotViewProvider.ts'), 'utf8');
+  const legacyUpscale = provider.slice(provider.indexOf("case 'upscale': {"), provider.indexOf("case 'applyAction': {"));
+  assert.match(legacyUpscale, /await this\.handleMessage\(\{[\s\S]*command: 'applyAction'/,
+    'Legacy upscale must use the Canvas request lifecycle.');
+  assert.doesNotMatch(legacyUpscale, /saveCanvasAction|ImageProcessor/, 'Host must not retain a separate upscale executor.');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'webview-ui', 'src', 'App.tsx'), 'utf8');
+  assert.doesNotMatch(app, /command: 'upscale'/, 'Current UI must use applyAction for Upscale.');
 });

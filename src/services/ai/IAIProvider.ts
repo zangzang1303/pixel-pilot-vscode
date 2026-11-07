@@ -7,12 +7,12 @@ export interface IAIProvider {
   /**
    * Tách nền đối tượng sử dụng SOTA Alpha Matting (BiRefNet)
    */
-  removeBackground(imageInput: string, options?: { model?: string }): Promise<AIResult>;
+  removeBackground(imageInput: string, options?: { model?: string; signal?: AbortSignal }): Promise<AIResult>;
 
   /**
    * Nâng độ phân giải siêu nét (Super Resolution 2x/4x)
    */
-  upscale(imageInput: string, factor: 2 | 4): Promise<AIResult>;
+  upscale(imageInput: string, factor: 2 | 4, signal?: AbortSignal): Promise<AIResult>;
 
   /**
    * Chuyển đổi ảnh bitmap (PNG/JPG) sang định dạng vector SVG

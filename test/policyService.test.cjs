@@ -36,4 +36,10 @@ test('cloud policy checks Workspace Trust and requires a fresh native consent', 
   await assert.rejects(() => policy.requireCloudConsent('Runware', 'Upscale'), /offline mode/i);
   await assert.rejects(() => policy.assertCloudAllowed('Runware', 'Batch Upscale'), /offline mode/i);
   assert.equal(dialogs, 3);
+  offline = false;
+  const changedDuringConsent = new PolicyService(async () => { offline = true; return true; });
+  await assert.rejects(() => changedDuringConsent.requireCloudConsent('Runware', 'Upscale'), /offline mode/i);
+  offline = false;
+  const trustRevokedDuringConsent = new PolicyService(async () => { vscode.workspace.isTrusted = false; return true; });
+  await assert.rejects(() => trustRevokedDuringConsent.requireCloudConsent('Runware', 'Upscale'), /not trusted/i);
 });

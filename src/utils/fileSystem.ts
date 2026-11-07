@@ -11,6 +11,31 @@ export interface SavedImageResult {
  * Utility functions for Workspace File System interactions and Code Snippet insertions.
  */
 export class FileSystemUtils {
+  private static readonly pendingWorkspacePaths = new Set<string>();
+
+  private static async reserveUnusedPath(parent: vscode.Uri, preferredName: string, isFile: boolean): Promise<{
+    uri: vscode.Uri; name: string; release: () => void;
+  }> {
+    const parsed = path.parse(preferredName);
+    for (let suffix = 0; suffix < 1000; suffix++) {
+      const candidate = suffix === 0 ? preferredName
+        : isFile ? `${parsed.name}_${suffix}${parsed.ext}` : `${preferredName}_${suffix}`;
+      const uri = vscode.Uri.joinPath(parent, candidate);
+      const key = uri.toString();
+      if (this.pendingWorkspacePaths.has(key)) continue;
+      try {
+        await vscode.workspace.fs.stat(uri);
+        continue;
+      } catch (error) {
+        if ((error as vscode.FileSystemError).code !== 'FileNotFound') throw error;
+      }
+      if (this.pendingWorkspacePaths.has(key)) continue;
+      this.pendingWorkspacePaths.add(key);
+      return { uri, name: candidate, release: () => this.pendingWorkspacePaths.delete(key) };
+    }
+    throw new Error('No available workspace name for asset export.');
+  }
+
   /**
    * Save an image buffer to the `assets/` directory of the active workspace.
    * Creates the directory if it does not already exist.
@@ -50,16 +75,19 @@ export class FileSystemUtils {
         ? cleanName
         : `${cleanName}.png`;
 
-    const fileUri = vscode.Uri.joinPath(assetsDirUri, finalFileName);
+    const reserved = await this.reserveUnusedPath(assetsDirUri, finalFileName, true);
     const data = imageBuffer instanceof Buffer ? new Uint8Array(imageBuffer) : imageBuffer;
+    try {
+      await vscode.workspace.fs.writeFile(reserved.uri, data);
+    } finally {
+      reserved.release();
+    }
 
-    await vscode.workspace.fs.writeFile(fileUri, data);
-
-    const relativePath = `./assets/${finalFileName}`;
+    const relativePath = `./assets/${reserved.name}`;
     return {
-      uri: fileUri,
+      uri: reserved.uri,
       relativePath,
-      fileName: finalFileName
+      fileName: reserved.name
     };
   }
 
@@ -75,19 +103,39 @@ export class FileSystemUtils {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     const root = workspaceFolder?.uri || vscode.Uri.file(process.cwd());
     const safeName = bundleName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'pixel_pilot_icons';
-    const directory = vscode.Uri.joinPath(root, 'assets', safeName);
-    await vscode.workspace.fs.createDirectory(directory);
-
+    const assetsDir = vscode.Uri.joinPath(root, 'assets');
+    await vscode.workspace.fs.createDirectory(assetsDir);
+    const reserved = await this.reserveUnusedPath(assetsDir, safeName, false);
     const files: string[] = [];
-    for (const icon of icons) {
-      const fileName = `icon-${icon.size}x${icon.size}.png`;
-      await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(directory, fileName), new Uint8Array(icon.buffer));
-      files.push(fileName);
+    const attemptedFiles: vscode.Uri[] = [];
+    let created = false;
+    try {
+      await vscode.workspace.fs.createDirectory(reserved.uri);
+      created = true;
+      for (const icon of icons) {
+        const fileName = `icon-${icon.size}x${icon.size}.png`;
+        const iconUri = vscode.Uri.joinPath(reserved.uri, fileName);
+        attemptedFiles.push(iconUri);
+        await vscode.workspace.fs.writeFile(iconUri, new Uint8Array(icon.buffer));
+        files.push(fileName);
+      }
+    } catch (error) {
+      if (created) {
+        for (const iconUri of attemptedFiles.reverse()) {
+          try { await vscode.workspace.fs.delete(iconUri, { useTrash: false }); }
+          catch { /* Best-effort cleanup of a partial export. */ }
+        }
+        try { await vscode.workspace.fs.delete(reserved.uri, { useTrash: false }); }
+        catch { /* Preserve the original export error. */ }
+      }
+      throw error;
+    } finally {
+      reserved.release();
     }
 
     return {
-      directory,
-      relativeDirectory: `./assets/${safeName}`,
+      directory: reserved.uri,
+      relativeDirectory: `./assets/${reserved.name}`,
       files
     };
   }

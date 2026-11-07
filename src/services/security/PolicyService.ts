@@ -36,6 +36,7 @@ export class PolicyService {
     const webviewDecision = this.webviewConfirmation ? await this.webviewConfirmation(provider, purpose) : undefined;
     if (webviewDecision !== undefined) {
       if (!webviewDecision) throw new Error('Cloud operation was not approved.');
+      await this.assertCloudAllowed(provider, purpose);
       return;
     }
     const choice = await vscode.window.showWarningMessage(
@@ -46,5 +47,6 @@ export class PolicyService {
     if (choice !== 'Continue') {
       throw new Error('Cloud operation was not approved.');
     }
+    await this.assertCloudAllowed(provider, purpose);
   }
 }

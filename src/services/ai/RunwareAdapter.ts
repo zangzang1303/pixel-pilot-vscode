@@ -112,6 +112,7 @@ export class RunwareAdapter implements IAIProvider {
   }
 
   public async dispatchTasks(tasks: any[], signal?: AbortSignal): Promise<{ data: any; latencyMs: number }> {
+    if (signal?.aborted) throw new Error('Provider request cancelled.');
     // A connected adapter must recheck the vault immediately before each send.
     // Clearing a key cannot leave an old in-memory adapter authorized.
     const key = this.resolveApiKey ? (await this.resolveApiKey()).trim() : this.apiKey;
@@ -147,6 +148,7 @@ export class RunwareAdapter implements IAIProvider {
     }
 
     const json = (await response.json()) as any;
+    if (signal?.aborted) throw new Error('Provider request cancelled.');
     if (json.errors && json.errors.length > 0) {
       const messages = json.errors.map((e: any) => e.message || JSON.stringify(e)).join(', ');
       throw new Error(`Lỗi từ Runware API: ${messages}`);
@@ -189,7 +191,7 @@ export class RunwareAdapter implements IAIProvider {
   /**
    * 1. Remove Background (BiRefNet SOTA Matting)
    */
-  public async removeBackground(imageInput: string, options?: { model?: string }): Promise<AIResult> {
+  public async removeBackground(imageInput: string, options?: { model?: string; signal?: AbortSignal }): Promise<AIResult> {
     try {
       const img = this.normalizeImageInput(imageInput);
       const taskUUID = crypto.randomUUID();
@@ -206,7 +208,8 @@ export class RunwareAdapter implements IAIProvider {
         }
       ];
 
-      const { data, latencyMs } = await this.dispatchTasks(payload);
+      const { data, latencyMs } = await this.dispatchTasks(payload, options?.signal);
+      if (options?.signal?.aborted) throw new Error('Provider request cancelled.');
       const res = this.selectTaskResult(data, taskUUID);
       const outputImage = this.extractImageOutput(res);
 
@@ -238,7 +241,7 @@ export class RunwareAdapter implements IAIProvider {
   /**
    * 2. Upscale (2x / 4x Super-Resolution)
    */
-  public async upscale(imageInput: string, factor: 2 | 4): Promise<AIResult> {
+  public async upscale(imageInput: string, factor: 2 | 4, signal?: AbortSignal): Promise<AIResult> {
     const startedAt = Date.now();
     try {
       const img = this.normalizeImageInput(imageInput);
@@ -254,7 +257,8 @@ export class RunwareAdapter implements IAIProvider {
         }
       ];
 
-      const { data, latencyMs } = await this.dispatchTasks(payload);
+      const { data, latencyMs } = await this.dispatchTasks(payload, signal);
+      if (signal?.aborted) throw new Error('Provider request cancelled.');
       const res = this.selectTaskResult(data, taskUUID);
       const outputImage = this.extractImageOutput(res);
 
@@ -272,7 +276,7 @@ export class RunwareAdapter implements IAIProvider {
         }
       };
     } catch (err: any) {
-      if (err.message && (err.message.includes('Insufficient credits') || err.message.includes('400') || err.message.includes('Chưa cấu hình'))) {
+      if (!signal?.aborted && err.message && (err.message.includes('Insufficient credits') || err.message.includes('400') || err.message.includes('Chưa cấu hình'))) {
         try {
           const buf = this.getBufferFromInput(imageInput);
           const outBuf = await ImageProcessor.getInstance().upscale(buf, factor);
@@ -569,7 +573,7 @@ export class RunwareAdapter implements IAIProvider {
   /**
    * 9. Generative AI Background Replacement
    */
-  public async replaceBackground(imageInput: string, prompt: string): Promise<AIResult> {
+  public async replaceBackground(imageInput: string, prompt: string, signal?: AbortSignal): Promise<AIResult> {
     try {
       const img = this.normalizeImageInput(imageInput);
       const taskUUID = crypto.randomUUID();
@@ -587,7 +591,8 @@ export class RunwareAdapter implements IAIProvider {
         }
       ];
 
-      const { data, latencyMs } = await this.dispatchTasks(payload);
+      const { data, latencyMs } = await this.dispatchTasks(payload, signal);
+      if (signal?.aborted) throw new Error('Provider request cancelled.');
       const res = this.selectTaskResult(data, taskUUID);
       const outputImage = this.extractImageOutput(res);
 
@@ -691,7 +696,7 @@ export class RunwareAdapter implements IAIProvider {
   /**
    * 11. AI Image Enhancement & Color Grade
    */
-  public async enhanceImage(imageInput: string, type: 'clarity' | 'hdr' | 'face_restore' | 'vintage' = 'clarity'): Promise<AIResult> {
+  public async enhanceImage(imageInput: string, type: 'clarity' | 'hdr' | 'face_restore' | 'vintage' = 'clarity', signal?: AbortSignal): Promise<AIResult> {
     const startedAt = Date.now();
     const enhancePrompts: Record<string, string> = {
       clarity: 'ultra sharp detail, 8k uhd, crystal clear focus, high fidelity, deblur',
@@ -716,7 +721,8 @@ export class RunwareAdapter implements IAIProvider {
         }
       ];
 
-      const { data, latencyMs } = await this.dispatchTasks(payload);
+      const { data, latencyMs } = await this.dispatchTasks(payload, signal);
+      if (signal?.aborted) throw new Error('Provider request cancelled.');
       const res = this.selectTaskResult(data, taskUUID);
       const outputImage = this.extractImageOutput(res);
 
@@ -734,7 +740,7 @@ export class RunwareAdapter implements IAIProvider {
         }
       };
     } catch (err: any) {
-      if (err.message && (err.message.includes('Insufficient credits') || err.message.includes('400') || err.message.includes('Chưa cấu hình'))) {
+      if (!signal?.aborted && err.message && (err.message.includes('Insufficient credits') || err.message.includes('400') || err.message.includes('Chưa cấu hình'))) {
         try {
           const buf = this.getBufferFromInput(imageInput);
           const outBuf = await ImageProcessor.getInstance().enhance(buf, type);

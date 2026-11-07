@@ -2,6 +2,8 @@
 
 Tài liệu này mô tả kịch bản demo **có điều kiện**. Không trình bày số liệu hoặc capability của provider như kết quả đã kiểm chứng nếu chưa có log, môi trường, model và artifact tương ứng trong [release evidence](COPILOT_RELEASE_EVIDENCE.md). Tiến độ kỹ thuật hiện tại ở [COPILOT_IMPLEMENTATION_PROGRESS.md](COPILOT_IMPLEMENTATION_PROGRESS.md).
 
+Trạng thái 07/11/2026: build và 178/178 regression tests pass; VSIX mới qua kiểm tra cấu trúc và cài vào profile VS Code cô lập, nhưng local ComfyUI smoke không kết nối được `127.0.0.1:8188`. Khi trình bày, gọi đây là tiến độ kỹ thuật và demo có điều kiện; chưa tuyên bố đã nghiệm thu provider/model, UI toàn luồng, Windows sạch, chất lượng ảnh hoặc pilot. Hash VSIX và phạm vi kiểm tra nằm trong release evidence.
+
 ## Chuẩn bị trước buổi demo
 
 1. Cài VSIX vào VS Code profile cô lập, kiểm tra activation, Sidebar và Studio. Ghi phiên bản VS Code, OS, VSIX SHA-256 và extension ID.

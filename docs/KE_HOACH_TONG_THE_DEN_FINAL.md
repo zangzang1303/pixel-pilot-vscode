@@ -12,6 +12,8 @@ Các lát cắt T12/T14/F04/F06 đã sửa provenance và nhãn model/basic trê
 
 Rà tiếp S12/S08/S15 đã chặn false-success: mask cục bộ không bị thay bằng cutout khi lỗi; mở rộng khung bằng viền màu không bị trình bày như outpaint model; caption thiếu chữ không còn dùng placeholder. Chi phí provider đã báo vẫn được giữ trên caption fallback. Build và 170/170 test pass. S08 vẫn cần một model outpaint khả thi và đánh giá ảnh thực; không tính kết quả viền màu là hoàn thành chức năng final.
 
+T06/T07/T08/T12/T16 tiếp tục: Canvas có request receipt chống gửi lại/xung đột trong phiên Host, hủy Runware tách nền/Upscale truyền tới transport, policy kiểm tra lại offline/trust sau consent, xuất ảnh tránh ghi đè tên đã tồn tại. `npm.cmd run check` PASS 178/178; VSIX mới qua kiểm tra cấu trúc và install smoke profile cô lập. ComfyUI loopback chưa chạy nên provider smoke thất bại; UI E2E, chất lượng holdout, VM sạch, update/migration và pilot chưa nghiệm thu. Xem SHA-256 và phạm vi chính xác trong [release evidence](COPILOT_RELEASE_EVIDENCE.md). Chưa đạt final.
+
 ## 1. Đích cuối cùng
 
 **Final là bản phát hành ổn định có thể cài đặt, sử dụng, nâng cấp và bàn giao**, với đầy đủ các nhóm chức năng đã chốt trong tài liệu này, kết quả kiểm chứng tái lập và quy trình bảo trì sau phát hành.
@@ -312,3 +314,11 @@ Tất cả mốc dưới đây bắt đầu ở trạng thái **chưa nghiệm t
 | M7 — Final/bàn giao | 16, tối đa 18 nếu dùng dự phòng | Chưa nghiệm thu | Quyết định phát hành, stable artifact, owner/runbook và kết quả theo dõi |
 
 Buổi khởi động chốt tên thật A/B/C, D1, tài nguyên provider và người quyết định nghiệm thu. Bắt đầu bằng T01–T05, chuẩn bị F01/F02 sớm, sau đó đi theo các mốc M0–M7 đến khi đáp ứng định nghĩa final.
+
+### Cập nhật tiến độ 08/11/2026
+
+T07/T16 tiến thêm ở đường hủy Runware Enhance/thay nền và chống trùng thư mục khi xuất icon; kiểm tra toàn dự án PASS 180/180, lint PASS. T23 có candidate VSIX mới qua build, kiểm tra cấu trúc và cài profile cô lập, SHA-256 trong [release evidence](COPILOT_RELEASE_EVIDENCE.md). Đây là bằng chứng code/fixture và cài đặt cô lập; chưa đạt G3/G6/G7 vì còn provider/UI live, chất lượng holdout, Windows VM sạch, update/migration và pilot.
+
+T07/T15 tiến thêm: Batch chuyển hủy tới Runware tách nền/upscale và bỏ kết quả provider trả muộn trước khi ghi output. Bộ kiểm tra đạt 182/182, lint PASS; VSIX mới qua install smoke profile cô lập. Hash và giới hạn bằng chứng tại [release evidence](COPILOT_RELEASE_EVIDENCE.md). G3/G6/G7 vẫn mở; ComfyUI/vectorize chưa dừng nội bộ theo signal và chưa có nghiệm thu UI/provider live, VM sạch, chất lượng holdout, update/migration hoặc pilot.
+
+ComfyUI tách nền/upscale hiện nhận hủy qua upload, workflow và polling; Batch dọn file output ghi dở khi hủy lúc ghi. Bộ kiểm tra đạt 185/185, lint PASS; VSIX mới qua install smoke profile cô lập. G3/G6/G7 vẫn mở vì chưa nghiệm thu provider/UI live, hủy job server-side, VM sạch, update/migration, chất lượng holdout và pilot. Xem hash candidate mới tại [release evidence](COPILOT_RELEASE_EVIDENCE.md).

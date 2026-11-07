@@ -129,12 +129,16 @@ export class BatchProcessor {
           });
 
           const itemStart = Date.now();
+          const controller = new AbortController();
+          const cancelSubscription = token.onCancellationRequested(() => controller.abort());
+          if (token.isCancellationRequested) controller.abort();
 
           try {
             await options.beforeEach?.(imgUri, i);
-            if (token.isCancellationRequested) { cancelled = true; break; }
+            if (controller.signal.aborted) { cancelled = true; break; }
             // Read input file into data URI
             const fileBuf = await vscode.workspace.fs.readFile(imgUri);
+            if (controller.signal.aborted) { cancelled = true; break; }
             const ext = parsed.ext.toLowerCase().replace('.', '') || 'png';
             const base64 = Buffer.from(fileBuf).toString('base64');
             const dataUri = `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${base64}`;
@@ -145,7 +149,7 @@ export class BatchProcessor {
 
             switch (operation) {
               case 'remove_background': {
-                const res = await this.aiProvider.removeBackground(dataUri);
+                const res = await this.aiProvider.removeBackground(dataUri, { signal: controller.signal });
                 if (res.success && res.outputImageUri) {
                   outBuffer = this.extractBuffer(res.outputImageUri);
                   outExt = 'png';
@@ -174,7 +178,7 @@ export class BatchProcessor {
               }
 
               case 'upscale': {
-                const res = await this.aiProvider.upscale(dataUri, options.factor || 2);
+                const res = await this.aiProvider.upscale(dataUri, options.factor || 2, controller.signal);
                 if (res.success && res.outputImageUri) {
                   outBuffer = this.extractBuffer(res.outputImageUri);
                   outExt = 'png';
@@ -194,11 +198,17 @@ export class BatchProcessor {
                 throw new Error(`Tác vụ hàng loạt không hỗ trợ: ${operation}`);
             }
 
+            if (controller.signal.aborted) { cancelled = true; break; }
             if (outBuffer) {
               const outFileName = `${parsed.name}_${operation}.${outExt}`;
               await options.beforeWrite?.(imgUri, i);
-              if (token.isCancellationRequested) { cancelled = true; break; }
-              const outFilePath = await this.writeOutputWithoutOverwrite(outputDir, outFileName, outBuffer);
+              if (controller.signal.aborted) { cancelled = true; break; }
+              const outFilePath = await this.writeOutputWithoutOverwrite(outputDir, outFileName, outBuffer, controller.signal);
+              if (controller.signal.aborted) {
+                await fs.promises.unlink(outFilePath);
+                cancelled = true;
+                break;
+              }
 
               succeeded++;
               results.push({
@@ -211,6 +221,7 @@ export class BatchProcessor {
               try { await persistManifest(); } catch (error: any) { manifestError = error?.message || String(error); }
             }
           } catch (err: any) {
+            if (controller.signal.aborted) { cancelled = true; break; }
             failed++;
             results.push({
               filePath: imgUri.fsPath,
@@ -219,6 +230,8 @@ export class BatchProcessor {
               latencyMs: Date.now() - itemStart
             });
             try { await persistManifest(); } catch (error: any) { manifestError = error?.message || String(error); }
+          } finally {
+            cancelSubscription.dispose();
           }
         }
       }
@@ -249,17 +262,34 @@ export class BatchProcessor {
     return this.executeBatch(failedImages, previous.operation, previous.outputDirectory, options);
   }
 
-  private async writeOutputWithoutOverwrite(outputDir: string, fileName: string, buffer: Buffer): Promise<string> {
+  private async writeOutputWithoutOverwrite(outputDir: string, fileName: string, buffer: Buffer, signal?: AbortSignal): Promise<string> {
     const parsed = path.parse(fileName);
     for (let suffix = 0; suffix < 10000; suffix++) {
+      if (signal?.aborted) throw new Error('Batch output cancelled.');
       const candidate = path.join(outputDir, suffix === 0
         ? fileName
         : `${parsed.name}_${suffix}${parsed.ext}`);
+      let handle: fs.promises.FileHandle;
       try {
-        await fs.promises.writeFile(candidate, buffer, { flag: 'wx' });
-        return candidate;
+        handle = await fs.promises.open(candidate, 'wx');
       } catch (error: any) {
-        if (error?.code !== 'EEXIST') throw error;
+        if (error?.code === 'EEXIST') continue;
+        throw error;
+      }
+      let closed = false;
+      try {
+        await handle.writeFile(buffer);
+        if (signal?.aborted) throw new Error('Batch output cancelled.');
+        await handle.close();
+        closed = true;
+        if (signal?.aborted) throw new Error('Batch output cancelled.');
+        return candidate;
+      } catch (error) {
+        if (!closed) {
+          try { await handle.close(); } catch { /* Keep the original write error. */ }
+        }
+        try { await fs.promises.unlink(candidate); } catch { /* Best-effort partial output cleanup. */ }
+        throw error;
       }
     }
     throw new Error(`Could not allocate a unique output name for ${fileName}.`);

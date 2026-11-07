@@ -5,10 +5,32 @@ import sharp from 'sharp';
 import { IAIProvider } from './IAIProvider';
 import { AIResult } from '../session/types';
 import { ImageProcessor } from '../image/ImageProcessor';
+import { fetchWithTimeout } from '../../utils/fetchWithTimeout';
 
 export class ComfyUIAdapter implements IAIProvider {
   public name = 'ComfyUI Local GPU (NVIDIA RTX)';
   private baseUrl: string = 'http://127.0.0.1:8188';
+
+  private throwIfCancelled(signal?: AbortSignal): void {
+    if (signal?.aborted) throw new Error('Provider request cancelled.');
+  }
+
+  private async waitForPoll(signal?: AbortSignal): Promise<void> {
+    this.throwIfCancelled(signal);
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+        reject(new Error('Provider request cancelled.'));
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, 600);
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) onAbort();
+    });
+  }
 
   constructor(customUrl?: string) {
     if (customUrl) {
@@ -27,13 +49,13 @@ export class ComfyUIAdapter implements IAIProvider {
   /**
    * Health check to see if ComfyUI server is online
    */
-  public async ping(): Promise<boolean> {
+  public async ping(signal?: AbortSignal): Promise<boolean> {
     try {
-      const res = await fetch(`${this.baseUrl}/system_stats`, {
+      const res = await fetchWithTimeout(`${this.baseUrl}/system_stats`, {
         method: 'GET',
         headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(1000)
-      });
+        signal
+      }, 1000);
       return res.ok;
     } catch {
       return false;
@@ -43,52 +65,60 @@ export class ComfyUIAdapter implements IAIProvider {
   /**
    * Upload an image buffer to ComfyUI input folder
    */
-  public async uploadImage(imageBuffer: Buffer, filename: string = `pixelpilot_${Date.now()}.png`): Promise<{ name: string; subfolder: string; type: string }> {
+  public async uploadImage(imageBuffer: Buffer, filename: string = `pixelpilot_${Date.now()}.png`, signal?: AbortSignal): Promise<{ name: string; subfolder: string; type: string }> {
+    this.throwIfCancelled(signal);
     const formData = new FormData();
     const blob = new Blob([imageBuffer], { type: 'image/png' });
     formData.append('image', blob, filename);
     formData.append('overwrite', 'true');
 
-    const res = await fetch(`${this.baseUrl}/upload/image`, {
+    const res = await fetchWithTimeout(`${this.baseUrl}/upload/image`, {
       method: 'POST',
-      body: formData
-    });
+      body: formData,
+      signal
+    }, 30000);
 
     if (!res.ok) {
       throw new Error(`ComfyUI upload failed: HTTP ${res.status}`);
     }
 
-    return (await res.json()) as any;
+    const upload = (await res.json()) as any;
+    this.throwIfCancelled(signal);
+    return upload;
   }
 
   /**
    * Fetch generated image from ComfyUI view endpoint
    */
-  public async fetchViewImage(filename: string, subfolder: string = '', type: string = 'output'): Promise<Buffer> {
+  public async fetchViewImage(filename: string, subfolder: string = '', type: string = 'output', signal?: AbortSignal): Promise<Buffer> {
+    this.throwIfCancelled(signal);
     const params = new URLSearchParams({ filename, subfolder, type });
-    const res = await fetch(`${this.baseUrl}/view?${params.toString()}`);
+    const res = await fetchWithTimeout(`${this.baseUrl}/view?${params.toString()}`, { signal }, 30000);
     if (!res.ok) {
       throw new Error(`ComfyUI view failed: HTTP ${res.status}`);
     }
     const arrayBuf = await res.arrayBuffer();
+    this.throwIfCancelled(signal);
     return Buffer.from(arrayBuf);
   }
 
   /**
    * Queue a prompt workflow and poll until completion
    */
-  public async executeWorkflow(workflow: Record<string, any>, timeoutMs: number = 60000): Promise<{ promptId: string; outputImages: Buffer[] }> {
+  public async executeWorkflow(workflow: Record<string, any>, timeoutMs: number = 60000, signal?: AbortSignal): Promise<{ promptId: string; outputImages: Buffer[] }> {
+    this.throwIfCancelled(signal);
     const promptId = crypto.randomUUID();
     const payload = {
       prompt: workflow,
       client_id: promptId
     };
 
-    const res = await fetch(`${this.baseUrl}/prompt`, {
+    const res = await fetchWithTimeout(`${this.baseUrl}/prompt`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+      body: JSON.stringify(payload),
+      signal
+    }, 30000);
 
     if (!res.ok) {
       const err = await res.text();
@@ -96,13 +126,14 @@ export class ComfyUIAdapter implements IAIProvider {
     }
 
     const { prompt_id } = (await res.json()) as any;
+    this.throwIfCancelled(signal);
     const effectivePromptId = prompt_id || promptId;
 
     // Poll history until done
     const startTime = Date.now();
     while (Date.now() - startTime < timeoutMs) {
-      await new Promise(r => setTimeout(r, 600));
-      const histRes = await fetch(`${this.baseUrl}/history/${effectivePromptId}`);
+      await this.waitForPoll(signal);
+      const histRes = await fetchWithTimeout(`${this.baseUrl}/history/${effectivePromptId}`, { signal }, 10000);
       if (histRes.ok) {
         const histData = (await histRes.json()) as any;
         const record = histData[effectivePromptId];
@@ -112,12 +143,13 @@ export class ComfyUIAdapter implements IAIProvider {
             const nodeOut = record.outputs[nodeId];
             if (nodeOut.images && Array.isArray(nodeOut.images)) {
               for (const imgMeta of nodeOut.images) {
-                const imgBuf = await this.fetchViewImage(imgMeta.filename, imgMeta.subfolder || '', imgMeta.type || 'output');
+                const imgBuf = await this.fetchViewImage(imgMeta.filename, imgMeta.subfolder || '', imgMeta.type || 'output', signal);
                 outputImages.push(imgBuf);
               }
             }
           }
           if (outputImages.length > 0) {
+            this.throwIfCancelled(signal);
             return { promptId: effectivePromptId, outputImages };
           }
         }
@@ -154,11 +186,9 @@ export class ComfyUIAdapter implements IAIProvider {
   /**
    * Dynamically query ComfyUI for installed upscale models
    */
-  public async getAvailableUpscaleModel(): Promise<string | null> {
+  public async getAvailableUpscaleModel(signal?: AbortSignal): Promise<string | null> {
     try {
-      const res = await fetch(`${this.baseUrl}/object_info/UpscaleModelLoader`, {
-        signal: AbortSignal.timeout(2000)
-      });
+      const res = await fetchWithTimeout(`${this.baseUrl}/object_info/UpscaleModelLoader`, { signal }, 2000);
       if (res.ok) {
         const data = (await res.json()) as any;
         const modelInput = data?.UpscaleModelLoader?.input?.required?.model_name;
@@ -177,8 +207,8 @@ export class ComfyUIAdapter implements IAIProvider {
   /**
    * Dynamically query ComfyUI for background removal node class
    */
-  public async getAvailableRmbgNode(): Promise<string | null> {
-    const status = await this.getRmbgSetupStatus();
+  public async getAvailableRmbgNode(signal?: AbortSignal): Promise<string | null> {
+    const status = await this.getRmbgSetupStatus(signal);
     return status.node === 'RemoveBackground' && status.model !== 'available' ? null : status.node;
   }
 
@@ -189,7 +219,7 @@ export class ComfyUIAdapter implements IAIProvider {
   }
 
   /** A node can be installed while its selectable foreground model is missing. */
-  public async getRmbgSetupStatus(): Promise<{
+  public async getRmbgSetupStatus(signal?: AbortSignal): Promise<{
     node: string | null;
     model: 'available' | 'missing' | 'unknown';
     modelName?: string;
@@ -197,9 +227,7 @@ export class ComfyUIAdapter implements IAIProvider {
     error?: string;
   }> {
     try {
-      const res = await fetch(`${this.baseUrl}/object_info`, {
-        signal: AbortSignal.timeout(2000)
-      });
+      const res = await fetchWithTimeout(`${this.baseUrl}/object_info`, { signal }, 2000);
       if (!res.ok) return { node: null, model: 'unknown', error: `ComfyUI object_info HTTP ${res.status}.` };
       const data = (await res.json()) as any;
       if (data?.RemoveBackground) {
@@ -229,12 +257,16 @@ export class ComfyUIAdapter implements IAIProvider {
   /**
    * 1. Remove Background (BiRefNet / RMBG)
    */
-  public async removeBackground(imageInput: string): Promise<AIResult> {
+  public async removeBackground(imageInput: string, options?: { model?: string; signal?: AbortSignal }): Promise<AIResult> {
     const startedAt = Date.now();
-    const isOnline = await this.ping();
+    const signal = options?.signal;
+    this.throwIfCancelled(signal);
+    const isOnline = await this.ping(signal);
+    this.throwIfCancelled(signal);
     if (!isOnline) {
       const buf = this.getBufferFromInput(imageInput);
       const outBuf = await ImageProcessor.getInstance().removeBackground(buf);
+      this.throwIfCancelled(signal);
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
@@ -243,12 +275,14 @@ export class ComfyUIAdapter implements IAIProvider {
     }
 
     try {
-      const rmbgClass = await this.getAvailableRmbgNode();
+      const rmbgClass = await this.getAvailableRmbgNode(signal);
+      this.throwIfCancelled(signal);
       const buf = this.getBufferFromInput(imageInput);
 
       if (!rmbgClass) {
         // Fall back to local color-based segmentation when no RMBG node is installed.
         const outBuf = await ImageProcessor.getInstance().removeBackground(buf);
+        this.throwIfCancelled(signal);
         return {
           success: true,
           outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
@@ -256,11 +290,12 @@ export class ComfyUIAdapter implements IAIProvider {
         };
       }
 
-      const upload = await this.uploadImage(buf);
+      const upload = await this.uploadImage(buf, undefined, signal);
       if (rmbgClass === 'RemoveBackground') {
-        const modelInfo = await fetch(`${this.baseUrl}/object_info/LoadBackgroundRemovalModel`);
+        const modelInfo = await fetchWithTimeout(`${this.baseUrl}/object_info/LoadBackgroundRemovalModel`, { signal }, 2000);
         if (!modelInfo.ok) throw new Error('Cannot query background removal models');
         const modelData = (await modelInfo.json()) as any;
+        this.throwIfCancelled(signal);
         const models = this.getRmbgModelNames(modelData);
         const modelName = models?.find((name: string) => /birefnet/i.test(name)) || models?.[0];
         if (!modelName) throw new Error('No background removal model installed');
@@ -273,7 +308,8 @@ export class ComfyUIAdapter implements IAIProvider {
           "5": { "inputs": { "image": ["1", 0], "alpha": ["4", 0] }, "class_type": "JoinImageWithAlpha" },
           "6": { "inputs": { "filename_prefix": "PixelPilot_Cutout", "images": ["5", 0] }, "class_type": "SaveImage" }
         };
-        const { outputImages } = await this.executeWorkflow(workflow, 120000);
+        const { outputImages } = await this.executeWorkflow(workflow, 120000, signal);
+        this.throwIfCancelled(signal);
         return {
           success: true,
           outputImageUri: `data:image/png;base64,${outputImages[0].toString('base64')}`,
@@ -296,15 +332,18 @@ export class ComfyUIAdapter implements IAIProvider {
         }
       };
 
-      const { outputImages } = await this.executeWorkflow(workflow);
+      const { outputImages } = await this.executeWorkflow(workflow, 60000, signal);
+      this.throwIfCancelled(signal);
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outputImages[0].toString('base64')}`,
         metrics: { model: `ComfyUI ${rmbgClass} GPU`, latencyMs: Date.now() - startedAt, costUsd: 0, costStatus: 'estimated' }
       };
     } catch {
+      this.throwIfCancelled(signal);
       const buf = this.getBufferFromInput(imageInput);
       const outBuf = await ImageProcessor.getInstance().removeBackground(buf);
+      this.throwIfCancelled(signal);
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
@@ -316,12 +355,15 @@ export class ComfyUIAdapter implements IAIProvider {
   /**
    * 2. Upscale 2x / 4x (RealESRGAN / 4x-UltraSharp)
    */
-  public async upscale(imageInput: string, factor: 2 | 4 = 2): Promise<AIResult> {
+  public async upscale(imageInput: string, factor: 2 | 4 = 2, signal?: AbortSignal): Promise<AIResult> {
     const startedAt = Date.now();
-    const isOnline = await this.ping();
+    this.throwIfCancelled(signal);
+    const isOnline = await this.ping(signal);
+    this.throwIfCancelled(signal);
     if (!isOnline) {
       const buf = this.getBufferFromInput(imageInput);
       const outBuf = await ImageProcessor.getInstance().upscale(buf, factor);
+      this.throwIfCancelled(signal);
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,
@@ -331,8 +373,9 @@ export class ComfyUIAdapter implements IAIProvider {
 
     try {
       const buf = this.getBufferFromInput(imageInput);
-      const upload = await this.uploadImage(buf);
-      const availableModel = (await this.getAvailableUpscaleModel()) || '4x-UltraSharp.pth';
+      const upload = await this.uploadImage(buf, undefined, signal);
+      const availableModel = (await this.getAvailableUpscaleModel(signal)) || '4x-UltraSharp.pth';
+      this.throwIfCancelled(signal);
 
       const workflow: Record<string, any> = {
         "1": {
@@ -359,15 +402,18 @@ export class ComfyUIAdapter implements IAIProvider {
         };
       }
 
-      const { outputImages } = await this.executeWorkflow(workflow);
+      const { outputImages } = await this.executeWorkflow(workflow, 60000, signal);
+      this.throwIfCancelled(signal);
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outputImages[0].toString('base64')}`,
         metrics: { model: `ComfyUI ${availableModel} GPU (${factor}x)`, latencyMs: Date.now() - startedAt, costUsd: 0, costStatus: 'estimated' }
       };
     } catch {
+      this.throwIfCancelled(signal);
       const buf = this.getBufferFromInput(imageInput);
       const outBuf = await ImageProcessor.getInstance().upscale(buf, factor);
+      this.throwIfCancelled(signal);
       return {
         success: true,
         outputImageUri: `data:image/png;base64,${outBuf.toString('base64')}`,

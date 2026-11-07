@@ -278,3 +278,44 @@ Working-tree checks after T01?T07 slices and FLUX preview apply/discard wiring:
 - Canvas image edits now carry a request ID through Host progress, terminal, and preview events. The UI blocks repeated clicks while its request is active and ignores events from another request. The Host ignores a duplicate ID while it is running; legacy clients without an ID remain supported.
 - Cancel is available for Canvas image edits beyond FLUX box. The signal reaches workspace export and DAG commit, so an edit cancelled before commit cannot add a node; the exported file is removed if cancellation occurs after writing it. A regression test pauses artifact persistence, cancels, then verifies the DAG remains unchanged.
 - `npm.cmd run check`: PASS, 172/172; `npm.cmd run lint`: PASS; `git diff --check`: PASS. This is code and fixture evidence only. Cancellation is not yet propagated through every provider transport or ingress, in-flight dedupe is not a persistent terminal ledger, and interactive UI/live provider/VM acceptance remain open. Client cancellation does not prove that a cloud provider stopped billing.
+
+### Bounded Canvas request receipts — 07/11/2026
+
+- Host now fingerprints each valid Canvas request using its action, input image, pinned target, and options. A repeated ID with the same payload returns the current or terminal status without rerunning the edit; a changed payload returns a conflict. The bounded receipt stores hashes and states, not raw images, and retains active requests when full.
+- Terminal state is recorded once. A repeated FLUX request can replay an unexpired staged preview without another provider call. The UI handles status/conflict messages by request ID and clears busy for an already finished request. Tests cover duplicate active/terminal requests, conflict, cancellation, preview receipt, and retention.
+- `npm.cmd run check`: PASS, 175/175; `npm.cmd run lint`: PASS. Receipts remain in Host memory only. Cross-ingress lifecycle, provider-wide abort propagation, the separate Upscale ingress, interactive UI, live provider, and VM acceptance remained open at this point.
+
+### Legacy Upscale ingress consolidation — 07/11/2026
+
+- The visible 2x/4x buttons already used `applyAction`. The remaining Host `upscale` command now forwards into that Canvas lifecycle instead of running a second Sharp executor. Legacy requests retain local Sharp behavior and snippet insertion after successful export and DAG commit. A snippet failure is reported separately from image success.
+- Removed unused Upscale state/props from the current React UI. The Studio ingress contract now also checks the Host alias and ensures the current UI does not send the legacy command. `npm.cmd run check`: PASS, 175/175; `npm.cmd run lint`: PASS.
+- No interactive regression run, live provider, clean VM, or broader cross-ingress lifecycle acceptance is claimed. T06/T12/T16 remain partial.
+
+### Cancellation, export collision, and current VSIX candidate — 07/11/2026
+
+- Canvas Runware background removal/Upscale now passes the caller's abort signal to transport and stops local fallback after cancellation. Copilot background removal also forwards its run signal. Cloud policy rechecks offline mode and Workspace Trust after consent. Workspace image export reserves names in-process and chooses a suffix when a file already exists, preserving the original.
+- `npm.cmd run check`: PASS, 178/178; `npm.cmd run lint`: PASS. Targeted fixtures cover transport abort with no Sharp fallback, pre-cancelled no-send, policy change during consent, and existing/concurrent workspace filenames.
+- Structural VSIX: `scratch/release-candidate-20261107/pixel-pilot-vscode-1.1.0.vsix`, 13,503,870 bytes, SHA-256 `8DDE2A239A650A1443D00829AD458491A1462879CBFBF903850E4D97FD4B1110`. Isolated-profile install smoke PASS for extension registration, bundled Sharp, and missing-model recolor behavior. Source is HEAD `6590551` plus uncommitted changes, not a frozen release commit. The CLI also printed a Crashpad access-denied diagnostic; install smoke exited 0.
+- Local provider smoke failed before model assertions with `ECONNREFUSED 127.0.0.1:8188`. No ComfyUI/live provider acceptance is inferred. UI flows, clean Windows VM, migration/update, quality holdout, pilot, and final release approval remain open.
+
+### Enhance/replace cancellation, icon bundle export, and VSIX candidate — 08/11/2026
+
+- Canvas Enhance and Copilot background replacement now pass their request abort signal through Runware dispatch. After cancellation, neither operation accepts a late provider response or starts its local fallback. A cancelled cloud request may still be billed by the provider.
+- Workspace icon bundle export now reserves a unique folder name per Extension Host process, preserves an existing folder, and removes attempted partial files after a write failure. This extends the existing image export collision guard; cross-process and remote filesystem races still need interactive acceptance.
+- `npm.cmd run check`: PASS, 180/180; `npm.cmd run lint`: PASS; `git diff --check`: PASS. Focused tests cover cancelled Enhance with no Sharp fallback, pre-cancelled replacement with no fetch, concurrent icon folder names, existing folder preservation, and partial-write cleanup.
+- Structural VSIX: `scratch/release-candidate-20261108/pixel-pilot-vscode-1.1.0.vsix`, 13,504,348 bytes, SHA-256 `FFBAF8C6C252AB2EAC3C3356F8B7E6BF274E3D1C46030B404A33446406DC1275`. Isolated VS Code profile install and bundled Sharp/missing-model smoke PASS. The CLI printed Crashpad access-denied diagnostics, but the smoke exited 0. Source is HEAD `6590551` plus uncommitted changes, not a frozen release commit.
+- No new live provider, interactive UI E2E, clean Windows VM, update/migration, rights-cleared quality holdout, or pilot acceptance was run. Those final gates remain open.
+
+### Batch cancellation transport and candidate — 08/11/2026
+
+- Batch now forwards VS Code progress cancellation to each item's provider signal for background removal and upscale. Runware's transport can abort an in-flight request. A provider that ignores the signal can still finish work, but Batch discards its late result before writing an output or starting the next image. Previously successful items remain in the manifest. Vectorize and ComfyUI workflows do not yet stop their internal provider work on this signal.
+- Regression fixtures cover cancellation during an active removal and a late upscale result. Both leave the current output unwritten and mark the manifest `cancelled`; no subsequent image is submitted. `npm.cmd run check`: PASS, 182/182; `npm.cmd run lint`: PASS; `git diff --check`: PASS.
+- Structural VSIX: `scratch/release-candidate-20261108-batch/pixel-pilot-vscode-1.1.0.vsix`, 13,504,537 bytes, SHA-256 `BC989B1900663AE5F49C0FD2C522CAB3A8AA241792A84AEDE0807DCFB399C50C`. Isolated-profile installation, bundled Sharp runtime, and missing-model recolor smoke PASS. VS Code CLI printed Crashpad access-denied diagnostics; the smoke exited 0. Source remains HEAD `6590551` plus uncommitted changes, not a frozen release commit.
+- No live Batch provider cancellation or interactive UI acceptance was run. A cloud request already received by the provider can still be billed. Clean Windows VM, update/migration, quality holdout, pilot, and final release gates remain open.
+
+### ComfyUI cancellation and partial Batch output — 08/11/2026
+
+- ComfyUI background removal and upscale now pass the caller's abort signal through online probe, upload, workflow submission, polling, and image download. Cancellation rejects without starting the local Sharp fallback or accepting a late result. Aborting the extension's request does not prove that an already queued ComfyUI GPU job stopped on the server.
+- Batch creates output files exclusively and removes a partial file on write failure or cancellation during the write. Earlier successful outputs remain. Focused fixtures cover cancellation during ComfyUI upload, cancellation after workflow submission before polling, and cancellation during a partial Batch write.
+- `npm.cmd run check`: PASS, 185/185; `npm.cmd run lint`: PASS; `git diff --check`: PASS. Structural VSIX: `scratch/release-candidate-20261108-comfy-cancel/pixel-pilot-vscode-1.1.0.vsix`, 13,505,483 bytes, SHA-256 `DA06A4C27D9D2C9AFACE458E82DD07DA02D602981118A08B451745DCD425CC97`. Isolated VS Code profile installation, bundled Sharp runtime, and missing-model recolor smoke PASS. The CLI printed Crashpad access-denied diagnostics; smoke exited 0. Source remains HEAD `6590551` plus uncommitted changes.
+- These fixtures do not establish live ComfyUI cancellation, server-side queue interruption, interactive Batch UI behavior, cross-process output safety, clean VM install, update/migration, quality holdout, or pilot acceptance. Final gates remain open.

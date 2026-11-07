@@ -371,3 +371,39 @@ Ba quyết định nhóm cần chốt ở buổi D1: gán tên thật cho A/B/C,
 - Mọi `applyAction` gửi từ UI có request ID; Host bỏ qua request ID đang chạy trùng, gắn ID vào sự kiện bắt đầu/kết thúc/lỗi/preview, còn UI khóa bấm lặp và bỏ qua sự kiện không thuộc tác vụ hiện tại. Client cũ thiếu ID vẫn được Host xử lý.
 - Nút hủy mở rộng từ FLUX box sang các thao tác chỉnh ảnh Canvas. Các thao tác này kiểm tra tín hiệu hủy trước bước lưu, sau xử lý ảnh, sau lưu mask, sau xuất file và trong bước lưu artifact; nếu hủy trước commit thì file xuất được dọn và DAG không thêm node. Provider không hỗ trợ AbortSignal có thể vẫn tiếp tục tính toán hoặc tính phí sau khi client hủy.
 - `npm.cmd run check` PASS 172/172; `npm.cmd run lint` PASS. Test mới xác nhận hủy trong lúc lưu artifact không tạo edit node. T06/T08 vẫn partial: chưa có terminal state/dedupe bền sau reload, chưa truyền hủy qua mọi adapter/ingress, chưa thử double click/cancel/preview trên UI thật và chưa nghiệm thu provider live.
+
+### T06/T08 progress — request receipt cho Canvas — 07/11/2026
+
+- `CanvasActionRunService` giữ fingerprint SHA-256 của action, ảnh, target và options; không giữ nội dung ảnh trong receipt. Gửi lại cùng ID và cùng nội dung không chạy lại tác vụ, kể cả sau khi run kết thúc trong phiên Host hiện tại. Cùng ID nhưng khác nội dung trả `actionConflict`. Receipt có giới hạn 256 mục, không loại run đang chạy.
+- Mỗi `applyAction` chỉ phát một sự kiện kết thúc hoặc preview-ready; preview FLUX có trạng thái `awaiting_apply` và có thể gửi lại preview còn hạn mà không gọi provider lần hai. UI xử lý `actionStatus` theo request ID để thoát busy khi nhận lại trạng thái đã kết thúc. Hủy trước kết quả chặn sự kiện thành công đến muộn.
+- `npm.cmd run check` PASS 175/175; `npm.cmd run lint` PASS. Đây là kiểm tra code/fixture. Receipt chỉ ở bộ nhớ Host, chưa phục hồi qua reload; đường Upscale riêng, các adapter chưa truyền signal và nghiệm thu UI/provider thật vẫn còn mở tại thời điểm kiểm tra này. T06/T08 tiếp tục ở trạng thái partial.
+
+### T06/T12/T16 progress — hợp nhất Upscale cũ — 07/11/2026
+
+- Hai nút Upscale 2x/4x đang hiển thị đã dùng `applyAction`; lệnh `upscale` cũ trong Host nay chuyển tiếp vào cùng luồng này thay vì giữ executor thứ hai. Alias cũ buộc dùng Sharp local như trước và pin session/node; client cũ chỉ gửi hủy được khi có request ID.
+- Chèn snippet của alias cũ chỉ chạy sau khi xuất ảnh và commit thành công; lỗi chèn snippet được báo riêng, không đổi kết quả ảnh đã lưu thành lỗi. Đã bỏ trạng thái và props Upscale không còn được UI hiện tại sử dụng. Contract test bảo vệ việc Studio/Host không giữ executor thứ hai.
+- `npm.cmd run check` PASS 175/175; `npm.cmd run lint` PASS. Chưa có UI E2E cho alias cũ, lỗi snippet, hủy/đổi session; các đường Generate/Explorer/Batch và provider chưa dùng chung toàn bộ lifecycle. T06/T12/T16 vẫn partial.
+
+### T07/T16 và release gate — 07/11/2026
+
+- Canvas tách nền/Upscale truyền tín hiệu hủy tới request Runware; nếu hủy thì dừng trước fallback Sharp và trước commit. Copilot tách nền cũng truyền signal cho Runware. `PolicyService` kiểm tra lại offline mode và Workspace Trust sau khi người dùng chấp thuận cloud, trước khi trả quyền gửi.
+- Xuất ảnh vào `assets/` chọn tên mới khi file đã tồn tại và giữ chỗ tên cho các lần xuất đồng thời trong cùng Extension Host. Fixture xác nhận file cũ không bị ghi đè. Vẫn cần kiểm tra collision giữa các process/remote filesystem và lỗi I/O trên UI thật.
+- `npm.cmd run check` PASS 178/178; `npm.cmd run lint` PASS. VSIX cấu trúc tạo tại `scratch/release-candidate-20261107/pixel-pilot-vscode-1.1.0.vsix`, SHA-256 `8DDE2A239A650A1443D00829AD458491A1462879CBFBF903850E4D97FD4B1110`, 13.503.870 byte; install smoke profile cô lập PASS cho extension, Sharp và thiếu model recolor. Source HEAD `6590551` cộng thay đổi chưa commit, nên đây không phải release commit.
+- `npm.cmd run provider:smoke:local` dừng ở `ECONNREFUSED 127.0.0.1:8188`; không có ComfyUI trên loopback để xác nhận model thật. T07/T16/T23 vẫn partial. UI E2E, provider/cloud live, holdout có quyền sử dụng và người chấm, Windows VM sạch, update/migration, pilot và các F-task phụ thuộc chưa được nghiệm thu; không đánh dấu hoàn tất toàn bộ kế hoạch.
+
+### T07/T16/T23 bổ sung — 08/11/2026
+
+- Canvas Enhance và Copilot thay nền truyền hủy xuống request Runware, không fallback cục bộ sau hủy. Fixture xác nhận request hủy trước khi gửi không gọi fetch và Enhance hủy không chạy Sharp. Nhà cung cấp vẫn có thể tính phí cho request đã nhận.
+- Xuất bộ icon chọn thư mục mới khi tên đã tồn tại hoặc đang được tác vụ khác giữ trong cùng Host; lỗi ghi file dở được dọn theo khả năng. Fixture xác nhận thư mục cũ được giữ, hai lần xuất đồng thời có thư mục khác nhau và đường lỗi được xử lý. Cần kiểm tra race khác process hoặc remote filesystem trên UI thật.
+- `npm.cmd run check` PASS 180/180, lint PASS, diff check PASS. VSIX `scratch/release-candidate-20261108/pixel-pilot-vscode-1.1.0.vsix` có SHA-256 `FFBAF8C6C252AB2EAC3C3356F8B7E6BF274E3D1C46030B404A33446406DC1275`; install smoke profile cô lập PASS. Nguồn vẫn gồm thay đổi chưa commit. T07/T16/T23 còn partial; các gate nghiệm thu final được liệt kê trong [release evidence](COPILOT_RELEASE_EVIDENCE.md).
+
+### T07/T15 bổ sung — hủy lô khi provider đang chạy — 08/11/2026
+
+- Batch chuyển tín hiệu hủy từ progress của VS Code tới từng mục tách nền/upscale. Runware nhận tín hiệu ở transport; nếu provider khác không hỗ trợ abort và trả kết quả muộn, Batch vẫn bỏ kết quả trước khi ghi file và không gửi ảnh kế tiếp. Những mục đã thành công trước đó giữ nguyên trong manifest. Vectorize và workflow nội bộ ComfyUI chưa dừng tính toán theo tín hiệu này.
+- Fixture kiểm tra hủy trong lúc tách nền và kết quả upscale trả muộn: manifest có trạng thái `cancelled`, mục hiện tại không có output, mục kế tiếp không được gửi. `npm.cmd run check` PASS 182/182, lint PASS. VSIX mới qua kiểm tra cấu trúc và install smoke profile cô lập; hash tại [release evidence](COPILOT_RELEASE_EVIDENCE.md). T07/T15 vẫn partial đến khi có nghiệm thu provider/UI thật và xử lý các đường provider chưa hỗ trợ abort.
+
+### T07/T15 tiếp tục — ComfyUI và file ghi dở — 08/11/2026
+
+- ComfyUI tách nền/upscale nhận tín hiệu hủy qua probe, upload, submit workflow, polling và tải ảnh. Sau hủy không fallback Sharp hoặc nhận kết quả muộn. Extension dừng chờ; job đã vào queue ComfyUI có thể còn chạy trên server, chưa có bằng chứng hủy server-side.
+- Batch mở file output với quyền tạo mới riêng và dọn file ghi dở khi lỗi hoặc hủy giữa lúc ghi; output của mục đã thành công được giữ. Fixture kiểm tra hủy upload, hủy khi chờ poll và hủy trong lúc ghi file dở.
+- `npm.cmd run check` PASS 185/185, lint PASS. VSIX mới qua kiểm tra cấu trúc và install smoke profile cô lập; đường dẫn/hash tại [release evidence](COPILOT_RELEASE_EVIDENCE.md). T07/T15 vẫn partial do thiếu ComfyUI/UI live, xác nhận race đa process và kiểm thử lỗi I/O thực; vectorize chưa dừng thuật toán cục bộ giữa chừng.

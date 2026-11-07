@@ -91,9 +91,6 @@ export const App: React.FC = () => {
   const [progressStatus, setProgressStatus] = useState<string>('');
   const [progressPercentage, setProgressPercentage] = useState<number | undefined>(undefined);
 
-  // Upscale status
-  const [isUpscaling, setIsUpscaling] = useState<boolean>(false);
-
   // Action processing status (Edit & Dev Tools)
   const [isProcessingAction, setIsProcessingAction] = useState<boolean>(false);
   const [processingLabel, setProcessingLabel] = useState<string>('');
@@ -218,31 +215,6 @@ export const App: React.FC = () => {
           setToast({ kind: 'error', message: message.message || 'Không thể tạo ảnh. Hãy kiểm tra model và máy chủ AI.' });
           break;
 
-        case 'upscaleStarted':
-          setIsUpscaling(true);
-          break;
-
-        case 'upscaleProgress':
-          setProgressStatus(message.status);
-          if (typeof message.percentage === 'number') {
-            setProgressPercentage(message.percentage);
-          }
-          break;
-
-        case 'upscaleComplete':
-          setIsUpscaling(false);
-          if (message.sessionId === activeSessionIdRef.current && message.nodeId === currentNodeIdRef.current) {
-            setCurrentImageUrl(message.dataUrl);
-            setSavedPath(vscode.isBrowserDemo() ? undefined : message.savedPath);
-          }
-          setToast({ kind: 'success', message: vscode.isBrowserDemo() ? 'Đã phóng to ảnh. Dùng nút Tải ảnh để lưu.' : 'Đã phóng to và lưu ảnh thành công.' });
-          break;
-
-        case 'upscaleError':
-          setIsUpscaling(false);
-          setToast({ kind: 'error', message: message.message || 'Không thể phóng to ảnh.' });
-          break;
-
         case 'actionStarted':
         case 'UPDATE_AI_PROGRESS':
           if (isForeignActionEvent()) break;
@@ -293,6 +265,26 @@ export const App: React.FC = () => {
           setCancelableActionId(null);
           activeActionRequestRef.current = null;
           setToast({ kind: 'info', message: 'Đã hủy thao tác ảnh; kết quả chưa được áp dụng.' });
+          break;
+
+        case 'actionStatus':
+          if (isForeignActionEvent()) break;
+          if (message.state === 'running') {
+            setIsProcessingAction(true);
+            break;
+          }
+          setIsProcessingAction(false);
+          setCancelableActionId(null);
+          activeActionRequestRef.current = null;
+          setToast({ kind: message.state === 'succeeded' ? 'success' : 'info',
+            message: message.state === 'succeeded' ? 'Thao tác ảnh này đã hoàn tất trước đó.'
+              : message.state === 'awaiting_apply' ? 'Preview cũ đã hết hạn; hãy tạo yêu cầu mới.'
+                : 'Yêu cầu này đã kết thúc; hãy tạo yêu cầu mới nếu muốn thử lại.' });
+          break;
+
+        case 'actionConflict':
+          if (message.requestId && message.requestId !== activeActionRequestRef.current) break;
+          setToast({ kind: 'error', message: message.message || 'Request ID đã được dùng cho nội dung khác.' });
           break;
 
         case 'operationFailed':
@@ -427,19 +419,6 @@ export const App: React.FC = () => {
     });
   };
 
-  // Trigger 2x Upscale on current image
-  const handleUpscale = () => {
-    if (!currentImageUrl || isUpscaling) return;
-
-    vscode.postMessage({
-      command: 'upscale',
-      dataUrl: currentImageUrl,
-      sessionId: activeSessionId,
-      nodeId: currentNodeId,
-      factor: 2
-    });
-  };
-
   // Trigger Unified AI Actions (Tách nền, Inpaint, Recolor, Vectorize, Dev tools)
   const handleApplyAction = (action: string, options?: any) => {
     if (action === 'openApiKeyPrompt') {
@@ -569,8 +548,6 @@ export const App: React.FC = () => {
         onRefreshModels={() => vscode.postMessage({ command: 'getModels' })}
         onPing={handlePing}
         hasActiveImage={Boolean(currentImageUrl)}
-        onUpscale={handleUpscale}
-        isUpscaling={isUpscaling}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onApplyAction={handleApplyAction}

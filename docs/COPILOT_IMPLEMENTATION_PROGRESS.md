@@ -89,10 +89,26 @@ Trạng thái **"Hoàn thành"** trong bảng B01–B29 ở trên chỉ phân bi
 
 Vì bằng chứng clean-OS và UI E2E critical flows chưa tồn tại, **B28 chưa đạt acceptance/release gate** và **B29 chưa được đóng** cho đến khi setup walkthrough và tài liệu cuối cùng khớp với evidence phát hành. Các case eval/benchmark hiện tại là fixture, không thay thế smoke provider thực.
 
-Verification hiện tại: `npm.cmd run check` pass **96/96 test cases** (build webview-ui, TypeScript host và tất cả 33 file `test/*.test.cjs`), nhưng chưa phải báo cáo release-complete.
+Verification tại lần rà soát 28/10/2026: `npm.cmd run check` pass **96/96 test cases** (build webview-ui, TypeScript host và tất cả 33 file `test/*.test.cjs`), nhưng chưa phải báo cáo release-complete. Kết quả mới hơn được ghi bên dưới.
 
 ## Trạng thái hoàn thành kế hoạch
 
 Phần mã nguồn và fixture test cho B01–B27 đã được triển khai trong repository. Toàn bộ kế hoạch **chưa hoàn thành** theo Definition of Done: B28 và B29 còn thiếu clean-OS acceptance, UI E2E critical flows và ma trận runtime/OS. Không được publish hay tuyên bố release-ready đa nền tảng trước khi các evidence này được bổ sung và pass.
 
 Mẫu bằng chứng bắt buộc cho các gate còn lại: [COPILOT_RELEASE_EVIDENCE.md](COPILOT_RELEASE_EVIDENCE.md).
+
+### Cập nhật 07/11/2026
+
+`npm.cmd run check` pass 178/178, lint pass. Canvas bổ sung request receipt, hủy Runware tách nền/Upscale xuống transport và chống fallback sau hủy; policy kiểm tra lại offline/trust sau consent; xuất ảnh tránh ghi đè file trùng tên trong cùng Host. VSIX hiện tại qua kiểm tra cấu trúc và install smoke trên profile cô lập; xem hash/đường dẫn trong release evidence. Local ComfyUI smoke thất bại ở `ECONNREFUSED 127.0.0.1:8188`, không thay thế được record provider cũ. B28/B29 và các gate final vẫn mở: cần UI E2E, provider/model live của candidate, Windows VM sạch, update/migration, chất lượng holdout và pilot.
+
+### Cập nhật 08/11/2026
+
+Canvas Enhance và Copilot thay nền truyền tín hiệu hủy đến Runware; sau khi hủy, không nhận kết quả trả muộn hoặc chạy fallback Sharp. Xuất bộ icon giữ tên thư mục riêng cho các tác vụ đồng thời trong cùng Host, bảo toàn thư mục có sẵn và dọn file ghi dở khi lỗi. `npm.cmd run check` PASS 180/180, lint PASS. VSIX ngày 08/11 qua kiểm tra cấu trúc và cài profile cô lập; hash và phạm vi tại [release evidence](COPILOT_RELEASE_EVIDENCE.md). B28/B29 và các gate final vẫn mở: cần UI E2E, provider/model live, Windows VM sạch, update/migration, chất lượng holdout có quyền sử dụng và pilot.
+
+### Batch cancellation — 08/11/2026
+
+Batch đã chuyển tín hiệu hủy của VS Code tới request Runware tách nền/upscale đang chạy. Kết quả provider trả muộn sau khi hủy không được ghi ra file; mục kế tiếp không được gửi, còn kết quả đã thành công trước đó được giữ. Hai fixture mới đạt, toàn bộ `npm.cmd run check` PASS 182/182 và lint PASS. VSIX mới qua kiểm tra cấu trúc và cài profile cô lập; xem [release evidence](COPILOT_RELEASE_EVIDENCE.md) để phân biệt với candidate trước đó. Chưa nghiệm thu hủy với provider/UI thật; ComfyUI và vectorize chưa dừng công việc nội bộ bằng signal. Các gate final vẫn mở.
+
+### ComfyUI cancellation và Batch output — 08/11/2026
+
+ComfyUI tách nền/upscale đã nhận signal qua các bước probe, upload, submit workflow, polling và tải ảnh. Hủy không chạy fallback Sharp; job đã xếp hàng trên server có thể vẫn tiếp tục. Batch dọn file output ghi dở nếu bị hủy trong lúc ghi. Kiểm tra toàn dự án PASS 185/185, lint PASS; VSIX mới qua kiểm tra cấu trúc và cài profile cô lập. Hash và giới hạn tại [release evidence](COPILOT_RELEASE_EVIDENCE.md). B28/B29 cùng các gate final vẫn mở vì còn UI/provider live, clean VM, update/migration, holdout chất lượng và pilot.
