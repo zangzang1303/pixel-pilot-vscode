@@ -59,6 +59,9 @@ interface SettingsSidebarProps {
   setSettings: React.Dispatch<React.SetStateAction<GenerationSettings>>;
   onGenerate: () => void;
   isGenerating: boolean;
+  supportsGenerationCancellation: boolean;
+  canCancelGeneration: boolean;
+  onCancelGeneration: () => void;
   onRefreshModels: () => void;
   onPing: () => void;
   hasActiveImage: boolean;
@@ -102,6 +105,9 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
   setSettings,
   onGenerate,
   isGenerating,
+  supportsGenerationCancellation,
+  canCancelGeneration,
+  onCancelGeneration,
   onRefreshModels,
   onPing,
   hasActiveImage,
@@ -376,6 +382,15 @@ export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({
               <Sparkles className="w-4 h-4" />
               {isGenerating ? 'Đang sinh ảnh GPU...' : 'Sinh ảnh mới (Generate)'}
             </button>
+            {isGenerating && supportsGenerationCancellation && (
+              <button
+                onClick={onCancelGeneration}
+                disabled={!canCancelGeneration}
+                className="w-full py-2 rounded-xl border border-rose-500/50 text-rose-300 text-xs font-semibold disabled:opacity-50"
+              >
+                {canCancelGeneration ? 'Hủy tạo ảnh' : 'Đang hoàn tất yêu cầu...'}
+              </button>
+            )}
           </div>
         )}
 

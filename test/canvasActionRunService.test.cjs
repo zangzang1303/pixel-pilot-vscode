@@ -48,3 +48,16 @@ test('bounded receipts retain active work and a preview ID for idempotent retry'
   assert.deepEqual(runs.begin('preview', request(), true),
     { kind: 'started' });
 });
+
+test('Generate cancellation is rejected once session commit begins', () => {
+  const runs = new CanvasActionRunService();
+  runs.begin('before', request(), true);
+  assert.equal(runs.cancel('before'), true);
+  assert.equal(runs.lockCommit('before'), false);
+  assert.equal(runs.finish('before', 'cancelled'), true);
+
+  runs.begin('after', request(), true);
+  assert.equal(runs.lockCommit('after'), true);
+  assert.equal(runs.cancel('after'), false);
+  assert.equal(runs.finish('after', 'succeeded'), true);
+});

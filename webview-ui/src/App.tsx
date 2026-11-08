@@ -90,6 +90,8 @@ export const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [progressStatus, setProgressStatus] = useState<string>('');
   const [progressPercentage, setProgressPercentage] = useState<number | undefined>(undefined);
+  const [canCancelGeneration, setCanCancelGeneration] = useState<boolean>(false);
+  const activeGenerationRequestRef = useRef<string | null>(null);
 
   // Action processing status (Edit & Dev Tools)
   const [isProcessingAction, setIsProcessingAction] = useState<boolean>(false);
@@ -141,6 +143,10 @@ export const App: React.FC = () => {
       const isForeignActionEvent = () => activeActionRequestRef.current
         ? message.requestId !== activeActionRequestRef.current
         : Boolean(message.requestId);
+      const isForeignGenerationEvent = () => vscode.isBrowserDemo() ? false
+        : activeGenerationRequestRef.current
+          ? message.requestId !== activeGenerationRequestRef.current
+          : Boolean(message.requestId);
 
       switch (cmd) {
         case 'pingResult':
@@ -179,20 +185,32 @@ export const App: React.FC = () => {
           break;
 
         case 'generationStarted':
+          if (isForeignGenerationEvent()) break;
           setIsGenerating(true);
+          setCanCancelGeneration(!vscode.isBrowserDemo() && Boolean(activeGenerationRequestRef.current));
           setProgressStatus('Starting generation...');
           setProgressPercentage(10);
           setSnippetInserted(false);
           break;
 
         case 'generationProgress':
+          if (isForeignGenerationEvent()) break;
           setProgressStatus(message.status);
           if (typeof message.percentage === 'number') {
             setProgressPercentage(message.percentage);
           }
           break;
 
+        case 'generationCommitting':
+          if (isForeignGenerationEvent()) break;
+          setCanCancelGeneration(false);
+          setProgressStatus('Đang lưu ảnh vào lịch sử...');
+          break;
+
         case 'generationComplete':
+          if (isForeignGenerationEvent()) break;
+          activeGenerationRequestRef.current = null;
+          setCanCancelGeneration(false);
           setIsGenerating(false);
           const isCurrentGeneration = message.sessionId === activeSessionIdRef.current &&
             message.nodeId === currentNodeIdRef.current;
@@ -209,10 +227,41 @@ export const App: React.FC = () => {
           break;
 
         case 'generationError':
+          if (isForeignGenerationEvent()) break;
+          activeGenerationRequestRef.current = null;
+          setCanCancelGeneration(false);
           setIsGenerating(false);
           setProgressStatus('');
           setProgressPercentage(undefined);
           setToast({ kind: 'error', message: message.message || 'Không thể tạo ảnh. Hãy kiểm tra model và máy chủ AI.' });
+          break;
+
+        case 'generationCancelled':
+          if (isForeignGenerationEvent()) break;
+          activeGenerationRequestRef.current = null;
+          setCanCancelGeneration(false);
+          setIsGenerating(false);
+          setProgressStatus('');
+          setProgressPercentage(undefined);
+          setToast({ kind: 'info', message: 'Đã hủy tạo ảnh; kết quả không được lưu vào lịch sử.' });
+          break;
+
+        case 'generationStatus':
+          if (isForeignGenerationEvent()) break;
+          if (message.state !== 'running') {
+            activeGenerationRequestRef.current = null;
+            setCanCancelGeneration(false);
+            setIsGenerating(false);
+            setToast({ kind: 'info', message: 'Yêu cầu tạo ảnh này đã được xử lý trước đó.' });
+          }
+          break;
+
+        case 'generationConflict':
+          if (isForeignGenerationEvent()) break;
+          activeGenerationRequestRef.current = null;
+          setCanCancelGeneration(false);
+          setIsGenerating(false);
+          setToast({ kind: 'error', message: 'Mã yêu cầu đã được dùng cho nội dung tạo ảnh khác.' });
           break;
 
         case 'actionStarted':
@@ -398,12 +447,19 @@ export const App: React.FC = () => {
 
   // Trigger Text-to-Image Generation
   const handleGenerate = () => {
-    if (!prompt.trim() || isGenerating) return;
+    if (!prompt.trim() || isGenerating || activeGenerationRequestRef.current) return;
 
     const chosenModel = models.find((m) => m.key === selectedModel) || selectedModel;
+    const requestId = `generate-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    activeGenerationRequestRef.current = requestId;
+    setIsGenerating(true);
+    setCanCancelGeneration(!vscode.isBrowserDemo());
+    setProgressStatus('Đang bắt đầu tạo ảnh...');
+    setProgressPercentage(10);
 
     vscode.postMessage({
       command: 'generate',
+      requestId,
       prompt: prompt.trim(),
       model: chosenModel,
       sessionId: activeSessionId,
@@ -545,6 +601,16 @@ export const App: React.FC = () => {
         setSettings={setSettings}
         onGenerate={handleGenerate}
         isGenerating={isGenerating}
+        supportsGenerationCancellation={!vscode.isBrowserDemo()}
+        canCancelGeneration={canCancelGeneration}
+        onCancelGeneration={() => {
+          const requestId = activeGenerationRequestRef.current;
+          if (requestId) {
+            setCanCancelGeneration(false);
+            setProgressStatus('Đang hủy tạo ảnh...');
+            vscode.postMessage({ command: 'cancelCanvasAction', requestId });
+          }
+        }}
         onRefreshModels={() => vscode.postMessage({ command: 'getModels' })}
         onPing={handlePing}
         hasActiveImage={Boolean(currentImageUrl)}

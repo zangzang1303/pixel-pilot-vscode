@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { InvokeApiService, GenerationOptions } from '../services/InvokeApiService';
+import { InvokeApiService } from '../services/InvokeApiService';
 import { FileSystemUtils } from '../utils/fileSystem';
 import { SecretManager } from '../services/security/SecretManager';
 import { ComfyUIAdapter } from '../services/ai/ComfyUIAdapter';
@@ -214,50 +214,7 @@ export class StudioPanel {
       }
 
       case 'generate': {
-        const { prompt, model, options } = message;
-        if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4096) {
-          vscode.window.showWarningMessage('Please provide a prompt for image generation.');
-          return;
-        }
-
-        try {
-          const target = this._copilot.captureGenerationTarget({ sessionId: message.sessionId, nodeId: message.nodeId });
-          await this._copilot.requireCanvasWorkspaceTrust();
-          this.sendMessage({ command: 'generationStarted' });
-
-          const generated = await this._copilot.executeCanvasGeneration(
-            prompt,
-            model,
-            options as GenerationOptions,
-            (statusText, percentage) => {
-              this.sendMessage({
-                command: 'generationProgress',
-                status: statusText,
-                percentage
-              });
-            }
-          );
-
-          const completed = await this._copilot.finishCanvasGeneration(
-            target, prompt, generated.result, generated.imageName, options
-          );
-
-          this.sendMessage({
-            command: 'generationComplete',
-            ...completed
-          });
-
-          const notificationMsg = completed.savedPath
-            ? `Generated image saved to ${completed.savedPath}!`
-            : 'Image generated in Pixel Pilot history.';
-          vscode.window.showInformationMessage(notificationMsg);
-        } catch (error: any) {
-          this.sendMessage({
-            command: 'generationError',
-            message: error.message || 'Generation failed'
-          });
-          vscode.window.showErrorMessage(`Pixel Pilot: ${error.message || 'Image generation failed'}`);
-        }
+        await this._copilot.handleStudioMessage(message);
         break;
       }
 

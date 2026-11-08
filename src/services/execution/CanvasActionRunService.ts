@@ -80,6 +80,14 @@ export class CanvasActionRunService {
     return this.entries.get(requestId)?.cancelRequested || false;
   }
 
+  /** Close the cancellation window before a result is written to session history. */
+  public lockCommit(requestId: string): boolean {
+    const entry = this.entries.get(requestId);
+    if (!entry || entry.state !== 'running' || entry.cancelRequested) return false;
+    entry.controller = undefined;
+    return true;
+  }
+
   public finish(requestId: string, state: Exclude<CanvasActionState, 'running'>, previewId?: string): boolean {
     const entry = this.entries.get(requestId);
     if (!entry || entry.state !== 'running') return false;

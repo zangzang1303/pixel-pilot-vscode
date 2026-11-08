@@ -65,3 +65,41 @@ test('Runware inpaint rejects an absent or empty mask before calling the provide
   assert.match((await adapter.inpaint(source, `data:image/png;base64,${emptyMask.toString('base64')}`, 'repair')).error, /editable region/i);
   assert.equal(calls, 0);
 });
+
+test('Runware inpaint skips dispatch when already cancelled', async () => {
+  const adapter = new RunwareAdapter('test-key');
+  let calls = 0;
+  adapter.dispatchTasks = async () => { calls++; throw new Error('must not dispatch'); };
+  const controller = new AbortController();
+  controller.abort();
+  const result = await adapter.inpaint('data:image/png;base64,AA==', 'data:image/png;base64,AA==', 'repair', controller.signal);
+  assert.equal(result.success, false);
+  assert.match(result.error, /cancelled/i);
+  assert.equal(calls, 0);
+});
+
+test('Runware inpaint forwards cancellation and rejects a late provider image', async () => {
+  const adapter = new RunwareAdapter('test-key');
+  const source = await sharp({ create: { width: 2, height: 2, channels: 4,
+    background: { r: 10, g: 20, b: 30, alpha: 1 } } }).png().toBuffer();
+  const mask = await sharp({ create: { width: 2, height: 2, channels: 4,
+    background: { r: 255, g: 255, b: 255, alpha: 1 } } }).png().toBuffer();
+  const sourceUri = `data:image/png;base64,${source.toString('base64')}`;
+  const maskUri = `data:image/png;base64,${mask.toString('base64')}`;
+  let startDispatch;
+  const dispatched = new Promise(resolve => { startDispatch = resolve; });
+  let returnImage;
+  adapter.dispatchTasks = (_tasks, signal) => {
+    startDispatch(signal);
+    return new Promise(resolve => { returnImage = resolve; });
+  };
+  const controller = new AbortController();
+  const pending = adapter.inpaint(sourceUri, maskUri, 'repair', controller.signal);
+  assert.equal(await dispatched, controller.signal);
+  controller.abort();
+  returnImage({ data: [{ imageDataURI: 'data:image/png;base64,AA==' }], latencyMs: 5 });
+  const result = await pending;
+  assert.equal(result.success, false);
+  assert.match(result.error, /cancelled/i);
+  assert.equal(result.outputImageUri, undefined);
+});

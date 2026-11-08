@@ -324,3 +324,13 @@ T07/T15 tiến thêm: Batch chuyển hủy tới Runware tách nền/upscale và
 ComfyUI tách nền/upscale hiện nhận hủy qua upload, workflow và polling; Batch dọn file output ghi dở khi hủy lúc ghi. Bộ kiểm tra đạt 185/185, lint PASS; VSIX mới qua install smoke profile cô lập. G3/G6/G7 vẫn mở vì chưa nghiệm thu provider/UI live, hủy job server-side, VM sạch, update/migration, chất lượng holdout và pilot. Xem hash candidate mới tại [release evidence](COPILOT_RELEASE_EVIDENCE.md).
 
 Canvas Inpaint và các đường tách nền/upscale Canvas/Copilot đã chuyển signal hủy tới ComfyUI. Bộ kiểm tra đạt 186/186, lint PASS; VSIX mới qua install smoke profile cô lập. G3/G6/G7 vẫn mở vì thiếu provider/UI live, VM sạch, update/migration, chất lượng holdout và pilot. Hash và trạng thái source tại [release evidence](COPILOT_RELEASE_EVIDENCE.md).
+
+Mask, Canny, Depth, Extend và Style Transfer của Canvas/Copilot nay chuyển signal tới ComfyUI; bộ kiểm tra đạt 187/187, lint PASS và VSIX mới qua install smoke profile cô lập. G3/G6/G7 vẫn mở do thiếu nghiệm thu provider/UI live, VM sạch, update/migration, chất lượng holdout và pilot. Xem hash/source tại [release evidence](COPILOT_RELEASE_EVIDENCE.md).
+
+Copilot thay nền và Generate ComfyUI nay nhận signal hủy xuyên các bước chính; bộ kiểm tra đạt 189/189, lint PASS và VSIX mới qua install smoke profile cô lập. G3/G6/G7 vẫn mở do thiếu provider/UI live, VM sạch, update/migration, chất lượng holdout và pilot. Hash/source tại [release evidence](COPILOT_RELEASE_EVIDENCE.md).
+### Cập nhật Canvas Generate — 08/11/2026
+
+Sidebar và Studio Generate nay dùng request lifecycle chung, có hủy trước khi lưu session và chặn kết quả provider trả muộn. Kiểm tra đạt 193/193, lint PASS; candidate VSIX qua cài thử profile cô lập. Đây chưa phải nghiệm thu final: UI/provider thật, clean VM, update/migration, holdout chất lượng và pilot còn mở. Xem [release evidence](COPILOT_RELEASE_EVIDENCE.md).
+### Cập nhật Runware Inpaint — 08/11/2026
+
+Đường `INPAINT_REQUEST` nay chuyển tín hiệu hủy qua HTTP và bỏ kết quả trả muộn trước khi lưu cache. Kiểm tra đạt 195/195, lint PASS; candidate VSIX cài thử profile cô lập đạt. `runOperation` Inpaint cùng các gate UI/provider live, clean VM, update/migration, chất lượng holdout và pilot vẫn mở. Xem [release evidence](COPILOT_RELEASE_EVIDENCE.md).

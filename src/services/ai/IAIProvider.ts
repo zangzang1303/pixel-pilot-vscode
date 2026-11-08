@@ -27,32 +27,32 @@ export interface IAIProvider {
   /**
    * Trích xuất mặt nạ phân vùng nhị phân (Binary Mask Extraction)
    */
-  extractMask(imageInput: string): Promise<AIResult>;
+  extractMask(imageInput: string, signal?: AbortSignal): Promise<AIResult>;
 
   /**
    * Nhận diện đường biên và nét vẽ (Canny, Lineart, SoftEdge, Depth)
    */
-  detectEdges(imageInput: string, method: 'canny' | 'lineart' | 'softedge' | 'depth'): Promise<AIResult>;
+  detectEdges(imageInput: string, method: 'canny' | 'lineart' | 'softedge' | 'depth', signal?: AbortSignal): Promise<AIResult>;
 
   /**
    * Phân tích ảnh và tự động sinh câu mô tả (Alt Text / CSS / Code comments)
    */
-  generateCaption(imageInput: string): Promise<AIResult>;
+  generateCaption(imageInput: string, signal?: AbortSignal): Promise<AIResult>;
 
   /**
    * Mở rộng biên khung hình (Outpainting / Extend)
    */
-  extendCanvas(imageInput: string, direction: 'all' | 'horizontal' | 'vertical', prompt?: string): Promise<AIResult>;
+  extendCanvas(imageInput: string, direction: 'all' | 'horizontal' | 'vertical', prompt?: string, signal?: AbortSignal): Promise<AIResult>;
 
   /**
    * Thay thế và tổng hợp nền mới bằng AI theo câu lệnh hoặc bối cảnh
    */
-  replaceBackground(imageInput: string, prompt: string): Promise<AIResult>;
+  replaceBackground(imageInput: string, prompt: string, signal?: AbortSignal): Promise<AIResult>;
 
   /**
    * Biến đổi ảnh theo phong cách nghệ thuật AI (Anime, 3D, Cyberpunk, Pixel Art, Oil Painting)
    */
-  styleTransfer(imageInput: string, style: string, customPrompt?: string): Promise<AIResult>;
+  styleTransfer(imageInput: string, style: string, customPrompt?: string, signal?: AbortSignal): Promise<AIResult>;
 
   /**
    * Nâng cấp chất lượng chi tiết, khử mờ, cân bằng sáng AI

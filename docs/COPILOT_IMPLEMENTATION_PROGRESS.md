@@ -116,3 +116,17 @@ ComfyUI tách nền/upscale đã nhận signal qua các bước probe, upload, s
 ### Canvas Inpaint cancellation — 08/11/2026
 
 Canvas Inpaint đã truyền tín hiệu hủy qua ComfyUI từ bước kiểm tra model đến tải kết quả; hủy không chạy local fill hoặc ghi node muộn. Canvas và Copilot tách nền/upscale cũng chuyển signal tới ComfyUI. `npm.cmd run check` PASS 186/186, lint PASS; VSIX mới cài thử trong profile cô lập đạt. Xem [release evidence](COPILOT_RELEASE_EVIDENCE.md) để đối chiếu hash và source commit. B28/B29 và các gate final vẫn mở do thiếu provider/UI live, clean VM, update/migration, holdout chất lượng và pilot.
+
+### Các thao tác Canvas ComfyUI — 08/11/2026
+
+Mask, Canny, Depth, Extend và Style Transfer nay truyền tín hiệu hủy tới ComfyUI; Copilot dùng signal tương ứng. Hủy lúc upload không chạy fallback cục bộ trong fixture; Host cũng chặn fallback nếu hủy đúng lúc adapter trả về. `npm.cmd run check` PASS 187/187, lint PASS; VSIX mới qua cài thử profile cô lập. Hash và giới hạn tại [release evidence](COPILOT_RELEASE_EVIDENCE.md). B28/B29 và gate final vẫn mở vì chưa có provider/UI live, VM sạch, update/migration, holdout chất lượng và pilot.
+
+### Copilot thay nền và Generate — 08/11/2026
+
+Copilot thay nền đã truyền signal qua tách chủ thể và sinh nền ComfyUI; sau hủy không chạy scenic fallback hoặc ghép ảnh. Generate ComfyUI trực tiếp cũng chặn yêu cầu hủy trước probe/workflow. Kiểm tra đạt 189/189, lint PASS; VSIX mới qua install smoke profile cô lập. Hash/source tại [release evidence](COPILOT_RELEASE_EVIDENCE.md). B28/B29 và các gate final vẫn mở vì chưa nghiệm thu UI/provider live, VM sạch, update/migration, chất lượng holdout và pilot.
+### Canvas Generate dùng chung lifecycle — 08/11/2026
+
+Sidebar và Studio nay cùng gửi Generate qua Host với request ID, tiến độ và nút hủy. Hủy được chấp nhận trước khi bắt đầu lưu sẽ không tạo session từ kết quả trả muộn; khi đã bắt đầu lưu, UI không cho hủy. ComfyUI nhận AbortSignal; InvokeAI chỉ dừng chờ ở client, job trên server có thể tiếp tục và phát sinh chi phí. `npm.cmd run check` PASS 193/193, lint PASS; VSIX mới qua cài thử profile cô lập. Hash và phạm vi chứng cứ tại [release evidence](COPILOT_RELEASE_EVIDENCE.md). B28/B29 và các gate final vẫn mở do chưa nghiệm thu UI/provider thật, VM sạch, update/migration, holdout chất lượng và pilot.
+### Runware Inpaint cũ nhận tín hiệu hủy — 08/11/2026
+
+Đường `INPAINT_REQUEST` nay tạo receipt trong Host, truyền signal xuống Runware HTTP và chặn ảnh trả muộn trước bước lưu cache khi đã chấp nhận hủy. Hai fixture kiểm tra hủy trước dispatch và trong lúc chờ kết quả. `npm.cmd run check` PASS 195/195, lint PASS; VSIX mới qua cài thử profile cô lập, hash tại [release evidence](COPILOT_RELEASE_EVIDENCE.md). Đường `runOperation` Inpaint riêng vẫn chưa chuyển sang lifecycle này. B28/B29 và các gate cuối vẫn cần UI/provider thật, VM sạch, update/migration, holdout và pilot.

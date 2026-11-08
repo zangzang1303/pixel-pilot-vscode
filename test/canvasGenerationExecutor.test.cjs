@@ -64,3 +64,65 @@ test('invalid prompt or empty provider output cannot become a generated success'
   assert.equal(providerCalls, 0);
   await assert.rejects(() => executor.execute('a kite'), /did not return an image/i);
 });
+
+test('a cancelled Generate does not start a provider or accept a late InvokeAI image', async () => {
+  const before = new AbortController();
+  before.abort();
+  let providerCalls = 0;
+  const invoke = {
+    ping: async () => { providerCalls++; return true; },
+    getModels: async () => [{ key: 'model-a', name: 'Model A' }],
+    generateTextToImage: async () => ({ dataUrl: image, imageName: 'late.png' })
+  };
+  const executor = new CanvasGenerationExecutor(invoke);
+  await assert.rejects(() => executor.execute('a kite', undefined, {}, undefined, before.signal), /cancelled/i);
+  assert.equal(providerCalls, 0);
+
+  let complete;
+  const pendingImage = new Promise(resolve => { complete = resolve; });
+  const running = new CanvasGenerationExecutor({
+    ping: async () => true,
+    getModels: async () => [{ key: 'model-a', name: 'Model A' }],
+    generateTextToImage: async () => pendingImage
+  });
+  const during = new AbortController();
+  const result = running.execute('a kite', undefined, {}, undefined, during.signal);
+  await new Promise(resolve => setImmediate(resolve));
+  during.abort();
+  await assert.rejects(result, /cancelled/i);
+  complete({ dataUrl: image, imageName: 'late.png' });
+});
+
+test('Generate passes cancellation signal into the ComfyUI route', async () => {
+  const controller = new AbortController();
+  let forwarded;
+  const executor = new CanvasGenerationExecutor({
+    ping: async () => false,
+    getModels: async () => [],
+    generateTextToImage: async () => { throw new Error('unexpected'); }
+  }, () => ({
+    generateImage: async (_prompt, _negative, _width, _height, signal) => {
+      forwarded = signal;
+      return comfyResult;
+    }
+  }));
+  await executor.execute('a kite', undefined, {}, undefined, controller.signal);
+  assert.equal(forwarded, controller.signal);
+});
+
+test('cancelling during InvokeAI availability check never starts model lookup or generation', async () => {
+  const controller = new AbortController();
+  let completePing;
+  let downstreamCalls = 0;
+  const executor = new CanvasGenerationExecutor({
+    ping: () => new Promise(resolve => { completePing = resolve; }),
+    getModels: async () => { downstreamCalls++; return [{ key: 'model-a' }]; },
+    generateTextToImage: async () => { downstreamCalls++; return { dataUrl: image }; }
+  });
+  const result = executor.execute('a kite', undefined, {}, undefined, controller.signal);
+  controller.abort();
+  await assert.rejects(result, /cancelled/i);
+  completePing(true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(downstreamCalls, 0);
+});

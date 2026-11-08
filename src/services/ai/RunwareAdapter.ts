@@ -354,10 +354,12 @@ export class RunwareAdapter implements IAIProvider {
   /**
    * 4. Inpaint / Generative Edit
    */
-  public async inpaint(imageInput: string, maskInput: string, prompt: string): Promise<AIResult> {
+  public async inpaint(imageInput: string, maskInput: string, prompt: string, signal?: AbortSignal): Promise<AIResult> {
     try {
+      if (signal?.aborted) throw new Error('Provider request cancelled.');
       if (!maskInput) throw new Error('Inpaint requires a non-empty mask.');
       const maskPixels = await sharp(this.getBufferFromInput(maskInput)).ensureAlpha().raw().toBuffer();
+      if (signal?.aborted) throw new Error('Provider request cancelled.');
       let hasEditablePixel = false;
       for (let i = 0; i < maskPixels.length; i += 4) {
         if (maskPixels[i + 3] > 80 && (maskPixels[i] > 120 || maskPixels[i + 1] > 120 || maskPixels[i + 2] > 120)) {
@@ -382,7 +384,8 @@ export class RunwareAdapter implements IAIProvider {
         }
       ];
 
-      const { data, latencyMs } = await this.dispatchTasks(payload);
+      const { data, latencyMs } = await this.dispatchTasks(payload, signal);
+      if (signal?.aborted) throw new Error('Provider request cancelled.');
       const res = this.selectTaskResult(data, taskUUID);
       const outputImage = this.extractImageOutput(res);
 

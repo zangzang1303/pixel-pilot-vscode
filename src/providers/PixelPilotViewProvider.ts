@@ -146,9 +146,10 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
     prompt: string,
     model?: string | InvokeModel,
     options?: GenerationOptions,
-    onProgress?: (status: string, percentage?: number) => void
+    onProgress?: (status: string, percentage?: number) => void,
+    signal?: AbortSignal
   ) {
-    return this.generationExecutor.execute(prompt, model, options, onProgress);
+    return this.generationExecutor.execute(prompt, model, options, onProgress, signal);
   }
 
   public async finishCanvasGeneration(
@@ -426,29 +427,57 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
       case 'generate': {
         const { prompt, model, options } = message;
+        const clientRequestId = typeof message.requestId === 'string' && message.requestId.trim()
+          ? message.requestId : undefined;
+        const requestId = clientRequestId || `legacy-generate-${Date.now()}-${Math.random()}`;
         if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 4096) {
           vscode.window.showWarningMessage('Vui lòng nhập prompt để sinh ảnh.');
-          this.postToWebview({ command: 'generationError', message: 'Prompt rỗng' });
+          this.postToWebview({ command: 'generationError', requestId: clientRequestId, message: 'Prompt rỗng' });
           break;
         }
 
         try {
           const target = this.captureGenerationTarget({ sessionId: message.sessionId, nodeId: message.nodeId });
-          await this.requireCanvasWorkspaceTrust();
-          this.postToWebview({ command: 'generationStarted' });
-          const generated = await this.executeCanvasGeneration(prompt, model, options, (status, percentage) => {
-            this.postToWebview({ command: 'generationProgress', status, percentage });
+          const fingerprint = fingerprintCanvasAction({
+            action: 'generate', dataUrl: prompt, sessionId: target.sessionId || undefined, nodeId: target.nodeId || undefined,
+            options: { model, generation: options }
           });
+          const begin = this.canvasActionRuns.begin(requestId, fingerprint, true);
+          if (begin.kind === 'conflict') {
+            this.postToWebview({ command: 'generationConflict', requestId: clientRequestId });
+            break;
+          }
+          if (begin.kind === 'existing') {
+            this.postToWebview({ command: 'generationStatus', requestId: clientRequestId, state: begin.state });
+            break;
+          }
+          const signal = this.canvasActionRuns.signal(requestId);
+          this.postToWebview({ command: 'generationStarted', requestId: clientRequestId });
+          await this.requireCanvasWorkspaceTrust();
+          if (signal?.aborted) throw new Error('Generation cancelled.');
+          const generated = await this.executeCanvasGeneration(prompt, model, options, (status, percentage) => {
+            if (!signal?.aborted) this.postToWebview({ command: 'generationProgress', requestId: clientRequestId, status, percentage });
+          }, signal);
+          if (!this.canvasActionRuns.lockCommit(requestId)) throw new Error('Generation cancelled.');
+          this.postToWebview({ command: 'generationCommitting', requestId: clientRequestId });
           const completed = await this.finishCanvasGeneration(target, prompt, generated.result, generated.imageName, options);
+          this.canvasActionRuns.finish(requestId, 'succeeded');
           this.postToWebview({
             command: 'generationComplete',
+            requestId: clientRequestId,
             ...completed
           });
 
           vscode.window.showInformationMessage(`✨ Sinh ảnh thành công: ${completed.savedPath || 'Pixel Pilot history'}`);
         } catch (err: any) {
-          this.postToWebview({ command: 'generationError', message: err.message });
-          vscode.window.showErrorMessage(`Lỗi sinh ảnh: ${err.message}`);
+          if (this.canvasActionRuns.wasCancelled(requestId)) {
+            this.canvasActionRuns.finish(requestId, 'cancelled');
+            this.postToWebview({ command: 'generationCancelled', requestId: clientRequestId });
+          } else {
+            this.canvasActionRuns.finish(requestId, 'failed');
+            this.postToWebview({ command: 'generationError', requestId: clientRequestId, message: err.message });
+            vscode.window.showErrorMessage(`Lỗi sinh ảnh: ${err.message}`);
+          }
         }
         break;
       }
@@ -733,7 +762,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             });
             vscode.window.showInformationMessage(`✨ Làm nét ảnh bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'mask') {
-            const maskResult = await new ComfyUIAdapter().extractMask(dataUrl);
+            const maskResult = await new ComfyUIAdapter().extractMask(dataUrl, actionSignal);
+            if (actionSignal?.aborted) throw new Error('Operation cancelled.');
             const resolved = await resolveAdapterImageResult(maskResult, () => imageProc.extractMask(buffer), 'Local binary mask (corner-color heuristic)');
             const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_mask_${Date.now()}.png`,
               { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
@@ -749,7 +779,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             });
             vscode.window.showInformationMessage(`✨ Trích xuất mask bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'canny' || action === 'edgeDetection') {
-            const cannyResult = await new ComfyUIAdapter().detectEdges(dataUrl, 'canny');
+            const cannyResult = await new ComfyUIAdapter().detectEdges(dataUrl, 'canny', actionSignal);
+            if (actionSignal?.aborted) throw new Error('Operation cancelled.');
             const resolved = await resolveAdapterImageResult(cannyResult, () => imageProc.detectEdges(buffer, 'canny'), 'Local Sobel edge detector');
             const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_canny_${Date.now()}.png`,
               { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
@@ -777,7 +808,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             });
             vscode.window.showInformationMessage(`✨ Trích xuất Lineart thành công: ${savedResult.relativePath}`);
           } else if (action === 'depth') {
-            const depthResult = await new ComfyUIAdapter().detectEdges(dataUrl, 'depth');
+            const depthResult = await new ComfyUIAdapter().detectEdges(dataUrl, 'depth', actionSignal);
+            if (actionSignal?.aborted) throw new Error('Operation cancelled.');
             const resolved = await resolveAdapterImageResult(depthResult, () => imageProc.detectEdges(buffer, 'depth'), 'Local luminance-based depth approximation');
             const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_depth_${Date.now()}.png`,
               { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
@@ -794,7 +826,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`✨ Tạo ảnh độ sâu bằng ${modeLabel}: ${savedResult.relativePath}`);
           } else if (action === 'extend') {
             const direction = options?.direction || 'all';
-            const extendResult = await new ComfyUIAdapter().extendCanvas(dataUrl, direction);
+            const extendResult = await new ComfyUIAdapter().extendCanvas(dataUrl, direction, undefined, actionSignal);
+            if (actionSignal?.aborted) throw new Error('Operation cancelled.');
             const resolved = await resolveAdapterImageResult(extendResult, () => imageProc.extendCanvas(buffer, direction), 'Local canvas expansion (solid border)');
             const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_extended_${Date.now()}.png`,
               { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
@@ -841,7 +874,8 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage(`✨ Đổi màu ${subject} (${color}) thành công: ${savedResult.relativePath}`);
           } else if (action === 'styleTransfer') {
             const style = options?.style || 'anime';
-            const styleResult = await new ComfyUIAdapter().styleTransfer(dataUrl, style);
+            const styleResult = await new ComfyUIAdapter().styleTransfer(dataUrl, style, undefined, actionSignal);
+            if (actionSignal?.aborted) throw new Error('Operation cancelled.');
             const resolved = await resolveAdapterImageResult(styleResult, () => imageProc.styleTransfer(buffer, style), `Local style filter (${style})`);
             const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_style_${style}_${Date.now()}.png`,
               { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
@@ -880,6 +914,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             const inpaintResult = maskBuffer
               ? await new ComfyUIAdapter().inpaint(dataUrl, options.maskDataUrl, options?.prompt || 'natural detailed restoration matching the surrounding image', actionSignal)
               : undefined;
+            if (actionSignal?.aborted) throw new Error('Operation cancelled.');
             const resolved = await resolveAdapterImageResult(inpaintResult, () => imageProc.inpaint(buffer, maskBuffer), 'Local Content-Aware Inpainting');
             const savedResult = await saveAction(target, action, resolved.buffer, `pixel_pilot_inpaint_${Date.now()}.png`,
               { ...options, latencyMs: Date.now() - actionStartedAt, ...resolved.provenance });
@@ -1346,10 +1381,14 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
 
       case 'INPAINT_REQUEST': {
         const { imageUri, maskBase64, prompt } = message.payload || {};
+        const clientRequestId = typeof message.requestId === 'string' && message.requestId.trim()
+          ? message.requestId : undefined;
+        const requestId = clientRequestId || `legacy-inpaint-${Date.now()}-${Math.random()}`;
         try {
           if (!this.runwareAdapter.getApiKey()) {
             this.postToWebview({
               command: 'AI_ACTION_ERROR',
+              requestId: clientRequestId,
               payload: {
                 error: 'Chức năng Inpaint yêu cầu Runware API Key. Vui lòng bấm bánh răng ⚙️ ở góc phải để nhập Runware Key, hoặc dùng nút "Sinh ảnh mới" để tạo ảnh bằng InvokeAI.'
               }
@@ -1358,32 +1397,59 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
             break;
           }
 
+          const realInput = this.uriToPathMap.get(imageUri) || imageUri;
+          const fingerprint = fingerprintCanvasAction({
+            action: 'legacy-inpaint', dataUrl: realInput, options: { maskBase64, prompt }
+          });
+          const begin = this.canvasActionRuns.begin(requestId, fingerprint, true);
+          if (begin.kind === 'conflict') {
+            this.postToWebview({ command: 'actionConflict', requestId: clientRequestId });
+            break;
+          }
+          if (begin.kind === 'existing') {
+            this.postToWebview({ command: 'actionStatus', requestId: clientRequestId, state: begin.state });
+            break;
+          }
+          const signal = this.canvasActionRuns.signal(requestId);
           this.postToWebview({
             command: 'UPDATE_AI_PROGRESS',
+            requestId: clientRequestId,
             payload: { status: 'Đang thực hiện AI Inpaint & Generative Fill...' }
           });
-          const realInput = this.uriToPathMap.get(imageUri) || imageUri;
           await this.policy.requireCloudConsent('Runware', 'Generative inpaint');
-          const res = await this.runwareAdapter.inpaint(realInput, maskBase64 || '', prompt || 'high quality restoration');
+          if (signal?.aborted) throw new Error('Operation cancelled.');
+          const res = await this.runwareAdapter.inpaint(realInput, maskBase64 || '', prompt || 'high quality restoration', signal);
+          if (signal?.aborted) throw new Error('Operation cancelled.');
           if (res.success && res.outputImageUri) {
+            if (!this.canvasActionRuns.lockCommit(requestId)) throw new Error('Operation cancelled.');
             const cachedPath = await this.assetStorage.saveToCache(res.outputImageUri, 'png');
             const displayUri = this._view ? this.assetStorage.getWebviewUri(cachedPath, this._view.webview) : cachedPath;
             this.uriToPathMap.set(displayUri, cachedPath);
+            this.canvasActionRuns.finish(requestId, 'succeeded');
             this.postToWebview({
               command: 'AI_ACTION_SUCCESS',
+              requestId: clientRequestId,
               payload: { outputUri: displayUri, model: res.metrics.model, latencyMs: res.metrics.latencyMs }
             });
           } else {
+            this.canvasActionRuns.finish(requestId, 'failed');
             this.postToWebview({
               command: 'AI_ACTION_ERROR',
+              requestId: clientRequestId,
               payload: { error: res.error || 'Inpaint không thành công' }
             });
           }
         } catch (err: any) {
-          this.postToWebview({
-            command: 'AI_ACTION_ERROR',
-            payload: { error: err.message || 'Lỗi Inpaint' }
-          });
+          if (this.canvasActionRuns.wasCancelled(requestId)) {
+            this.canvasActionRuns.finish(requestId, 'cancelled');
+            this.postToWebview({ command: 'actionCancelled', requestId: clientRequestId });
+          } else {
+            this.canvasActionRuns.finish(requestId, 'failed');
+            this.postToWebview({
+              command: 'AI_ACTION_ERROR', requestId: clientRequestId,
+              payload: { error: err.message || 'Lỗi Inpaint' }
+            });
+          }
         }
         break;
       }
@@ -1906,7 +1972,7 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
       });
     }
     switch (operation) {
-      case 'generate': result = await adapter.generateImage(intent.promptText || prompt); break;
+      case 'generate': result = await adapter.generateImage(intent.promptText || prompt, '', 512, 512, runSignal); break;
       case 'remove_background': {
         const apiKey = await this.secretManager.getApiKey();
         if (apiKey && apiKey.trim().length > 10) {
@@ -1974,17 +2040,17 @@ export class PixelPilotViewProvider implements vscode.WebviewViewProvider {
           });
         }
         if (runSignal?.aborted) throw new Error('Operation cancelled.');
-        result = await adapter.replaceBackground(image, intent.promptText || prompt);
+        result = await adapter.replaceBackground(image, intent.promptText || prompt, runSignal);
         break;
       }
       case 'upscale': result = await adapter.upscale(image, intent.factor === 4 ? 4 : 2, runSignal); break;
-      case 'mask': result = await adapter.extractMask(image); break;
-      case 'canny': result = await adapter.detectEdges(image, 'canny'); break;
-      case 'lineart': result = await adapter.detectEdges(image, 'lineart'); break;
-      case 'preprocess': result = await adapter.detectEdges(image, 'depth'); break;
-      case 'caption': result = await adapter.generateCaption(image); break;
-      case 'extend': result = await adapter.extendCanvas(image, intent.direction || 'all', intent.promptText); break;
-      case 'style_transfer': result = await adapter.styleTransfer(image, intent.style || 'anime'); break;
+      case 'mask': result = await adapter.extractMask(image, runSignal); break;
+      case 'canny': result = await adapter.detectEdges(image, 'canny', runSignal); break;
+      case 'lineart': result = await adapter.detectEdges(image, 'lineart', runSignal); break;
+      case 'preprocess': result = await adapter.detectEdges(image, 'depth', runSignal); break;
+      case 'caption': result = await adapter.generateCaption(image, runSignal); break;
+      case 'extend': result = await adapter.extendCanvas(image, intent.direction || 'all', intent.promptText, runSignal); break;
+      case 'style_transfer': result = await adapter.styleTransfer(image, intent.style || 'anime', undefined, runSignal); break;
       case 'recolor': result = localResult(await ImageProcessor.getInstance().recolor(input, intent.colorTarget || 'hair', intent.targetColor || 'cyan'), 'Local recolor'); break;
       case 'enhance': result = localResult(await ImageProcessor.getInstance().enhance(input, intent.enhanceType || 'clarity'), 'Local enhance'); break;
       case 'vectorize': result = await adapter.vectorize(image); break;
